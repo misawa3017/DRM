@@ -1,0 +1,79 @@
+services:
+  traefik:
+    # NOTE: the plan specifies traefik:v3.1, but this host runs Docker Engine 29.6.1
+    # (API 1.55, minimum supported client API 1.40). traefik:v3.1's bundled docker
+    # client always requests API 1.24, which that daemon rejects outright
+    # ("client version 1.24 is too old"), so the Docker provider never starts and no
+    # routers get created (see traefik/traefik#12253). This was fixed in traefik
+    # v3.6.1 (auto-negotiation of the docker API version), so v3.6 is pinned here
+    # instead of v3.1 to make the stack work on this host.
+    image: traefik:v3.6
+    command:
+      - --api.insecure=true
+      - --providers.docker=true
+      - --providers.docker.exposedbydefault=false
+      - --entrypoints.web.address=:80
+    ports:
+      - "80:80"
+      - "8080:8080"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB}
+    ports:
+      - "5433:5432"  # host 5432 may already be taken by an unrelated local Postgres; container-internal port stays 5432
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  keycloak:
+    image: quay.io/keycloak/keycloak:25.0
+    command: start-dev --import-realm
+    environment:
+      KEYCLOAK_ADMIN: admin
+      KEYCLOAK_ADMIN_PASSWORD: ${KEYCLOAK_ADMIN_PASSWORD}
+      KC_HOSTNAME: auth.drm.localhost
+      KC_HOSTNAME_STRICT: "false"
+      KC_HTTP_ENABLED: "true"
+    volumes:
+      - ./keycloak/realm-export.json:/opt/keycloak/data/import/realm-export.json:ro
+    labels:
+      - traefik.enable=true
+      - traefik.http.routers.keycloak.rule=Host(`auth.drm.localhost`)
+      - traefik.http.services.keycloak.loadbalancer.server.port=8080
+
+  api:
+    build:
+      context: .
+      dockerfile: apps/api/Dockerfile
+    environment:
+      DATABASE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
+      KEYCLOAK_ISSUER: http://auth.drm.localhost/realms/drm
+      WEB_ORIGIN: http://app.drm.localhost
+      PORT: 3000
+    depends_on:
+      postgres:
+        condition: service_healthy
+    labels:
+      - traefik.enable=true
+      - traefik.http.routers.api.rule=Host(`api.drm.localhost`)
+      - traefik.http.services.api.loadbalancer.server.port=3000
+
+  web:
+    build: ./apps/web
+    labels:
+      - traefik.enable=true
+      - traefik.http.routers.web.rule=Host(`app.drm.localhost`)
+      - traefik.http.services.web.loadbalancer.server.port=80
+
+volumes:
+  postgres_data:
