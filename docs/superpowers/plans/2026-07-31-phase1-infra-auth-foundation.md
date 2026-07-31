@@ -597,7 +597,7 @@ services:
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
       POSTGRES_DB: ${POSTGRES_DB}
     ports:
-      - "5432:5432"
+      - "5433:5432"  # host 5432 may already be taken by an unrelated local Postgres; container-internal port stays 5432
     volumes:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:
@@ -914,7 +914,7 @@ async function getTestUserToken(): Promise<string> {
 
 describe('GET /whoami (e2e)', () => {
   const prisma = new PrismaClient({
-    datasources: { db: { url: 'postgresql://drm:drm_dev_password@localhost:5432/drm' } },
+    datasources: { db: { url: 'postgresql://drm:drm_dev_password@localhost:5433/drm' } },
   });
 
   afterAll(async () => {
