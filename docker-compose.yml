@@ -45,6 +45,7 @@ services:
       KC_HOSTNAME_STRICT: "false"
       KC_HTTP_ENABLED: "true"
     volumes:
+      - keycloak_data:/opt/keycloak/data
       - ./keycloak/realm-export.json:/opt/keycloak/data/import/realm-export.json:ro
     labels:
       - traefik.enable=true
@@ -94,3 +95,4 @@ services:
 
 volumes:
   postgres_data:
+  keycloak_data:
