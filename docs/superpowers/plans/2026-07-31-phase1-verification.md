@@ -8,4 +8,4 @@
    - Name: Test User
    - Roles: employee
 5. Click "Log out" — expect the "Log in" button to reappear.
-6. Confirm a row exists in Postgres: `docker compose exec postgres psql -U drm -d drm -c "select email, keycloak_sub from users;"` should list `testuser@example.com`.
+6. Confirm a row exists in Postgres: `docker compose exec postgres psql -U drm -d drm -c "select email, \"keycloakSub\" from users;"` should list `testuser@example.com`.
