@@ -1,0 +1,7 @@
+node_modules/
+apps/*/node_modules
+dist/
+.git
+.env
+apps/api/generated
+apps/api/prisma/migrations/.temp
