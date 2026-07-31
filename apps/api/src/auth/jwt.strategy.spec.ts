@@ -8,6 +8,7 @@ describe('JwtStrategy#validate', () => {
     process.env = {
       ...ORIGINAL_ENV,
       KEYCLOAK_ISSUER: 'http://auth.drm.localhost/realms/drm',
+      KEYCLOAK_JWKS_URI: 'http://keycloak:8080/realms/drm/protocol/openid-connect/certs',
       KEYCLOAK_CLIENT_ID: 'drm-web',
     };
   });

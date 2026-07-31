@@ -59,20 +59,10 @@ services:
     environment:
       DATABASE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
       KEYCLOAK_ISSUER: http://auth.drm.localhost/realms/drm
+      KEYCLOAK_JWKS_URI: http://keycloak:8080/realms/drm/protocol/openid-connect/certs
       KEYCLOAK_CLIENT_ID: drm-web
       WEB_ORIGIN: http://app.drm.localhost
       PORT: 3000
-    # The api container's musl libc (Alpine) special-cases any `*.localhost`
-    # hostname to resolve straight to loopback (RFC 6761), bypassing DNS
-    # entirely and without even consulting /etc/hosts. That means the JWT
-    # strategy's JWKS fetch to `${KEYCLOAK_ISSUER}/protocol/openid-connect/certs`
-    # (http://auth.drm.localhost/...) would otherwise hit the api container's
-    # own loopback instead of Traefik, and fail to connect. Pinning this host
-    # to the Docker host gateway makes it resolve to the host's published
-    # port 80, where Traefik is listening and can route it to keycloak by
-    # Host header, matching how a browser/host client reaches it.
-    extra_hosts:
-      - "auth.drm.localhost:host-gateway"
     depends_on:
       postgres:
         condition: service_healthy
