@@ -83,6 +83,7 @@ Monorepo（pnpm workspaces）：
 
 - **API**：NestJS 內建測試模組做單元測試；關鍵邏輯（ACL 繼承解析、到期判斷、水印疊加、audit log 完整性）另外寫整合測試，透過 Testcontainers 起 Postgres/MinIO 做真實資料庫/物件儲存測試，不 mock 掉這些關鍵路徑。
 - **前端**：關鍵頁面（上傳、權限設定、文件檢視）用 React Testing Library 做互動測試。
+- **E2E（Playwright）**：針對少量但關鍵的完整使用者流程做瀏覽器層級測試，涵蓋 Testcontainers 與 RTL 都測不到的跨系統路徑，包括：Keycloak OIDC 登入導轉、上傳文件 → 檢視 → 確認回傳檔案確實疊加動態水印、無權限使用者存取遭拒絕、文件到期後存取遭拒絕。測試環境透過 docker-compose 整套服務（web/api/keycloak/postgres/minio 等）啟動後執行，不 mock 任何一層。
 
 ## 範疇之外（留待未來版本）
 
