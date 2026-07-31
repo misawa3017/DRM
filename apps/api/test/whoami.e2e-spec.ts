@@ -121,7 +121,9 @@ describe('GET /whoami (e2e)', () => {
     expect(res.data.email).toBe('testuser@example.com');
     expect(res.data.roles).toContain('employee');
 
-    const dbUser = await prisma.user.findUnique({ where: { email: 'testuser@example.com' } });
+    // email is no longer a unique constraint (keycloakSub is the identity anchor),
+    // so this must be findFirst rather than findUnique.
+    const dbUser = await prisma.user.findFirst({ where: { email: 'testuser@example.com' } });
     expect(dbUser).not.toBeNull();
     expect(dbUser?.keycloakSub).toBeDefined();
   });

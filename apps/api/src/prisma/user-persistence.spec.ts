@@ -36,14 +36,32 @@ describe('User persistence', () => {
     expect(found?.email).toBe('jane@example.com');
   });
 
-  it('enforces unique email', async () => {
+  it('allows two distinct users (different keycloakSub) to share the same email', async () => {
+    // Keycloak brokers both Google and Microsoft as identity providers, so two
+    // separate brokered identities (or an old vs. re-provisioned account) can
+    // plausibly carry the same email address. keycloakSub is the stable identity
+    // anchor; email is not a uniqueness constraint at the DB level.
+    const first = await prisma.user.create({
+      data: { keycloakSub: 'shared-email-1', email: 'shared@example.com', displayName: 'Shared One' },
+    });
+
+    const second = await prisma.user.create({
+      data: { keycloakSub: 'shared-email-2', email: 'shared@example.com', displayName: 'Shared Two' },
+    });
+
+    expect(first.id).not.toBe(second.id);
+    expect(first.email).toBe('shared@example.com');
+    expect(second.email).toBe('shared@example.com');
+  });
+
+  it('still enforces unique keycloakSub', async () => {
     await prisma.user.create({
-      data: { keycloakSub: 'dup-1', email: 'dup@example.com', displayName: 'Dup One' },
+      data: { keycloakSub: 'dup-sub', email: 'one@example.com', displayName: 'Sub One' },
     });
 
     await expect(
       prisma.user.create({
-        data: { keycloakSub: 'dup-2', email: 'dup@example.com', displayName: 'Dup Two' },
+        data: { keycloakSub: 'dup-sub', email: 'two@example.com', displayName: 'Sub Two' },
       }),
     ).rejects.toThrow();
   });

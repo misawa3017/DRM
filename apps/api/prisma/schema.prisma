@@ -10,11 +10,12 @@ datasource db {
 model User {
   id          String   @id @default(uuid())
   keycloakSub String   @unique
-  email       String   @unique
+  email       String
   displayName String
   department  String?
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 
+  @@index([email])
   @@map("users")
 }
