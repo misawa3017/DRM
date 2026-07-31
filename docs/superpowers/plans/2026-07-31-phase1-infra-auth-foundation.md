@@ -283,28 +283,38 @@ Expected: log line `Nest application successfully started`. In another terminal:
 
 - [ ] **Step 11: Create `apps/api/Dockerfile`**
 
+The workspace lockfile lives at the repo root (Task 1), not per-app, so this Dockerfile is built with the **repo root as build context** (`docker build -f apps/api/Dockerfile .`), not `./apps/api`. Task 4's `docker-compose.yml` sets `context: .` / `dockerfile: apps/api/Dockerfile` accordingly.
+
 ```dockerfile
 FROM node:20-alpine AS build
-WORKDIR /app
+WORKDIR /repo
 RUN corepack enable
-COPY package.json pnpm-lock.yaml* ./
+COPY pnpm-workspace.yaml package.json pnpm-lock.yaml ./
+COPY apps/api/package.json apps/api/package.json
 RUN pnpm install --frozen-lockfile
-COPY . .
-RUN pnpm exec prisma generate || true
-RUN pnpm run build
+COPY apps/api ./apps/api
+RUN pnpm --filter api exec prisma generate || true
+RUN pnpm --filter api run build
 
 FROM node:20-alpine
-WORKDIR /app
+WORKDIR /repo
 RUN corepack enable
 ENV NODE_ENV=production
-COPY --from=build /app/dist ./dist
-COPY --from=build /app/node_modules ./node_modules
-COPY --from=build /app/package.json ./package.json
+COPY --from=build /repo/node_modules ./node_modules
+COPY --from=build /repo/apps/api/node_modules ./apps/api/node_modules
+COPY --from=build /repo/apps/api/dist ./apps/api/dist
+COPY --from=build /repo/apps/api/package.json ./apps/api/package.json
+WORKDIR /repo/apps/api
 EXPOSE 3000
-CMD ["node", "dist/main.js"]
+CMD ["sh", "-c", "npx prisma migrate deploy && node dist/main.js"]
 ```
 
-(The `prisma generate || true` tolerates there being no `prisma/schema.prisma` yet — Task 3 adds it.)
+(The `prisma generate || true` tolerates there being no `prisma/schema.prisma` yet — Task 3 adds it. The `migrate deploy` in `CMD` applies Task 3's migrations against the real Postgres at container startup.)
+
+- [ ] **Step 11a: Verify the image actually builds**
+
+Run (from repo root): `docker build -f apps/api/Dockerfile -t drm-api-test .`
+Expected: build succeeds (exit 0), ending with an image tagged `drm-api-test`.
 
 - [ ] **Step 12: Commit**
 
@@ -613,7 +623,9 @@ services:
       - traefik.http.services.keycloak.loadbalancer.server.port=8080
 
   api:
-    build: ./apps/api
+    build:
+      context: .
+      dockerfile: apps/api/Dockerfile
     environment:
       DATABASE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
       KEYCLOAK_ISSUER: http://auth.drm.localhost/realms/drm
@@ -1251,25 +1263,33 @@ Expected: completes with a `dist/` directory produced, no TypeScript errors.
 
 - [ ] **Step 14: Replace the placeholder `apps/web/Dockerfile`**
 
+Like `apps/api/Dockerfile` (Task 2), the lockfile lives at the repo root, so this builds with the **repo root as build context**, not `./apps/web`.
+
 ```dockerfile
 FROM node:20-alpine AS build
-WORKDIR /app
+WORKDIR /repo
 RUN corepack enable
-COPY package.json pnpm-lock.yaml* ./
+COPY pnpm-workspace.yaml package.json pnpm-lock.yaml ./
+COPY apps/web/package.json apps/web/package.json
 RUN pnpm install --frozen-lockfile
-COPY . .
+COPY apps/web ./apps/web
 ARG VITE_KEYCLOAK_ISSUER
 ARG VITE_KEYCLOAK_CLIENT_ID
 ARG VITE_API_BASE_URL
 ENV VITE_KEYCLOAK_ISSUER=$VITE_KEYCLOAK_ISSUER
 ENV VITE_KEYCLOAK_CLIENT_ID=$VITE_KEYCLOAK_CLIENT_ID
 ENV VITE_API_BASE_URL=$VITE_API_BASE_URL
-RUN pnpm build
+RUN pnpm --filter web build
 
 FROM nginx:1.27-alpine
-COPY --from=build /app/dist /usr/share/nginx/html
+COPY --from=build /repo/apps/web/dist /usr/share/nginx/html
 EXPOSE 80
 ```
+
+- [ ] **Step 14a: Verify the image actually builds**
+
+Run (from repo root): `docker build -f apps/web/Dockerfile -t drm-web-test --build-arg VITE_KEYCLOAK_ISSUER=http://auth.drm.localhost/realms/drm --build-arg VITE_KEYCLOAK_CLIENT_ID=drm-web --build-arg VITE_API_BASE_URL=http://api.drm.localhost .`
+Expected: build succeeds (exit 0), ending with an image tagged `drm-web-test`.
 
 - [ ] **Step 15: Wire build args into `docker-compose.yml`**
 
@@ -1278,7 +1298,8 @@ Modify the `web` service in `docker-compose.yml`:
 ```yaml
   web:
     build:
-      context: ./apps/web
+      context: .
+      dockerfile: apps/web/Dockerfile
       args:
         VITE_KEYCLOAK_ISSUER: http://auth.drm.localhost/realms/drm
         VITE_KEYCLOAK_CLIENT_ID: drm-web
