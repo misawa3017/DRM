@@ -29,9 +29,6 @@ export default tseslint.config(
       // TypeScript already checks for undefined identifiers; no-undef produces
       // false positives against ambient/global types (e.g. test globals).
       'no-undef': 'off',
-      '@typescript-eslint/no-explicit-any': 'off',
-      '@typescript-eslint/no-floating-promises': 'warn',
-      '@typescript-eslint/no-unsafe-argument': 'warn',
       // Passport/Nest lifecycle hooks (validate, canActivate, guards, ...)
       // are conventionally declared `async` to satisfy the framework's
       // Promise-returning contract even when a given implementation has no
