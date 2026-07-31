@@ -40,16 +40,14 @@ describe('JwtStrategy#validate', () => {
   it('rejects a token whose azp does not match the configured client id', async () => {
     const strategy = new JwtStrategy();
 
-    await expect(
-      strategy.validate({ ...basePayload, azp: 'some-other-client' }),
-    ).rejects.toThrow(UnauthorizedException);
+    await expect(strategy.validate({ ...basePayload, azp: 'some-other-client' })).rejects.toThrow(
+      UnauthorizedException,
+    );
   });
 
   it('rejects a token that has no azp claim at all', async () => {
     const strategy = new JwtStrategy();
 
-    await expect(strategy.validate({ ...basePayload })).rejects.toThrow(
-      UnauthorizedException,
-    );
+    await expect(strategy.validate({ ...basePayload })).rejects.toThrow(UnauthorizedException);
   });
 });

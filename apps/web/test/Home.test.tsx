@@ -8,7 +8,7 @@ describe('Home', () => {
   });
 
   it('renders the whoami response once loaded', async () => {
-    (fetch as any).mockResolvedValue({
+    vi.mocked(fetch).mockResolvedValue({
       ok: true,
       json: async () => ({
         id: '1',
@@ -16,7 +16,7 @@ describe('Home', () => {
         displayName: 'Test User',
         roles: ['employee'],
       }),
-    });
+    } as Response);
 
     render(<Home accessToken="fake-token" />);
 
@@ -25,7 +25,7 @@ describe('Home', () => {
   });
 
   it('renders an error when the request fails', async () => {
-    (fetch as any).mockResolvedValue({ ok: false, status: 401 });
+    vi.mocked(fetch).mockResolvedValue({ ok: false, status: 401 } as Response);
 
     render(<Home accessToken="fake-token" />);
 

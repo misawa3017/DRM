@@ -6,4 +6,4 @@ async function bootstrap() {
   app.enableCors({ origin: process.env.WEB_ORIGIN ?? 'http://app.drm.localhost' });
   await app.listen(process.env.PORT ?? 3000);
 }
-bootstrap();
+void bootstrap();

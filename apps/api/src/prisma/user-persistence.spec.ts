@@ -42,11 +42,19 @@ describe('User persistence', () => {
     // plausibly carry the same email address. keycloakSub is the stable identity
     // anchor; email is not a uniqueness constraint at the DB level.
     const first = await prisma.user.create({
-      data: { keycloakSub: 'shared-email-1', email: 'shared@example.com', displayName: 'Shared One' },
+      data: {
+        keycloakSub: 'shared-email-1',
+        email: 'shared@example.com',
+        displayName: 'Shared One',
+      },
     });
 
     const second = await prisma.user.create({
-      data: { keycloakSub: 'shared-email-2', email: 'shared@example.com', displayName: 'Shared Two' },
+      data: {
+        keycloakSub: 'shared-email-2',
+        email: 'shared@example.com',
+        displayName: 'Shared Two',
+      },
     });
 
     expect(first.id).not.toBe(second.id);

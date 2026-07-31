@@ -17,8 +17,12 @@ const API_BASE_URL = 'http://api.drm.localhost';
 // user of the stack until someone notices and fixes it by hand.
 const HTTP_TIMEOUT_MS = 5000;
 
+interface TokenResponse {
+  access_token: string;
+}
+
 async function getToken(clientId: string): Promise<string> {
-  const response = await axios.post(
+  const response = await axios.post<TokenResponse>(
     KEYCLOAK_TOKEN_URL,
     new URLSearchParams({
       grant_type: 'password',
@@ -58,7 +62,7 @@ function buildTokenWithThrowawayKey(payload: Record<string, unknown>): string {
 }
 
 async function getAdminToken(): Promise<string> {
-  const response = await axios.post(
+  const response = await axios.post<TokenResponse>(
     KEYCLOAK_MASTER_TOKEN_URL,
     new URLSearchParams({
       grant_type: 'password',
@@ -71,11 +75,17 @@ async function getAdminToken(): Promise<string> {
   return response.data.access_token;
 }
 
+/** Partial shape of a Keycloak RealmRepresentation - only the fields this file touches. */
+interface KeycloakRealmRepresentation {
+  accessTokenLifespan: number;
+  [key: string]: unknown;
+}
+
 /** Temporarily sets the realm's access token lifespan, restoring it afterwards. */
 async function withAccessTokenLifespan<T>(seconds: number, fn: () => Promise<T>): Promise<T> {
   const adminToken = await getAdminToken();
 
-  const { data: realm } = await axios.get(KEYCLOAK_REALM_ADMIN_URL, {
+  const { data: realm } = await axios.get<KeycloakRealmRepresentation>(KEYCLOAK_REALM_ADMIN_URL, {
     headers: { Authorization: `Bearer ${adminToken}` },
     timeout: HTTP_TIMEOUT_MS,
   });
@@ -113,7 +123,7 @@ describe('GET /whoami (e2e)', () => {
   it('returns the authenticated user and persists it', async () => {
     const token = await getTestUserToken();
 
-    const res = await axios.get(`${API_BASE_URL}/whoami`, {
+    const res = await axios.get<{ email: string; roles: string[] }>(`${API_BASE_URL}/whoami`, {
       headers: { Authorization: `Bearer ${token}` },
     });
 
@@ -140,8 +150,7 @@ describe('GET /whoami (e2e)', () => {
     // Flip the signature's first character so the token stays syntactically
     // valid (three base64url segments) but no longer verifies against
     // Keycloak's JWKS.
-    const tamperedSignature =
-      (signature[0] === 'A' ? 'B' : 'A') + signature.slice(1);
+    const tamperedSignature = (signature[0] === 'A' ? 'B' : 'A') + signature.slice(1);
     const tamperedToken = `${header}.${payload}.${tamperedSignature}`;
 
     await expect(
@@ -174,9 +183,9 @@ describe('GET /whoami (e2e)', () => {
     // token in `azp`. Before the azp check was added, this token would have
     // been accepted by /whoami just like a real drm-web token.
     const token = await getToken('admin-cli');
-    const payload = JSON.parse(
-      Buffer.from(token.split('.')[1], 'base64url').toString(),
-    );
+    const payload = JSON.parse(Buffer.from(token.split('.')[1], 'base64url').toString()) as {
+      azp: string;
+    };
     expect(payload.azp).toBe('admin-cli');
 
     await expect(
@@ -186,22 +195,18 @@ describe('GET /whoami (e2e)', () => {
     ).rejects.toMatchObject({ response: { status: 401 } });
   });
 
-  it(
-    'rejects an expired token',
-    async () => {
-      await withAccessTokenLifespan(1, async () => {
-        const token = await getTestUserToken();
+  it('rejects an expired token', async () => {
+    await withAccessTokenLifespan(1, async () => {
+      const token = await getTestUserToken();
 
-        // Wait for the 1-second access token to actually expire.
-        await new Promise((resolve) => setTimeout(resolve, 2000));
+      // Wait for the 1-second access token to actually expire.
+      await new Promise((resolve) => setTimeout(resolve, 2000));
 
-        await expect(
-          axios.get(`${API_BASE_URL}/whoami`, {
-            headers: { Authorization: `Bearer ${token}` },
-          }),
-        ).rejects.toMatchObject({ response: { status: 401 } });
-      });
-    },
-    20000,
-  );
+      await expect(
+        axios.get(`${API_BASE_URL}/whoami`, {
+          headers: { Authorization: `Bearer ${token}` },
+        }),
+      ).rejects.toMatchObject({ response: { status: 401 } });
+    });
+  }, 20000);
 });

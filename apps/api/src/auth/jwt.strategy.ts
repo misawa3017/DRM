@@ -3,6 +3,16 @@ import { PassportStrategy } from '@nestjs/passport';
 import { ExtractJwt, Strategy } from 'passport-jwt';
 import * as jwksRsa from 'jwks-rsa';
 
+/** Shape of the claims we read off a verified Keycloak access token. */
+interface KeycloakJwtPayload {
+  azp?: string;
+  sub: string;
+  email: string;
+  name?: string;
+  preferred_username?: string;
+  realm_access?: { roles?: string[] };
+}
+
 @Injectable()
 export class JwtStrategy extends PassportStrategy(Strategy) {
   constructor() {
@@ -19,7 +29,7 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
     });
   }
 
-  async validate(payload: any) {
+  async validate(payload: KeycloakJwtPayload) {
     const expectedClientId = process.env.KEYCLOAK_CLIENT_ID;
     if (!expectedClientId || payload.azp !== expectedClientId) {
       // `azp` (authorized party) identifies which OAuth client the token was
