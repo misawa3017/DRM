@@ -6,7 +6,7 @@
 
 **Architecture:** A pnpm monorepo with `apps/api` (NestJS + Prisma + Postgres) and `apps/web` (React + Vite), fronted by Traefik for local routing (`app.drm.localhost`, `api.drm.localhost`, `auth.drm.localhost`). Keycloak provides authentication; the API validates Keycloak-issued JWTs via JWKS and upserts a local `User` row on first authenticated request.
 
-**Tech Stack:** Node.js 20, pnpm, NestJS 10, Prisma 5, PostgreSQL 16, React 18, Vite 5, react-oidc-context, passport-jwt + jwks-rsa, Keycloak 25, Traefik v3.1, Jest + Testcontainers (API), Vitest + React Testing Library (web).
+**Tech Stack:** Node.js 20, pnpm, NestJS 10, Prisma 5, PostgreSQL 16, React 18, Vite 5, react-oidc-context, passport-jwt + jwks-rsa, Keycloak 25, Traefik v3.6, Jest + Testcontainers (API), Vitest + React Testing Library (web).
 
 ## Global Constraints
 
@@ -17,7 +17,7 @@
 - Backend JWT validation uses `passport-jwt` + `jwks-rsa` against the Keycloak realm's JWKS endpoint — no Keycloak-specific Nest library.
 - Test runners: Jest for `apps/api` (unit + e2e), Vitest + React Testing Library for `apps/web`.
 - Integration tests: `@testcontainers/postgresql` for ephemeral Postgres in unit-adjacent tests; auth e2e tests run against the already-running `docker compose` stack (not spun up per-test).
-- Local routing via Traefik v3.1 under `*.drm.localhost` — no `/etc/hosts` edits needed (`.localhost` resolves to loopback by default in modern OS/browsers).
+- Local routing via Traefik v3.6 under `*.drm.localhost` — no `/etc/hosts` edits needed (`.localhost` resolves to loopback by default in modern OS/browsers).
 - Keycloak realm name: `drm`. SPA client id: `drm-web` (public client, PKCE, direct access grants enabled for test token retrieval). Realm roles: `admin`, `deptmanager`, `employee`. Seeded test user: `testuser` / `testpass` with role `employee`.
 - **Phase 1 scope boundary:** only Postgres, Keycloak, Traefik, `api`, `web` run in this phase. MinIO, KES, OpenBao, Redis, Gotenberg, and ClamAV are introduced in Phase 2+ when document storage and background jobs actually exercise them.
 
@@ -289,6 +289,7 @@ The workspace lockfile lives at the repo root (Task 1), not per-app, so this Doc
 FROM node:20-alpine AS build
 WORKDIR /repo
 RUN corepack enable
+RUN apk add --no-cache openssl
 COPY pnpm-workspace.yaml package.json pnpm-lock.yaml ./
 COPY apps/api/package.json apps/api/package.json
 RUN pnpm install --frozen-lockfile
@@ -299,17 +300,19 @@ RUN pnpm --filter api run build
 FROM node:20-alpine
 WORKDIR /repo
 RUN corepack enable
+RUN apk add --no-cache openssl
 ENV NODE_ENV=production
 COPY --from=build /repo/node_modules ./node_modules
 COPY --from=build /repo/apps/api/node_modules ./apps/api/node_modules
 COPY --from=build /repo/apps/api/dist ./apps/api/dist
 COPY --from=build /repo/apps/api/package.json ./apps/api/package.json
+COPY --from=build /repo/apps/api/prisma ./apps/api/prisma
 WORKDIR /repo/apps/api
 EXPOSE 3000
 CMD ["sh", "-c", "npx prisma migrate deploy && node dist/main.js"]
 ```
 
-(The `prisma generate || true` tolerates there being no `prisma/schema.prisma` yet — Task 3 adds it. The `migrate deploy` in `CMD` applies Task 3's migrations against the real Postgres at container startup.)
+(The `prisma generate || true` tolerates there being no `prisma/schema.prisma` yet — Task 3 adds it. The `migrate deploy` in `CMD` applies Task 3's migrations against the real Postgres at container startup, which is why `prisma/` — containing the schema and migrations — must be copied into the runtime stage too, not just `dist/`. `openssl` is required in both stages because Prisma's query engine binary on Alpine links against it at both `generate`/`build` time and runtime.)
 
 - [ ] **Step 11a: Verify the image actually builds**
 
@@ -578,7 +581,7 @@ EOF
 ```yaml
 services:
   traefik:
-    image: traefik:v3.1
+    image: traefik:v3.6  # v3.1's Docker provider fails against Docker Engine 29.x (upstream issue traefik/traefik#12253); fixed in v3.6.1+
     command:
       - --api.insecure=true
       - --providers.docker=true
