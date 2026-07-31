@@ -1,0 +1,14 @@
+{
+  "name": "drm",
+  "private": true,
+  "packageManager": "pnpm@9.7.0",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "dev:api": "pnpm --filter api start:dev",
+    "dev:web": "pnpm --filter web dev",
+    "test:api": "pnpm --filter api test",
+    "test:web": "pnpm --filter web test"
+  }
+}
