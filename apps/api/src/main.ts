@@ -9,10 +9,17 @@ async function bootstrap() {
   app.useGlobalPipes(
     new ValidationPipe({ whitelist: true, transform: true, forbidNonWhitelisted: true }),
   );
-  // Traefik is the sole entry point into this service — docker-compose.yml
-  // publishes no other route directly to `api`, so trusting all proxies is
-  // safe here and lets req.ip reflect the real client address (forwarded by
-  // Traefik via X-Forwarded-For) instead of Traefik's own container IP.
+  // Safe to blanket-trust here NOT merely because Traefik is the sole entry
+  // point (that's necessary but not sufficient), but because Traefik itself
+  // always overwrites/sets X-Forwarded-For from the real TCP connection
+  // rather than passing through a client-supplied one — so a client cannot
+  // spoof req.ip by sending its own X-Forwarded-For header. If a second hop
+  // is ever added in front of Traefik (e.g. a Kubernetes Ingress or cloud
+  // load balancer in a future migration), that hop's forwarding behavior
+  // becomes the thing that matters, and `true` would then trust an
+  // attacker-controlled header from anything behind it. At that point this
+  // must change to a numeric trusted-hop-count or an explicit trusted-subnet
+  // list — see docker-compose.yml's `traefik` service for the matching note.
   app.set('trust proxy', true);
   await app.listen(process.env.PORT ?? 3000);
 }

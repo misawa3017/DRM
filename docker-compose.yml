@@ -9,6 +9,12 @@ services:
     # instead of v3.1 to make the stack work on this host.
     image: traefik:v3.6
     restart: unless-stopped
+    # apps/api/src/main.ts sets `trust proxy: true`, which is only safe
+    # because Traefik overwrites X-Forwarded-For from the real connection
+    # rather than passing through a client-supplied one. If this topology
+    # ever changes (another hop added in front of Traefik, e.g. a
+    # Kubernetes Ingress or cloud LB), that `trust proxy` setting must
+    # change too — see the comment in main.ts before altering this.
     command:
       - --api.insecure=true
       - --providers.docker=true
