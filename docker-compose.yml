@@ -99,17 +99,19 @@ services:
       retries: 20
 
   openbao-init:
-    image: openbao/openbao:latest
-    entrypoint: ["/bin/sh", "/init.sh"]
-    # Run as root: init.sh is a short-lived client script (talks to the
-    # OpenBao HTTP API only, never touches the server process) that must
-    # write to the freshly-created openbao_shared volume, which Docker
-    # creates root-owned. The image's default non-root "openbao" user
-    # (uid 100) can't write there, and bypassing the image's own
-    # entrypoint.sh (via the entrypoint override above) skips its
-    # chown/su-exec dance, so we run as root directly instead.
+    build:
+      context: ./openbao
+      dockerfile: init.Dockerfile
+    entrypoint: ["/bin/sh", "/entrypoint.sh"]
+    # Run as root only long enough for entrypoint.sh to chown the
+    # freshly-created (root-owned) openbao_shared volume to the image's
+    # non-root "openbao" user (uid 100 / gid 1000), then it drops privileges
+    # via su-exec before running init.sh. init.sh itself -- the part that
+    # talks to the OpenBao HTTP API and writes secrets -- never runs as
+    # root. See openbao/entrypoint.sh for details.
     user: "0:0"
     volumes:
+      - ./openbao/entrypoint.sh:/entrypoint.sh:ro
       - ./openbao/init.sh:/init.sh:ro
       - openbao_shared:/shared
     depends_on:

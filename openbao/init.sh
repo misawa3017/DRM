@@ -7,15 +7,15 @@ APPROLE_FILE="$SHARED_DIR/kes-approle.json"
 
 export BAO_ADDR=http://openbao:8200
 
-# The openbao/openbao image does not ship jq, and `bao ... -format=json`
-# output is pretty-printed (newlines + a space after every colon), which
-# breaks naive single-line `grep -o '"key":value'` parsing. jq is far more
-# robust for this than hand-rolled regexes, and this container runs as root
-# (see docker-compose.yml), so install it if it isn't already present.
-if ! command -v jq >/dev/null 2>&1; then
-  echo "Installing jq..."
-  apk add --no-cache jq >/dev/null
-fi
+# jq is baked into the openbao-init image at build time (see
+# openbao/init.Dockerfile) -- the openbao/openbao base image doesn't ship
+# it, and `bao ... -format=json` output is pretty-printed (newlines + a
+# space after every colon), which breaks naive single-line
+# `grep -o '"key":value'` parsing. jq is far more robust for this than
+# hand-rolled regexes. Installing it at build time (rather than at runtime,
+# as before) means the routine "container restarted, just re-unseal from
+# already-persisted state" recovery path below no longer depends on live
+# reachability of Alpine's package mirror.
 
 wait_for_openbao() {
   echo "Waiting for OpenBao to respond..."
