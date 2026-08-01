@@ -133,8 +133,42 @@ services:
     ports:
       - "127.0.0.1:7373:7373"  # loopback-only: local debugging/mc/curl access, matching Postgres/Traefik dashboard convention
 
+  minio:
+    image: minio/minio:latest
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD}
+      MINIO_KMS_KES_ENDPOINT: https://kes:7373
+      MINIO_KMS_KES_CERT_FILE: /certs/minio-client.cert
+      MINIO_KMS_KES_KEY_FILE: /certs/minio-client.key
+      # NOTE: the plan's draft used MINIO_KMS_KES_CA_PATH, but that env var does not
+      # exist in minio/minio:latest -- confirmed by extracting the `minio` binary from
+      # the image and grepping its embedded string table for `MINIO_KMS_KES_`, which
+      # only lists API_KEY, CAPATH (no underscore before PATH), CERT_FILE, ENDPOINT,
+      # KEY_FILE, KEY_NAME, KEY_PASSWORD. MINIO_KMS_KES_CA_PATH is silently ignored,
+      # which would leave MinIO trusting only the system CA pool and failing TLS
+      # verification against KES's self-signed server cert.
+      MINIO_KMS_KES_CAPATH: /certs/kes-server.cert
+      MINIO_KMS_KES_KEY_NAME: drm-default-key
+    volumes:
+      - minio_data:/data
+      - ./secrets/kes:/certs:ro
+    depends_on:
+      - kes
+    labels:
+      - traefik.enable=true
+      - traefik.http.routers.minio-console.rule=Host(`storage.drm.localhost`)
+      - traefik.http.services.minio-console.loadbalancer.server.port=9001
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://127.0.0.1:9000/minio/health/live"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
 volumes:
   postgres_data:
   keycloak_data:
   openbao_data:
   openbao_shared:
+  minio_data:
