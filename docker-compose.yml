@@ -8,6 +8,7 @@ services:
     # v3.6.1 (auto-negotiation of the docker API version), so v3.6 is pinned here
     # instead of v3.1 to make the stack work on this host.
     image: traefik:v3.6
+    restart: unless-stopped
     command:
       - --api.insecure=true
       - --providers.docker=true
@@ -21,6 +22,7 @@ services:
 
   postgres:
     image: postgres:16-alpine
+    restart: unless-stopped
     environment:
       POSTGRES_USER: ${POSTGRES_USER}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
@@ -37,6 +39,7 @@ services:
 
   keycloak:
     image: quay.io/keycloak/keycloak:25.0
+    restart: unless-stopped
     command: start-dev --import-realm
     environment:
       KEYCLOAK_ADMIN: admin
@@ -56,6 +59,7 @@ services:
     build:
       context: .
       dockerfile: apps/api/Dockerfile
+    restart: unless-stopped
     environment:
       DATABASE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
       KEYCLOAK_ISSUER: http://auth.drm.localhost/realms/drm
@@ -89,6 +93,7 @@ services:
         VITE_KEYCLOAK_ISSUER: http://auth.drm.localhost/realms/drm
         VITE_KEYCLOAK_CLIENT_ID: drm-web
         VITE_API_BASE_URL: http://api.drm.localhost
+    restart: unless-stopped
     labels:
       - traefik.enable=true
       - traefik.http.routers.web.rule=Host(`app.drm.localhost`)
@@ -96,6 +101,7 @@ services:
 
   openbao:
     image: openbao/openbao:latest
+    restart: unless-stopped
     command: server -config=/openbao/config.hcl
     cap_add:
       - IPC_LOCK
@@ -140,6 +146,7 @@ services:
 
   kes:
     image: minio/kes:latest
+    restart: unless-stopped
     entrypoint: ["/bin/sh", "/entrypoint.sh"]
     volumes:
       - ./kes/entrypoint.sh:/entrypoint.sh:ro
@@ -176,6 +183,7 @@ services:
 
   minio:
     image: minio/minio:latest
+    restart: unless-stopped
     command: server /data --console-address ":9001"
     environment:
       MINIO_ROOT_USER: ${MINIO_ROOT_USER}

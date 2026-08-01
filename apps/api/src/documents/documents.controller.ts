@@ -96,6 +96,17 @@ export class DocumentsController {
     );
     res.setHeader('Content-Type', mimeType);
     res.setHeader('Content-Disposition', `attachment; filename="${fileName}"`);
+    stream.on('error', (err) => {
+      console.error('Error streaming document download from storage:', err);
+      if (!res.headersSent) {
+        res.status(500).json({ message: 'Failed to read file from storage' });
+      } else {
+        res.destroy();
+      }
+    });
+    res.on('close', () => {
+      stream.destroy();
+    });
     stream.pipe(res);
   }
 }
