@@ -10,10 +10,11 @@ INIT_DIR=/init
 APPROLE_DIR=/approle
 INIT_FILE="$INIT_DIR/openbao-init.json"
 APPROLE_FILE="$APPROLE_DIR/kes-approle.json"
-# Records the secret_id_accessor minted on the previous run, so it can be
-# destroyed before minting a new one (see below). Lives in the init-only
-# volume, not the approle volume KES can read -- it's operator bookkeeping,
-# not something KES needs.
+# Records the secret_id_accessor minted on the previous run, so this run can
+# check whether it's still valid (reuse it) or, if not, destroy it before
+# minting a replacement (see below). Lives in the init-only volume, not the
+# approle volume KES can read -- it's operator bookkeeping, not something
+# KES needs.
 ACCESSOR_STATE_FILE="$INIT_DIR/kes-secret-id-accessor"
 
 export BAO_ADDR=http://openbao:8200
@@ -125,31 +126,82 @@ bao write auth/approle/role/kes \
 
 ROLE_ID=$(bao read -format=json auth/approle/role/kes/role-id | jq -r '.data.role_id')
 
-# Before minting a new secret_id, destroy the accessor recorded from the
-# previous run (if any). Without this, every `docker compose up` /
-# container restart mints another secret_id that defaults to never
-# expiring (secret_id_ttl was 0 until this change) and unlimited uses, and
-# nothing ever revokes the old ones -- they just accumulate forever with no
-# inventory. Confirmed live against this stack's OpenBao before this fix:
-# `bao list auth/approle/role/kes/secret-id` already showed 16 accumulated,
-# never-revoked accessors from repeated restarts during development.
 if [ -f "$ACCESSOR_STATE_FILE" ]; then
   OLD_ACCESSOR=$(cat "$ACCESSOR_STATE_FILE")
 else
   OLD_ACCESSOR=""
 fi
 
+# Minting is "sticky": only mint (and only destroy the previous accessor)
+# when the currently-recorded secret_id is actually gone/invalid. A plain
+# `docker compose up -d` on an already-running, healthy stack re-runs this
+# script every time (openbao-init has no other trigger), but the live `kes`
+# container is NOT recreated just because its dependency re-ran -- it keeps
+# holding the secret_id it read from $APPROLE_FILE at its own container
+# start, in memory, for its entire lifetime, and reuses it to re-login
+# whenever its Vault/OpenBao token hits token_max_ttl (4h; see the AppRole
+# role config above). If every run unconditionally destroyed the previous
+# accessor and minted a new one, a routine `docker compose up -d` would
+# silently invalidate the credential `kes` is currently using -- `kes`
+# keeps working fine until its current token expires (up to 4h later), then
+# fails to re-authenticate with no clean startup error. So: reuse the
+# existing secret_id whenever it's still valid, and only destroy+replace it
+# when it's actually gone -- this still guarantees at most one live, valid
+# accessor per run (the original problem this whole revoke-before-mint
+# scheme was added for: `bao list auth/approle/role/kes/secret-id` once
+# showed 16 accumulated, never-revoked accessors from repeated restarts).
+REUSE_EXISTING=false
+
+if [ -f "$APPROLE_FILE" ] && [ -n "$OLD_ACCESSOR" ]; then
+  EXISTING_ROLE_ID=$(jq -r '.role_id // empty' "$APPROLE_FILE" 2>/dev/null || echo "")
+  EXISTING_SECRET_ID=$(jq -r '.secret_id // empty' "$APPROLE_FILE" 2>/dev/null || echo "")
+
+  if [ -n "$EXISTING_ROLE_ID" ] && [ -n "$EXISTING_SECRET_ID" ]; then
+    echo "Checking whether the previously-minted secret_id (accessor $OLD_ACCESSOR) is still valid..."
+    # Confirmed live against this stack's OpenBao: `bao write
+    # auth/approle/role/<role>/secret-id-accessor/lookup
+    # secret_id_accessor=<accessor>` (a POST/write endpoint -- the accessor
+    # is a body param, not a path segment or GET query param) exits 0 with
+    # the secret_id's metadata (creation/expiration time etc.) when the
+    # accessor is still live, and exits non-zero with a 404 "failed to find
+    # accessor entry" error when it's expired/revoked/unknown. There's no
+    # separate "is it valid" boolean field to check -- success/failure of
+    # the call itself IS the validity signal.
+    if bao write -format=json auth/approle/role/kes/secret-id-accessor/lookup \
+        secret_id_accessor="$OLD_ACCESSOR" >/dev/null 2>&1; then
+      echo "Existing secret_id is still valid; reusing it unchanged (not minting a new one)."
+      REUSE_EXISTING=true
+    else
+      echo "Existing secret_id accessor is no longer valid (expired, revoked, or not found); minting a fresh one."
+    fi
+  else
+    echo "$APPROLE_FILE exists but is missing role_id/secret_id; minting a fresh secret_id."
+  fi
+else
+  echo "No existing AppRole credential state found; minting a fresh secret_id."
+fi
+
+if [ "$REUSE_EXISTING" = "true" ]; then
+  echo "OpenBao init complete. Reused existing AppRole credentials at $APPROLE_FILE (unchanged)."
+  exit 0
+fi
+
 if [ -n "$OLD_ACCESSOR" ]; then
   echo "Revoking previous AppRole secret_id (accessor $OLD_ACCESSOR)..."
-  # Confirmed live: `bao write -f auth/approle/role/<role>/secret-id-accessor/destroy
+  # Confirmed live: `bao write auth/approle/role/<role>/secret-id-accessor/destroy
   # secret_id_accessor=<accessor>` is the real API (param name is
-  # secret_id_accessor, NOT `accessor`); destroying an accessor that's
+  # secret_id_accessor, NOT `accessor`). No `-f` here -- unlike the
+  # data-less mint call below, this call DOES pass data
+  # (secret_id_accessor=...), so `-f` (which exists only to force a write
+  # with no data) is unnecessary noise. Destroying an accessor that's
   # already gone returns a 500 "failed to find accessor entry" error, so
   # this is best-effort/non-fatal -- a stale/already-destroyed accessor
-  # here shouldn't block bringing the stack up.
-  if ! bao write -f auth/approle/role/kes/secret-id-accessor/destroy secret_id_accessor="$OLD_ACCESSOR" >/dev/null 2>&1; then
-    echo "Warning: could not revoke previous secret_id accessor $OLD_ACCESSOR (it may already be gone)." >&2
-  fi
+  # here shouldn't block bringing the stack up. Capture the output (rather
+  # than discarding it) so a genuine failure (permission denied, connection
+  # refused) is visible in the warning instead of looking identical to the
+  # benign "already gone" case.
+  DESTROY_OUTPUT=$(bao write auth/approle/role/kes/secret-id-accessor/destroy secret_id_accessor="$OLD_ACCESSOR" 2>&1) || \
+    echo "Warning: could not revoke previous secret_id accessor $OLD_ACCESSOR (it may already be gone): $DESTROY_OUTPUT" >&2
 fi
 
 echo "Minting new AppRole secret_id..."

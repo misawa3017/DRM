@@ -104,8 +104,8 @@ services:
       dockerfile: init.Dockerfile
     entrypoint: ["/bin/sh", "/entrypoint.sh"]
     # Run as root only long enough for entrypoint.sh to chown the
-    # freshly-created (root-owned) openbao_shared volume to the image's
-    # non-root "openbao" user (uid 100 / gid 1000), then it drops privileges
+    # freshly-created (root-owned) openbao_init/openbao_approle volumes to
+    # the image's non-root "openbao" user (uid 100 / gid 1000), then it drops privileges
     # via su-exec before running init.sh. init.sh itself -- the part that
     # talks to the OpenBao HTTP API and writes secrets -- never runs as
     # root. See openbao/entrypoint.sh for details.

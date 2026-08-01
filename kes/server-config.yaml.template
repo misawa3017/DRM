@@ -6,7 +6,7 @@
 #   - __MINIO_IDENTITY__: the KES identity hash of MinIO's client cert
 #     (Task 2's secrets/kes/minio-client-identity.txt)
 #   - __VAULT_ROLE_ID__ / __VAULT_SECRET_ID__: OpenBao AppRole credentials
-#     (Task 1's openbao_shared:/shared/kes-approle.json)
+#     (Task 1's openbao_approle:/shared/kes-approle.json)
 #
 # Schema verified against the real minio/kes:latest image (version
 # 2025-03-12T09-35-18Z) via `kes --help` / `kes server --help` and the
