@@ -100,3 +100,32 @@ model Permission {
   @@index([resourceType, resourceId])
   @@map("permissions")
 }
+
+enum AuditAction {
+  folder_create
+  folder_view
+  document_create
+  document_view
+  document_download
+  document_version_upload
+  permission_grant
+  permission_revoke
+}
+
+model AuditLog {
+  id           String       @id @default(uuid())
+  sequence     BigInt       @default(autoincrement())
+  actorId      String
+  action       AuditAction
+  resourceType ResourceType
+  resourceId   String
+  ipAddress    String?
+  prevHash     String?
+  hash         String
+  createdAt    DateTime
+
+  @@unique([sequence])
+  @@index([resourceType, resourceId])
+  @@index([actorId])
+  @@map("audit_logs")
+}
