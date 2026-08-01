@@ -27,6 +27,7 @@ export class PermissionsController {
       body.principalType,
       body.principalId,
       body.permissionLevel,
+      req.ip ?? null,
     );
   }
 
@@ -44,7 +45,13 @@ export class PermissionsController {
     @Param('permissionId') permissionId: string,
   ) {
     const user = await this.usersService.upsertFromToken(req.user);
-    await this.permissionsService.revoke({ id: user.id, roles: req.user.roles }, 'folder', id, permissionId);
+    await this.permissionsService.revoke(
+      { id: user.id, roles: req.user.roles },
+      'folder',
+      id,
+      permissionId,
+      req.ip ?? null,
+    );
   }
 
   @Post('documents/:id/permissions')
@@ -57,6 +64,7 @@ export class PermissionsController {
       body.principalType,
       body.principalId,
       body.permissionLevel,
+      req.ip ?? null,
     );
   }
 
@@ -74,6 +82,12 @@ export class PermissionsController {
     @Param('permissionId') permissionId: string,
   ) {
     const user = await this.usersService.upsertFromToken(req.user);
-    await this.permissionsService.revoke({ id: user.id, roles: req.user.roles }, 'document', id, permissionId);
+    await this.permissionsService.revoke(
+      { id: user.id, roles: req.user.roles },
+      'document',
+      id,
+      permissionId,
+      req.ip ?? null,
+    );
   }
 }
