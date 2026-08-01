@@ -3,12 +3,25 @@
 # and decrypts real object data, not just that each service independently
 # reports healthy.
 #
-# Requires MINIO_ROOT_USER / MINIO_ROOT_PASSWORD in the environment (e.g.
-# `source .env`) and the drm-* stack running via `docker compose up`.
+# Also proves the Phase 2B scoped API credential (MINIO_API_ACCESS_KEY/
+# SECRET_KEY, provisioned by minio-init -- see minio/entrypoint.sh and
+# minio/drm-api-policy.json) is actually enforced by MinIO, not just
+# configured: it must be able to read/write/list/delete inside 'documents',
+# and must be REJECTED for creating buckets, reading/listing any other
+# bucket, and admin operations. A policy that "looks scoped" in its JSON
+# but isn't enforced would be a real security gap, so those forbidden
+# operations are actually attempted here and their failure is asserted,
+# not skipped.
+#
+# Requires MINIO_ROOT_USER / MINIO_ROOT_PASSWORD / MINIO_API_ACCESS_KEY /
+# MINIO_API_SECRET_KEY in the environment (e.g. `source .env`) and the
+# drm-* stack running via `docker compose up`.
 set -euo pipefail
 
 : "${MINIO_ROOT_USER:?set MINIO_ROOT_USER or export it from .env first}"
 : "${MINIO_ROOT_PASSWORD:?set MINIO_ROOT_PASSWORD or export it from .env first}"
+: "${MINIO_API_ACCESS_KEY:?set MINIO_API_ACCESS_KEY or export it from .env first}"
+: "${MINIO_API_SECRET_KEY:?set MINIO_API_SECRET_KEY or export it from .env first}"
 
 # The compose project's generated network name (verified via `docker network
 # ls` -- compose derives it from the project/directory name, which is
@@ -36,6 +49,30 @@ mc() {
     -e "MC_HOST_local=http://${MINIO_ROOT_USER}:${MINIO_ROOT_PASSWORD}@minio:9000" \
     -v "$WORKDIR:$WORKDIR" \
     minio/mc "$@"
+}
+
+# Same pattern, but authenticated as the scoped Phase 2B API credential
+# instead of root -- used by the "scope is actually enforced" checks below.
+mcapi() {
+  docker run --rm --network "$NETWORK" \
+    -e "MC_HOST_apiuser=http://${MINIO_API_ACCESS_KEY}:${MINIO_API_SECRET_KEY}@minio:9000" \
+    -v "$WORKDIR:$WORKDIR" \
+    minio/mc "$@"
+}
+
+# Runs a command that is expected to FAIL (access denied). Fails the script
+# if the command unexpectedly succeeds -- silent success would mean the
+# policy isn't actually being enforced.
+expect_denied() {
+  local desc="$1"
+  shift
+  if "$@" >"$WORKDIR/expect_denied.out" 2>&1; then
+    echo "FAIL: '$desc' was supposed to be denied but succeeded:" >&2
+    cat "$WORKDIR/expect_denied.out" >&2
+    exit 1
+  fi
+  echo "  correctly denied: $desc"
+  echo "    -> $(tail -n1 "$WORKDIR/expect_denied.out")"
 }
 
 echo "Creating 'documents' bucket if it doesn't exist..."
@@ -71,4 +108,83 @@ diff "$WORKDIR/verify-test.txt" "$WORKDIR/verify-test-downloaded.txt"
 echo "Cleaning up test object..."
 mc rm local/documents/verify-test.txt
 
-echo "Encrypted storage verification passed."
+echo ""
+echo "--- Verifying scoped API credential (MINIO_API_ACCESS_KEY) is enforced ---"
+
+# For the "cannot access other buckets" checks below to prove anything, a
+# second bucket must actually exist -- otherwise "access denied" could
+# equally mean "bucket doesn't exist", which would prove nothing about the
+# policy. Created/destroyed with the root credential; the scoped credential
+# should never be able to see or touch it.
+OTHER_BUCKET="verify-scope-other-$$"
+echo "Creating a throwaway second bucket ('$OTHER_BUCKET') as root, to prove the scoped credential really can't reach buckets other than 'documents' (not just that nothing else exists)..."
+mc mb --ignore-existing "local/$OTHER_BUCKET"
+echo "root-owned data" > "$WORKDIR/other-bucket-object.txt"
+mc cp "$WORKDIR/other-bucket-object.txt" "local/$OTHER_BUCKET/secret.txt"
+
+echo ""
+echo "Allowed operations (must succeed) using the scoped credential on 'documents':"
+
+echo "Uploading via scoped credential..."
+echo "phase 2b scope verification $(date -u +%FT%TZ)" > "$WORKDIR/scope-test.txt"
+mcapi cp "$WORKDIR/scope-test.txt" apiuser/documents/scope-test.txt
+
+echo "Listing 'documents' via scoped credential..."
+mcapi ls apiuser/documents/ | grep -q "scope-test.txt" || {
+  echo "FAIL: scoped credential could not list its own upload in 'documents'" >&2
+  exit 1
+}
+
+echo "Downloading via scoped credential..."
+mcapi cat apiuser/documents/scope-test.txt > "$WORKDIR/scope-test-downloaded.txt"
+diff "$WORKDIR/scope-test.txt" "$WORKDIR/scope-test-downloaded.txt"
+
+echo "Deleting via scoped credential..."
+mcapi rm apiuser/documents/scope-test.txt
+
+echo "  allowed operations all succeeded (upload, list, download, delete on 'documents')"
+
+echo ""
+echo "Forbidden operations (must be denied) using the scoped credential:"
+
+expect_denied "create a new bucket" \
+  mcapi mb "apiuser/verify-scope-should-not-exist-$$"
+
+expect_denied "list a bucket other than 'documents'" \
+  mcapi ls "apiuser/$OTHER_BUCKET"
+
+expect_denied "read an object in a bucket other than 'documents'" \
+  mcapi cat "apiuser/$OTHER_BUCKET/secret.txt"
+
+expect_denied "delete a bucket" \
+  mcapi rb "apiuser/$OTHER_BUCKET" --force
+
+expect_denied "run an admin operation (list users)" \
+  mcapi admin user list apiuser
+
+expect_denied "run an admin operation (list policies)" \
+  mcapi admin policy list apiuser
+
+# Belt-and-suspenders: the top-level bucket listing MinIO returns for a user
+# without s3:ListAllMyBuckets only includes buckets that user's policy
+# explicitly grants s3:ListBucket on (confirmed live) -- it must show
+# 'documents' and must NOT leak the existence of $OTHER_BUCKET.
+echo "Confirming top-level bucket listing via scoped credential only shows 'documents'..."
+TOP_LEVEL=$(mcapi ls apiuser)
+echo "$TOP_LEVEL"
+echo "$TOP_LEVEL" | grep -q "documents/" || {
+  echo "FAIL: scoped credential's bucket listing does not include 'documents'" >&2
+  exit 1
+}
+echo "$TOP_LEVEL" | grep -q "$OTHER_BUCKET" && {
+  echo "FAIL: scoped credential's bucket listing leaked '$OTHER_BUCKET'" >&2
+  exit 1
+}
+echo "  top-level listing correctly scoped to 'documents' only"
+
+echo "Cleaning up throwaway second bucket..."
+mc rm "local/$OTHER_BUCKET/secret.txt"
+mc rb "local/$OTHER_BUCKET"
+
+echo ""
+echo "Encrypted storage verification passed (including scoped-credential enforcement)."
