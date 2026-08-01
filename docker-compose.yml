@@ -200,6 +200,24 @@ services:
       timeout: 5s
       retries: 20
 
+  minio-init:
+    # Idempotently provisions the 'documents' bucket (with default SSE-KMS
+    # encryption via drm-default-key) so it exists automatically on every
+    # fresh `docker compose up`, rather than only as a side effect of
+    # someone happening to run scripts/verify-encrypted-storage.sh.
+    # Follows the same one-shot pattern as openbao-init.
+    image: minio/mc:latest
+    entrypoint: ["/bin/sh", "/entrypoint.sh"]
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD}
+    volumes:
+      - ./minio/entrypoint.sh:/entrypoint.sh:ro
+    depends_on:
+      minio:
+        condition: service_healthy
+    restart: "no"
+
 volumes:
   postgres_data:
   keycloak_data:
