@@ -1,9 +1,15 @@
 #!/bin/sh
 set -eu
 
-SHARED_DIR=/shared
-INIT_FILE="$SHARED_DIR/openbao-init.json"
-APPROLE_FILE="$SHARED_DIR/kes-approle.json"
+# Two separate volumes (see docker-compose.yml + openbao/entrypoint.sh):
+# /init holds the OpenBao unseal key/root token and is mounted ONLY into
+# this container; /approle holds just the scoped AppRole role_id/secret_id
+# and is also mounted read-only into kes. Never write the root
+# token/unseal key anywhere under /approle.
+INIT_DIR=/init
+APPROLE_DIR=/approle
+INIT_FILE="$INIT_DIR/openbao-init.json"
+APPROLE_FILE="$APPROLE_DIR/kes-approle.json"
 
 export BAO_ADDR=http://openbao:8200
 

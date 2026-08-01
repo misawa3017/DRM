@@ -113,7 +113,16 @@ services:
     volumes:
       - ./openbao/entrypoint.sh:/entrypoint.sh:ro
       - ./openbao/init.sh:/init.sh:ro
-      - openbao_shared:/shared
+      # Two SEPARATE volumes, not one shared one: openbao_init holds the
+      # unseal key + root token (full KMS control) and is mounted ONLY
+      # here; openbao_approle holds just the scoped AppRole role_id/
+      # secret_id and is also mounted read-only into kes below. Since
+      # minio/kes:latest runs as root, file permissions can't protect
+      # openbao-init.json from a compromised KES container -- volume
+      # separation is the only thing that does. See kes's volumes for the
+      # other half of this split.
+      - openbao_init:/init
+      - openbao_approle:/approle
     depends_on:
       openbao:
         condition: service_healthy
@@ -126,7 +135,9 @@ services:
       - ./kes/entrypoint.sh:/entrypoint.sh:ro
       - ./kes/server-config.yaml.template:/template/server-config.yaml.template:ro
       - ./secrets/kes:/certs:ro
-      - openbao_shared:/shared:ro
+      # Only the AppRole volume -- NOT openbao_init, which holds the
+      # OpenBao unseal key/root token. See openbao-init's volumes above.
+      - openbao_approle:/shared:ro
     depends_on:
       openbao-init:
         condition: service_completed_successfully
@@ -193,5 +204,6 @@ volumes:
   postgres_data:
   keycloak_data:
   openbao_data:
-  openbao_shared:
+  openbao_init:
+  openbao_approle:
   minio_data:
