@@ -4,14 +4,16 @@ import {
   Get,
   Param,
   Post,
+  Query,
   Req,
+  Res,
   UploadedFile,
   UseGuards,
   UseInterceptors,
 } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
 import { AuthGuard } from '@nestjs/passport';
-import { Request } from 'express';
+import { Request, Response } from 'express';
 import { DocumentsService } from './documents.service';
 import { UsersService } from '../users/users.service';
 
@@ -63,5 +65,29 @@ export class DocumentsController {
   async listVersions(@Req() req: AuthenticatedRequest, @Param('id') id: string) {
     const user = await this.usersService.upsertFromToken(req.user);
     return this.documentsService.listVersions({ id: user.id, roles: req.user.roles }, id);
+  }
+
+  @Get(':id')
+  async getMetadata(@Req() req: AuthenticatedRequest, @Param('id') id: string) {
+    const user = await this.usersService.upsertFromToken(req.user);
+    return this.documentsService.getMetadata({ id: user.id, roles: req.user.roles }, id);
+  }
+
+  @Get(':id/download')
+  async download(
+    @Req() req: AuthenticatedRequest,
+    @Param('id') id: string,
+    @Query('versionId') versionId: string | undefined,
+    @Res() res: Response,
+  ) {
+    const user = await this.usersService.upsertFromToken(req.user);
+    const { stream, mimeType, fileName } = await this.documentsService.getDownloadStream(
+      { id: user.id, roles: req.user.roles },
+      id,
+      versionId,
+    );
+    res.setHeader('Content-Type', mimeType);
+    res.setHeader('Content-Disposition', `attachment; filename="${fileName}"`);
+    stream.pipe(res);
   }
 }

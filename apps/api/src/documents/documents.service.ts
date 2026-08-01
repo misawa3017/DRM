@@ -120,4 +120,38 @@ export class DocumentsService {
       orderBy: { versionNumber: 'desc' },
     });
   }
+
+  async getMetadata(user: AuthenticatedUser, documentId: string) {
+    const allowed = await this.acl.can(user, 'document', documentId, 'view');
+    if (!allowed) {
+      throw new ForbiddenException('You do not have view access to this document');
+    }
+    return this.prisma.document.findUniqueOrThrow({
+      where: { id: documentId },
+      include: { currentVersion: true },
+    });
+  }
+
+  async getDownloadStream(user: AuthenticatedUser, documentId: string, versionId?: string) {
+    const allowed = await this.acl.can(user, 'document', documentId, 'download');
+    if (!allowed) {
+      throw new ForbiddenException('You do not have download access to this document');
+    }
+
+    const version = versionId
+      ? await this.prisma.documentVersion.findFirstOrThrow({
+          where: { id: versionId, documentId },
+        })
+      : await this.prisma.document
+          .findUniqueOrThrow({ where: { id: documentId }, include: { currentVersion: true } })
+          .then((doc) => {
+            if (!doc.currentVersion) {
+              throw new Error(`Document ${documentId} has no current version`);
+            }
+            return doc.currentVersion;
+          });
+
+    const stream = await this.storage.getObjectStream(version.objectKey);
+    return { stream, mimeType: version.mimeType, fileName: version.id };
+  }
 }
