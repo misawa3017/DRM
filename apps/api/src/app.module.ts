@@ -6,9 +6,10 @@ import { UsersModule } from './users/users.module';
 import { FoldersModule } from './folders/folders.module';
 import { DocumentsModule } from './documents/documents.module';
 import { PermissionsModule } from './permissions/permissions.module';
+import { AuditModule } from './audit/audit.module';
 
 @Module({
-  imports: [PrismaModule, AuthModule, UsersModule, FoldersModule, DocumentsModule, PermissionsModule],
+  imports: [PrismaModule, AuthModule, UsersModule, FoldersModule, DocumentsModule, PermissionsModule, AuditModule],
   controllers: [HealthController],
 })
 export class AppModule {}
