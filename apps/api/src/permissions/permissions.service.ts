@@ -1,4 +1,4 @@
-import { BadRequestException, ForbiddenException, Injectable } from '@nestjs/common';
+import { BadRequestException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
 import { PermissionLevel, PrincipalType, ResourceType } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { AclService } from '../acl/acl.service';
@@ -71,6 +71,11 @@ export class PermissionsService {
     if (!allowed) {
       throw new ForbiddenException('You do not have manage access to this resource');
     }
-    await this.prisma.permission.delete({ where: { id: permissionId } });
+    const { count } = await this.prisma.permission.deleteMany({
+      where: { id: permissionId, resourceType, resourceId },
+    });
+    if (count === 0) {
+      throw new NotFoundException('Permission not found');
+    }
   }
 }

@@ -1,4 +1,4 @@
-import { Body, Controller, Delete, Get, Param, Post, Req, UseGuards } from '@nestjs/common';
+import { Body, Controller, Delete, Get, HttpCode, Param, Post, Req, UseGuards } from '@nestjs/common';
 import { AuthGuard } from '@nestjs/passport';
 import { Request } from 'express';
 import { PermissionLevel, PrincipalType } from '@prisma/client';
@@ -43,6 +43,7 @@ export class PermissionsController {
   }
 
   @Delete('folders/:id/permissions/:permissionId')
+  @HttpCode(204)
   async revokeOnFolder(
     @Req() req: AuthenticatedRequest,
     @Param('id') id: string,
@@ -50,7 +51,6 @@ export class PermissionsController {
   ) {
     const user = await this.usersService.upsertFromToken(req.user);
     await this.permissionsService.revoke({ id: user.id, roles: req.user.roles }, 'folder', id, permissionId);
-    return { success: true };
   }
 
   @Post('documents/:id/permissions')
@@ -73,6 +73,7 @@ export class PermissionsController {
   }
 
   @Delete('documents/:id/permissions/:permissionId')
+  @HttpCode(204)
   async revokeOnDocument(
     @Req() req: AuthenticatedRequest,
     @Param('id') id: string,
@@ -80,6 +81,5 @@ export class PermissionsController {
   ) {
     const user = await this.usersService.upsertFromToken(req.user);
     await this.permissionsService.revoke({ id: user.id, roles: req.user.roles }, 'document', id, permissionId);
-    return { success: true };
   }
 }
