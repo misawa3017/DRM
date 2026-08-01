@@ -122,6 +122,8 @@ model AuditLog {
   ipAddress    String?
   prevHash     String?
   hash         String
+  hashVersion  Int          @default(1)
+  details      Json?
   createdAt    DateTime
 
   @@unique([sequence])
