@@ -122,7 +122,7 @@ model AuditLog {
   ipAddress    String?
   prevHash     String?
   hash         String
-  hashVersion  Int          @default(1)
+  hashVersion  Int          @default(2)
   details      Json?
   createdAt    DateTime
 
