@@ -4,8 +4,9 @@ import { AuditAction, AuditLog, ResourceType } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 
 const AUDIT_CHAIN_LOCK_KEY = 727310;
-const CURRENT_HASH_VERSION = 1;
-const LEGACY_HASH_VERSION = 0;
+const CURRENT_HASH_VERSION = 2;
+const LEGACY_HASH_VERSION_V0 = 0;
+const LEGACY_HASH_VERSION_V1 = 1;
 
 // verifyChain() walks the audit_logs table in batches of this many rows
 // (cursor-paginated on `sequence`) instead of loading the whole table into
@@ -26,7 +27,11 @@ interface RecordAuditEntry {
   details?: Record<string, string>;
 }
 
-interface HashInput {
+// Exported so the unit tests can hand-construct inputs and call the
+// private computeHash directly to prove hash-format properties (e.g. that
+// v2's `details` serialization is injective) without needing an end-to-end
+// DB round trip for every case.
+export interface HashInput {
   hashVersion: number;
   id: string;
   actorId: string;
@@ -161,15 +166,11 @@ export class AuditService {
   private computeHash(input: HashInput): string {
     // hashVersion 0 is the legacy pre-versioning format (id|actorId|action|
     // resourceType|resourceId|ipAddress|createdAt|prevHash) that every row
-    // written before this hashVersion/details migration used — those rows
+    // written before the hashVersion/details migration used — those rows
     // predate hashVersion existing at all, so they're marked 0 rather than
     // re-hashed, and verifyChain must keep reproducing their original input
-    // exactly to still validate them. hashVersion 1 (CURRENT_HASH_VERSION)
-    // is every row written from this change onward, and adds hashVersion
-    // itself plus a deterministic `details` serialization to the input so
-    // that a hypothetical future v2 format could similarly coexist with v1
-    // rows without invalidating them.
-    if (input.hashVersion === LEGACY_HASH_VERSION) {
+    // exactly to still validate them.
+    if (input.hashVersion === LEGACY_HASH_VERSION_V0) {
       const raw = [
         input.id,
         input.actorId,
@@ -183,9 +184,52 @@ export class AuditService {
       return createHash('sha256').update(raw).digest('hex');
     }
 
+    // hashVersion 1 is the first `details`-aware format, written by every
+    // row created between the hashVersion/details migration and the fix
+    // that replaced this serialization (below). It is LEGACY and
+    // READ-ONLY: its `details` serialization is `key=value` pairs joined
+    // by `,` with NEITHER keys NOR values escaped, which is not injective
+    // — e.g. `{permissionLevel: 'view,principalId=attacker', ...}` and
+    // `{permissionLevel: 'view', principalId: 'attacker', ...}` can
+    // serialize to the identical string, letting a forged `details` object
+    // hash-collide with a genuine one. Real rows in this project's dev DB
+    // were actually written under this flawed format, so it must be kept
+    // exactly as-is (byte-for-byte) forever so verifyChain can keep
+    // validating them under the format they were truly hashed with —
+    // "fixing" it here would itself be indistinguishable from tampering.
+    // hashVersion 2 (CURRENT_HASH_VERSION, below) is the fix: do not add
+    // new writes under version 1.
+    if (input.hashVersion === LEGACY_HASH_VERSION_V1) {
+      const serializedDetails = Object.keys(input.details ?? {})
+        .sort()
+        .map((k) => `${k}=${input.details![k]}`)
+        .join(',');
+
+      const raw = [
+        input.hashVersion,
+        input.id,
+        input.actorId,
+        input.action,
+        input.resourceType,
+        input.resourceId,
+        input.ipAddress ?? '',
+        input.createdAt.toISOString(),
+        input.prevHash ?? '',
+        serializedDetails,
+      ].join('|');
+      return createHash('sha256').update(raw).digest('hex');
+    }
+
+    // hashVersion 2 (CURRENT_HASH_VERSION): same shape as version 1, but
+    // with an INJECTIVE `details` serialization. Each sorted key/value pair
+    // is individually run through JSON.stringify before being joined —
+    // JSON string encoding unambiguously escapes any `"`, `,`, `:`, or `=`
+    // that appears inside a key or value, so two distinct `details` objects
+    // can never produce the same serialized string (unlike the bare
+    // `key=value` concatenation used by version 1).
     const serializedDetails = Object.keys(input.details ?? {})
       .sort()
-      .map((k) => `${k}=${input.details![k]}`)
+      .map((k) => `${JSON.stringify(k)}:${JSON.stringify(input.details![k])}`)
       .join(',');
 
     const raw = [
