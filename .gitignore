@@ -5,3 +5,4 @@ apps/*/node_modules
 apps/api/generated
 apps/api/prisma/migrations/.temp
 *.tsbuildinfo
+secrets/
