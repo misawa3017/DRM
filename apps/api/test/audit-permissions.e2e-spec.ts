@@ -87,5 +87,17 @@ describe('Permission audit logging (e2e)', () => {
     for (const entry of entries) {
       expect(entry.ipAddress).not.toBeNull();
     }
+
+    // Fix 4: grant/revoke must record who received access and at what
+    // level, so there's a durable record of past access even after revoke.
+    expect(entries[1].details).toMatchObject({
+      principalType: 'user',
+      principalId: employeeUser.id,
+      permissionLevel: 'view',
+    });
+    expect(entries[2].details).toMatchObject({
+      principalId: employeeUser.id,
+      permissionLevel: 'view',
+    });
   });
 });

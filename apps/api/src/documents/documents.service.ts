@@ -71,7 +71,7 @@ export class DocumentsService {
       });
     });
 
-    await this.audit.record({
+    await this.audit.recordSafely({
       actorId: user.id,
       action: 'document_create',
       resourceType: 'document',
@@ -127,7 +127,7 @@ export class DocumentsService {
       return version;
     });
 
-    await this.audit.record({
+    await this.audit.recordSafely({
       actorId: user.id,
       action: 'document_version_upload',
       resourceType: 'document',
@@ -165,7 +165,7 @@ export class DocumentsService {
       include: { currentVersion: true },
     });
 
-    await this.audit.record({
+    await this.audit.recordSafely({
       actorId: user.id,
       action: 'document_view',
       resourceType: 'document',
@@ -200,12 +200,13 @@ export class DocumentsService {
             return doc.currentVersion;
           });
 
-    await this.audit.record({
+    await this.audit.recordSafely({
       actorId: user.id,
       action: 'document_download',
       resourceType: 'document',
       resourceId: documentId,
       ipAddress,
+      details: { versionId: version.id },
     });
 
     const stream = await this.storage.getObjectStream(version.objectKey);

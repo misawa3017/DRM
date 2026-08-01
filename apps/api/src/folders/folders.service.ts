@@ -32,7 +32,7 @@ export class FoldersService {
       data: { name, parentId: parentId ?? null, createdBy: user.id },
     });
 
-    await this.audit.record({
+    await this.audit.recordSafely({
       actorId: user.id,
       action: 'folder_create',
       resourceType: 'folder',
@@ -60,7 +60,7 @@ export class FoldersService {
       throw new NotFoundException('Folder not found');
     }
 
-    await this.audit.record({
+    await this.audit.recordSafely({
       actorId: user.id,
       action: 'folder_view',
       resourceType: 'folder',

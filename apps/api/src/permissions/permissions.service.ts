@@ -55,12 +55,13 @@ export class PermissionsService {
       },
     });
 
-    await this.audit.record({
+    await this.audit.recordSafely({
       actorId: user.id,
       action: 'permission_grant',
       resourceType,
       resourceId,
       ipAddress,
+      details: { principalType, principalId, permissionLevel },
     });
 
     return permission;
@@ -85,6 +86,19 @@ export class PermissionsService {
     if (!allowed) {
       throw new ForbiddenException('You do not have manage access to this resource');
     }
+    // Fetch (scoped by the exact same id + resourceType + resourceId as the
+    // delete below) before deleting, purely to capture what's about to be
+    // deleted for the audit entry — deleteMany doesn't return row content.
+    // This does NOT weaken the authorization scoping: the delete itself is
+    // still a single scoped deleteMany with the same compound where-clause,
+    // and existence/success is still determined from its own `count`, not
+    // from this preceding read (so there's no TOCTOU gap — a row that
+    // disappears between the two calls just yields count === 0, same as
+    // today).
+    const toDelete = await this.prisma.permission.findFirst({
+      where: { id: permissionId, resourceType, resourceId },
+    });
+
     const { count } = await this.prisma.permission.deleteMany({
       where: { id: permissionId, resourceType, resourceId },
     });
@@ -92,12 +106,15 @@ export class PermissionsService {
       throw new NotFoundException('Permission not found');
     }
 
-    await this.audit.record({
+    await this.audit.recordSafely({
       actorId: user.id,
       action: 'permission_revoke',
       resourceType,
       resourceId,
       ipAddress,
+      details: toDelete
+        ? { principalId: toDelete.principalId, permissionLevel: toDelete.permissionLevel }
+        : undefined,
     });
   }
 }

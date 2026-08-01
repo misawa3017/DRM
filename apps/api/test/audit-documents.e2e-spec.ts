@@ -15,6 +15,7 @@ interface FolderResponse {
 
 interface DocumentResponse {
   id: string;
+  currentVersion: { id: string };
 }
 
 interface DocumentVersionResponse {
@@ -60,7 +61,10 @@ describe('Document audit logging (e2e)', () => {
     });
     const documentId = createRes.data.id;
 
-    await axios.get(`${API_BASE_URL}/documents/${documentId}`, { headers: authHeader });
+    const metadataRes = await axios.get<DocumentResponse>(`${API_BASE_URL}/documents/${documentId}`, {
+      headers: authHeader,
+    });
+    const firstVersionId = metadataRes.data.currentVersion.id;
 
     await axios.get(`${API_BASE_URL}/documents/${documentId}/download`, {
       headers: authHeader,
@@ -91,5 +95,11 @@ describe('Document audit logging (e2e)', () => {
     for (const entry of entries) {
       expect(entry.ipAddress).not.toBeNull();
     }
+
+    // Fix 4: document_download must record which version was downloaded
+    // (the resolved version's actual id — here it's the default/current
+    // version at the time of download, since no versionId query param was
+    // passed).
+    expect(entries[2].details).toMatchObject({ versionId: firstVersionId });
   });
 });
