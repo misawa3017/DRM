@@ -171,6 +171,8 @@ services:
       # verification against KES's self-signed server cert.
       MINIO_KMS_KES_CAPATH: /certs/kes-server.cert
       MINIO_KMS_KES_KEY_NAME: drm-default-key
+    ports:
+      - "127.0.0.1:9000:9000"  # loopback-only: direct S3 API access for smoke-test/mc, matching Postgres/Traefik-dashboard convention. Console (9001) stays reachable only via Traefik at storage.drm.localhost.
     volumes:
       - minio_data:/data
       - ./secrets/kes:/certs:ro
