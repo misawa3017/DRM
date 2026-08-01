@@ -87,25 +87,27 @@ export class DocumentsService {
 
     await this.storage.putObject(objectKey, file.buffer, file.mimetype);
 
-    const version = await this.prisma.documentVersion.create({
-      data: {
-        id: versionId,
-        documentId,
-        versionNumber: nextVersionNumber,
-        objectKey,
-        sha256,
-        mimeType: file.mimetype,
-        sizeBytes: file.buffer.length,
-        uploadedBy: user.id,
-      },
-    });
+    return this.prisma.$transaction(async (tx) => {
+      const version = await tx.documentVersion.create({
+        data: {
+          id: versionId,
+          documentId,
+          versionNumber: nextVersionNumber,
+          objectKey,
+          sha256,
+          mimeType: file.mimetype,
+          sizeBytes: file.buffer.length,
+          uploadedBy: user.id,
+        },
+      });
 
-    await this.prisma.document.update({
-      where: { id: documentId },
-      data: { currentVersionId: version.id },
-    });
+      await tx.document.update({
+        where: { id: documentId },
+        data: { currentVersionId: version.id },
+      });
 
-    return version;
+      return version;
+    });
   }
 
   async listVersions(user: AuthenticatedUser, documentId: string) {
