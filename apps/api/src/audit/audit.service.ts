@@ -128,6 +128,18 @@ export class AuditService {
         if (row.prevHash !== expectedPrevHash) {
           return { valid: false, brokenAtId: row.id };
         }
+        // hashVersion 0 rows predate the `details` column entirely (see the
+        // comment in computeHash's v0 branch) — they can never legitimately
+        // carry a non-null `details`, since the v0 hash input never included
+        // it. If one does, the hash still recomputes fine (v0's input string
+        // never references `details`), so without this check an attacker
+        // with DB write access could attach/alter `details` on any legacy
+        // v0 row and verifyChain would keep reporting it valid. Catch that
+        // here, before hash recomputation, rather than relying on the hash
+        // itself to notice.
+        if (row.hashVersion === LEGACY_HASH_VERSION_V0 && row.details !== null) {
+          return { valid: false, brokenAtId: row.id };
+        }
         const recomputed = this.computeHash({
           hashVersion: row.hashVersion,
           id: row.id,

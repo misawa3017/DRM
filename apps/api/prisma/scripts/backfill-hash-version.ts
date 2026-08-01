@@ -20,8 +20,17 @@
  * the known formats, this is either genuine tampering or an unhandled hash
  * format change that this script hasn't been taught about -- either way it
  * needs a human, not a guess, so the script logs that row's `id` and
- * hard-fails (non-zero exit, no further writes) rather than silently
- * leaving it mislabeled or guessing a version.
+ * immediately stops (non-zero exit, no further writes past the unmatched
+ * row) rather than silently leaving it mislabeled or guessing a version.
+ *
+ * The table is walked in `sequence`-cursor batches (same `take` +
+ * `cursor: { sequence }` + `skip: 1` pattern as
+ * `AuditService.verifyChain()`) rather than a single unbounded
+ * `findMany()`, so this script doesn't OOM the process it's run from when
+ * pointed at a large, already-populated database -- exactly the situation
+ * this script exists to handle. Configurable via
+ * `AUDIT_BACKFILL_BATCH_SIZE` for tests that want to exercise the
+ * multi-batch path without seeding a huge table.
  *
  * Why format 2 (the current, non-legacy format) is included even though
  * this is nominally a "legacy" backfill: this script is meant to be safe
@@ -147,69 +156,102 @@ const KNOWN_FORMATS: { version: number; compute: (row: RowForHashing) => string 
   { version: 2, compute: computeHashV2 },
 ];
 
+const DEFAULT_BACKFILL_BATCH_SIZE = Number(process.env.AUDIT_BACKFILL_BATCH_SIZE) || 10000;
+
 async function main(): Promise<void> {
   const prisma = new PrismaClient();
+  const batchSize = DEFAULT_BACKFILL_BATCH_SIZE;
 
   try {
-    const rows = await prisma.auditLog.findMany({ orderBy: { sequence: 'asc' } });
-    console.log(`Checking ${rows.length} audit_logs row(s)...`);
-
     let alreadyCorrect = 0;
     let relabeled = 0;
-    const unmatched: string[] = [];
+    let checked = 0;
+    let cursorSequence: bigint | undefined;
+    let unmatchedId: string | undefined;
 
-    for (const row of rows) {
-      const rowForHashing: RowForHashing = {
-        id: row.id,
-        actorId: row.actorId,
-        action: row.action,
-        resourceType: row.resourceType,
-        resourceId: row.resourceId,
-        ipAddress: row.ipAddress,
-        createdAt: row.createdAt,
-        prevHash: row.prevHash,
-        details: row.details as Record<string, string> | null,
-      };
-
-      // Fast path: if the row's stored hash matches its own current label,
-      // it's already correct -- confirm and move on without considering a
-      // relabel (see the KNOWN_FORMATS comment on why no other format
-      // could also match).
-      const currentFormat = KNOWN_FORMATS.find((f) => f.version === row.hashVersion);
-      if (currentFormat && currentFormat.compute(rowForHashing) === row.hash) {
-        alreadyCorrect++;
-        continue;
-      }
-
-      // The row's current label doesn't reproduce its stored hash -- try
-      // every known format to find the one that actually does.
-      const match = KNOWN_FORMATS.find((f) => f.compute(rowForHashing) === row.hash);
-
-      if (!match) {
-        unmatched.push(row.id);
-        continue;
-      }
-
-      await prisma.auditLog.update({
-        where: { id: row.id },
-        data: { hashVersion: match.version },
+    for (;;) {
+      const rows = await prisma.auditLog.findMany({
+        orderBy: { sequence: 'asc' },
+        take: batchSize,
+        ...(cursorSequence !== undefined
+          ? { cursor: { sequence: cursorSequence }, skip: 1 }
+          : {}),
       });
-      relabeled++;
-      console.log(`  relabeled ${row.id}: hashVersion ${row.hashVersion} -> ${match.version}`);
+
+      if (rows.length === 0) {
+        break;
+      }
+
+      for (const row of rows) {
+        checked++;
+        const rowForHashing: RowForHashing = {
+          id: row.id,
+          actorId: row.actorId,
+          action: row.action,
+          resourceType: row.resourceType,
+          resourceId: row.resourceId,
+          ipAddress: row.ipAddress,
+          createdAt: row.createdAt,
+          prevHash: row.prevHash,
+          details: row.details as Record<string, string> | null,
+        };
+
+        // Fast path: if the row's stored hash matches its own current label,
+        // it's already correct -- confirm and move on without considering a
+        // relabel (see the KNOWN_FORMATS comment on why no other format
+        // could also match).
+        const currentFormat = KNOWN_FORMATS.find((f) => f.version === row.hashVersion);
+        if (currentFormat && currentFormat.compute(rowForHashing) === row.hash) {
+          alreadyCorrect++;
+          continue;
+        }
+
+        // The row's current label doesn't reproduce its stored hash -- try
+        // every known format to find the one that actually does.
+        const match = KNOWN_FORMATS.find((f) => f.compute(rowForHashing) === row.hash);
+
+        if (!match) {
+          // Stop immediately -- this row matched none of the known hash
+          // formats, which means either genuine tampering or an unhandled
+          // hash format change this script hasn't been taught about. Either
+          // way it needs a human, not a guess, so no further rows (which
+          // could include later, otherwise-legitimate relabels) are
+          // written past this point.
+          unmatchedId = row.id;
+          break;
+        }
+
+        await prisma.auditLog.update({
+          where: { id: row.id },
+          data: { hashVersion: match.version },
+        });
+        relabeled++;
+        console.log(`  relabeled ${row.id}: hashVersion ${row.hashVersion} -> ${match.version}`);
+      }
+
+      if (unmatchedId !== undefined) {
+        break;
+      }
+
+      cursorSequence = rows[rows.length - 1].sequence;
+
+      if (rows.length < batchSize) {
+        break;
+      }
     }
 
-    if (unmatched.length > 0) {
+    if (unmatchedId !== undefined) {
       console.error(
-        `FATAL: ${unmatched.length} row(s) matched NONE of the known hash formats (0, 1, 2). ` +
+        `FATAL: row ${unmatchedId} matched NONE of the known hash formats (0, 1, 2). ` +
           'This means either genuine tampering or an unhandled hash format -- refusing to guess. ' +
-          `Affected row id(s): ${unmatched.join(', ')}`,
+          `Checked ${checked} row(s) before stopping (${alreadyCorrect} already correct, ${relabeled} relabeled).`,
       );
       process.exitCode = 1;
       return;
     }
 
     console.log(
-      `Done. ${alreadyCorrect} row(s) already correctly labeled, ${relabeled} row(s) relabeled, 0 unmatched.`,
+      `Done. Checked ${checked} row(s): ${alreadyCorrect} already correctly labeled, ${relabeled} relabeled, 0 unmatched.`,
     );
   } finally {
     await prisma.$disconnect();

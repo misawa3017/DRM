@@ -1,6 +1,6 @@
 import { PostgreSqlContainer, StartedPostgreSqlContainer } from '@testcontainers/postgresql';
 import { execSync } from 'child_process';
-import { PrismaClient } from '@prisma/client';
+import { Prisma, PrismaClient } from '@prisma/client';
 import * as path from 'path';
 import { createHash, randomUUID } from 'crypto';
 import { AuditService, type HashInput } from './audit.service';
@@ -155,7 +155,7 @@ describe('AuditService', () => {
     expect(result.valid).toBe(true);
   });
 
-  it('verifies rows written before hashVersion existed (hashVersion 0) using the legacy pre-versioning hash format, and still chains new v1 writes onto them', async () => {
+  it('verifies rows written before hashVersion existed (hashVersion 0) using the legacy pre-versioning hash format, and still chains new v2 writes onto them', async () => {
     const tip = await prisma.auditLog.findFirst({ orderBy: { sequence: 'desc' } });
     const prevHash = tip?.hash ?? null;
 
@@ -205,6 +205,65 @@ describe('AuditService', () => {
 
     const mixedResult = await audit.verifyChain();
     expect(mixedResult.valid).toBe(true);
+  });
+
+  it('rejects a hashVersion 0 row that has been given a non-null `details` value, since v0 rows can never legitimately carry details', async () => {
+    const tip = await prisma.auditLog.findFirst({ orderBy: { sequence: 'desc' } });
+    const prevHash = tip?.hash ?? null;
+
+    const id = randomUUID();
+    const createdAt = new Date();
+    const legacyRaw = [
+      id,
+      'legacy-user-2',
+      'folder_view',
+      'folder',
+      'folder-legacy-details-test',
+      '10.0.0.11',
+      createdAt.toISOString(),
+      prevHash ?? '',
+    ].join('|');
+    const legacyHash = createHash('sha256').update(legacyRaw).digest('hex');
+
+    const legacyRow = await prisma.auditLog.create({
+      data: {
+        id,
+        actorId: 'legacy-user-2',
+        action: 'folder_view',
+        resourceType: 'folder',
+        resourceId: 'folder-legacy-details-test',
+        ipAddress: '10.0.0.11',
+        createdAt,
+        prevHash,
+        hash: legacyHash,
+        hashVersion: 0,
+      },
+    });
+
+    // Genuinely valid so far: the v0 row's stored hash still matches its
+    // recomputed v0 hash (details was never part of the v0 hash input).
+    const cleanResult = await audit.verifyChain();
+    expect(cleanResult.valid).toBe(true);
+
+    // An attacker with DB write access attaches `details` directly to the
+    // v0 row. This does NOT change the row's hash (v0's format never
+    // referenced `details`), so a naive hash-recompute-only check would
+    // still call this valid -- exactly the "silently rewrite audit details
+    // without breaking the chain" hole this test closes.
+    await prisma.auditLog.update({
+      where: { id: legacyRow.id },
+      data: { details: { forged: 'true' } },
+    });
+
+    const tamperedResult = await audit.verifyChain();
+    expect(tamperedResult.valid).toBe(false);
+    expect(tamperedResult.brokenAtId).toBe(legacyRow.id);
+
+    // Restore, same reasoning as the other tamper-detection tests.
+    await prisma.auditLog.update({
+      where: { id: legacyRow.id },
+      data: { details: Prisma.DbNull },
+    });
   });
 
   it('hashVersion 2 uses an injective `details` serialization, closing the v1 collision where a forged `permissionLevel` value could smuggle in a fake `principalId`', () => {
