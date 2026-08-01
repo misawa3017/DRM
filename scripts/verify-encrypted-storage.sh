@@ -60,14 +60,31 @@ mcapi() {
     minio/mc "$@"
 }
 
-# Runs a command that is expected to FAIL (access denied). Fails the script
-# if the command unexpectedly succeeds -- silent success would mean the
-# policy isn't actually being enforced.
+# Runs a command that is expected to FAIL with an access-control rejection
+# (not just any failure). Fails the script if the command unexpectedly
+# succeeds -- silent success would mean the policy isn't actually being
+# enforced. Also fails the script if the command fails for some OTHER
+# reason (malformed command, network hiccup, a future `mc` syntax change,
+# etc.) -- a non-zero exit alone doesn't prove authorization was actually
+# tested, so the captured output must contain an access-control-specific
+# signal, not merely be non-empty.
+#
+# The two accepted signals were captured verbatim from a real run against
+# this exact policy/mc version (see task-17-report.md): most denials say
+# "Access Denied", but denying a GetObject read on a bucket the scoped
+# credential has zero grants on instead produces "Insufficient permissions
+# to access this path" -- both are genuine MinIO/mc access-control
+# rejections, not generic errors, so both are matched.
 expect_denied() {
   local desc="$1"
   shift
   if "$@" >"$WORKDIR/expect_denied.out" 2>&1; then
     echo "FAIL: '$desc' was supposed to be denied but succeeded:" >&2
+    cat "$WORKDIR/expect_denied.out" >&2
+    exit 1
+  fi
+  if ! grep -qiE "access denied|insufficient permissions" "$WORKDIR/expect_denied.out"; then
+    echo "FAIL: '$desc' failed, but not with an access-denied error -- this proves nothing about policy enforcement. Actual output:" >&2
     cat "$WORKDIR/expect_denied.out" >&2
     exit 1
   fi
