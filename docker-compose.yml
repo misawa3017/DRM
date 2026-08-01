@@ -63,6 +63,16 @@ services:
       KEYCLOAK_CLIENT_ID: drm-web
       WEB_ORIGIN: http://app.drm.localhost
       PORT: 3000
+      # Phase 2B document storage: not consumed by application code yet
+      # (that's Phase 2B's job), just provisioned and wired through here so
+      # the scoped credential is reachable once that code lands. Credential
+      # itself is created by minio-init (see minio/entrypoint.sh) with an
+      # IAM policy scoped to only the 'documents' bucket -- see
+      # minio/drm-api-policy.json.
+      MINIO_ENDPOINT: http://minio:9000
+      MINIO_BUCKET: documents
+      MINIO_ACCESS_KEY: ${MINIO_API_ACCESS_KEY}
+      MINIO_SECRET_KEY: ${MINIO_API_SECRET_KEY}
     depends_on:
       postgres:
         condition: service_healthy
@@ -211,8 +221,11 @@ services:
     environment:
       MINIO_ROOT_USER: ${MINIO_ROOT_USER}
       MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD}
+      MINIO_API_ACCESS_KEY: ${MINIO_API_ACCESS_KEY}
+      MINIO_API_SECRET_KEY: ${MINIO_API_SECRET_KEY}
     volumes:
       - ./minio/entrypoint.sh:/entrypoint.sh:ro
+      - ./minio/drm-api-policy.json:/policy/drm-api-policy.json:ro
     depends_on:
       minio:
         condition: service_healthy
