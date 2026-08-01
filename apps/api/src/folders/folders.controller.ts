@@ -24,12 +24,13 @@ export class FoldersController {
       { id: user.id, roles: req.user.roles },
       body.name,
       body.parentId ?? null,
+      req.ip ?? null,
     );
   }
 
   @Get(':id')
   async get(@Req() req: AuthenticatedRequest, @Param('id') id: string) {
     const user = await this.usersService.upsertFromToken(req.user);
-    return this.foldersService.getWithContents({ id: user.id, roles: req.user.roles }, id);
+    return this.foldersService.getWithContents({ id: user.id, roles: req.user.roles }, id, req.ip ?? null);
   }
 }

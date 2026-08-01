@@ -1,6 +1,7 @@
 import { ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { AclService } from '../acl/acl.service';
+import { AuditService } from '../audit/audit.service';
 
 interface AuthenticatedUser {
   id: string;
@@ -12,9 +13,10 @@ export class FoldersService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly acl: AclService,
+    private readonly audit: AuditService,
   ) {}
 
-  async create(user: AuthenticatedUser, name: string, parentId: string | null) {
+  async create(user: AuthenticatedUser, name: string, parentId: string | null, ipAddress: string | null) {
     if (parentId === null || parentId === undefined) {
       if (!user.roles.includes('admin')) {
         throw new ForbiddenException('Only admins can create root-level folders');
@@ -26,12 +28,22 @@ export class FoldersService {
       }
     }
 
-    return this.prisma.folder.create({
+    const folder = await this.prisma.folder.create({
       data: { name, parentId: parentId ?? null, createdBy: user.id },
     });
+
+    await this.audit.record({
+      actorId: user.id,
+      action: 'folder_create',
+      resourceType: 'folder',
+      resourceId: folder.id,
+      ipAddress,
+    });
+
+    return folder;
   }
 
-  async getWithContents(user: AuthenticatedUser, id: string) {
+  async getWithContents(user: AuthenticatedUser, id: string, ipAddress: string | null) {
     const allowed = await this.acl.can(user, 'folder', id, 'view');
     if (!allowed) {
       throw new ForbiddenException('You do not have view access to this folder');
@@ -47,6 +59,15 @@ export class FoldersService {
     if (!folder) {
       throw new NotFoundException('Folder not found');
     }
+
+    await this.audit.record({
+      actorId: user.id,
+      action: 'folder_view',
+      resourceType: 'folder',
+      resourceId: id,
+      ipAddress,
+    });
+
     return folder;
   }
 }
