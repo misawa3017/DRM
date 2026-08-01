@@ -1,4 +1,5 @@
 import {
+  BadRequestException,
   Body,
   Controller,
   Get,
@@ -16,6 +17,7 @@ import { AuthGuard } from '@nestjs/passport';
 import { Request, Response } from 'express';
 import { DocumentsService } from './documents.service';
 import { UsersService } from '../users/users.service';
+import { CreateDocumentDto } from './dto/create-document.dto';
 
 interface AuthenticatedRequest extends Request {
   user: { sub: string; email: string; name: string; roles: string[] };
@@ -36,8 +38,11 @@ export class DocumentsController {
   async create(
     @Req() req: AuthenticatedRequest,
     @UploadedFile() file: Express.Multer.File,
-    @Body() body: { folderId: string; name: string },
+    @Body() body: CreateDocumentDto,
   ) {
+    if (!file) {
+      throw new BadRequestException('file is required');
+    }
     const user = await this.usersService.upsertFromToken(req.user);
     return this.documentsService.createDocument(
       { id: user.id, roles: req.user.roles },
@@ -54,6 +59,9 @@ export class DocumentsController {
     @Param('id') id: string,
     @UploadedFile() file: Express.Multer.File,
   ) {
+    if (!file) {
+      throw new BadRequestException('file is required');
+    }
     const user = await this.usersService.upsertFromToken(req.user);
     return this.documentsService.addVersion({ id: user.id, roles: req.user.roles }, id, {
       buffer: file.buffer,

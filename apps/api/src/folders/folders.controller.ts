@@ -3,6 +3,7 @@ import { AuthGuard } from '@nestjs/passport';
 import { Request } from 'express';
 import { FoldersService } from './folders.service';
 import { UsersService } from '../users/users.service';
+import { CreateFolderDto } from './dto/create-folder.dto';
 
 interface AuthenticatedRequest extends Request {
   user: { sub: string; email: string; name: string; roles: string[] };
@@ -17,7 +18,7 @@ export class FoldersController {
   ) {}
 
   @Post()
-  async create(@Req() req: AuthenticatedRequest, @Body() body: { name: string; parentId?: string }) {
+  async create(@Req() req: AuthenticatedRequest, @Body() body: CreateFolderDto) {
     const user = await this.usersService.upsertFromToken(req.user);
     return this.foldersService.create(
       { id: user.id, roles: req.user.roles },

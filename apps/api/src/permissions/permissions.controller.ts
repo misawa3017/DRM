@@ -1,18 +1,12 @@
 import { Body, Controller, Delete, Get, HttpCode, Param, Post, Req, UseGuards } from '@nestjs/common';
 import { AuthGuard } from '@nestjs/passport';
 import { Request } from 'express';
-import { PermissionLevel, PrincipalType } from '@prisma/client';
 import { PermissionsService } from './permissions.service';
 import { UsersService } from '../users/users.service';
+import { GrantPermissionDto } from './dto/grant-permission.dto';
 
 interface AuthenticatedRequest extends Request {
   user: { sub: string; email: string; name: string; roles: string[] };
-}
-
-interface GrantBody {
-  principalType: PrincipalType;
-  principalId: string;
-  permissionLevel: PermissionLevel;
 }
 
 @UseGuards(AuthGuard('jwt'))
@@ -24,7 +18,7 @@ export class PermissionsController {
   ) {}
 
   @Post('folders/:id/permissions')
-  async grantOnFolder(@Req() req: AuthenticatedRequest, @Param('id') id: string, @Body() body: GrantBody) {
+  async grantOnFolder(@Req() req: AuthenticatedRequest, @Param('id') id: string, @Body() body: GrantPermissionDto) {
     const user = await this.usersService.upsertFromToken(req.user);
     return this.permissionsService.grant(
       { id: user.id, roles: req.user.roles },
@@ -54,7 +48,7 @@ export class PermissionsController {
   }
 
   @Post('documents/:id/permissions')
-  async grantOnDocument(@Req() req: AuthenticatedRequest, @Param('id') id: string, @Body() body: GrantBody) {
+  async grantOnDocument(@Req() req: AuthenticatedRequest, @Param('id') id: string, @Body() body: GrantPermissionDto) {
     const user = await this.usersService.upsertFromToken(req.user);
     return this.permissionsService.grant(
       { id: user.id, roles: req.user.roles },
