@@ -19,3 +19,84 @@ model User {
   @@index([email])
   @@map("users")
 }
+
+enum PermissionLevel {
+  view
+  download
+  edit
+  manage
+}
+
+enum ResourceType {
+  folder
+  document
+}
+
+enum PrincipalType {
+  user
+  group
+}
+
+model Folder {
+  id        String     @id @default(uuid())
+  name      String
+  parentId  String?
+  parent    Folder?    @relation("FolderChildren", fields: [parentId], references: [id])
+  children  Folder[]   @relation("FolderChildren")
+  documents Document[]
+  createdBy String
+  createdAt DateTime   @default(now())
+  updatedAt DateTime   @updatedAt
+
+  @@index([parentId])
+  @@map("folders")
+}
+
+model Document {
+  id               String            @id @default(uuid())
+  folderId         String
+  folder           Folder            @relation(fields: [folderId], references: [id])
+  name             String
+  currentVersionId String?           @unique
+  currentVersion   DocumentVersion?  @relation("CurrentVersion", fields: [currentVersionId], references: [id])
+  versions         DocumentVersion[] @relation("DocumentVersions")
+  createdBy        String
+  createdAt        DateTime          @default(now())
+  updatedAt        DateTime          @updatedAt
+
+  @@index([folderId])
+  @@map("documents")
+}
+
+model DocumentVersion {
+  id            String    @id @default(uuid())
+  documentId    String
+  document      Document  @relation("DocumentVersions", fields: [documentId], references: [id])
+  versionNumber Int
+  objectKey     String
+  sha256        String
+  mimeType      String
+  sizeBytes     Int
+  uploadedBy    String
+  uploadedAt    DateTime  @default(now())
+  currentFor    Document? @relation("CurrentVersion")
+
+  @@unique([documentId, versionNumber])
+  @@index([documentId])
+  @@map("document_versions")
+}
+
+model Permission {
+  id              String          @id @default(uuid())
+  resourceType    ResourceType
+  resourceId      String
+  principalType   PrincipalType   @default(user)
+  principalId     String
+  permissionLevel PermissionLevel
+  grantedBy       String
+  grantedAt       DateTime        @default(now())
+
+  @@unique([resourceType, resourceId, principalType, principalId])
+  @@index([resourceType, resourceId])
+  @@map("permissions")
+}
