@@ -4,9 +4,10 @@ import { DocumentsService } from './documents.service';
 import { AclModule } from '../acl/acl.module';
 import { StorageModule } from '../storage/storage.module';
 import { UsersModule } from '../users/users.module';
+import { AuditModule } from '../audit/audit.module';
 
 @Module({
-  imports: [AclModule, StorageModule, UsersModule],
+  imports: [AclModule, StorageModule, UsersModule, AuditModule],
   controllers: [DocumentsController],
   providers: [DocumentsService],
   exports: [DocumentsService],

@@ -49,6 +49,7 @@ export class DocumentsController {
       body.folderId,
       body.name,
       { buffer: file.buffer, mimetype: file.mimetype },
+      req.ip ?? null,
     );
   }
 
@@ -63,10 +64,12 @@ export class DocumentsController {
       throw new BadRequestException('file is required');
     }
     const user = await this.usersService.upsertFromToken(req.user);
-    return this.documentsService.addVersion({ id: user.id, roles: req.user.roles }, id, {
-      buffer: file.buffer,
-      mimetype: file.mimetype,
-    });
+    return this.documentsService.addVersion(
+      { id: user.id, roles: req.user.roles },
+      id,
+      { buffer: file.buffer, mimetype: file.mimetype },
+      req.ip ?? null,
+    );
   }
 
   @Get(':id/versions')
@@ -78,7 +81,7 @@ export class DocumentsController {
   @Get(':id')
   async getMetadata(@Req() req: AuthenticatedRequest, @Param('id') id: string) {
     const user = await this.usersService.upsertFromToken(req.user);
-    return this.documentsService.getMetadata({ id: user.id, roles: req.user.roles }, id);
+    return this.documentsService.getMetadata({ id: user.id, roles: req.user.roles }, id, req.ip ?? null);
   }
 
   @Get(':id/download')
@@ -93,6 +96,7 @@ export class DocumentsController {
       { id: user.id, roles: req.user.roles },
       id,
       versionId,
+      req.ip ?? null,
     );
     res.setHeader('Content-Type', mimeType);
     res.setHeader('Content-Disposition', `attachment; filename="${fileName}"`);

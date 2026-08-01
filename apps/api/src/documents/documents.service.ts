@@ -3,6 +3,7 @@ import { createHash, randomUUID } from 'crypto';
 import { PrismaService } from '../prisma/prisma.service';
 import { AclService } from '../acl/acl.service';
 import { StorageService } from '../storage/storage.service';
+import { AuditService } from '../audit/audit.service';
 
 interface AuthenticatedUser {
   id: string;
@@ -20,6 +21,7 @@ export class DocumentsService {
     private readonly prisma: PrismaService,
     private readonly acl: AclService,
     private readonly storage: StorageService,
+    private readonly audit: AuditService,
   ) {}
 
   async createDocument(
@@ -27,6 +29,7 @@ export class DocumentsService {
     folderId: string,
     name: string,
     file: UploadedFile,
+    ipAddress: string | null,
   ) {
     const allowed = await this.acl.can(user, 'folder', folderId, 'edit');
     if (!allowed) {
@@ -40,7 +43,7 @@ export class DocumentsService {
 
     await this.storage.putObject(objectKey, file.buffer, file.mimetype);
 
-    return this.prisma.$transaction(async (tx) => {
+    const created = await this.prisma.$transaction(async (tx) => {
       await tx.document.create({
         data: {
           id: documentId,
@@ -67,9 +70,24 @@ export class DocumentsService {
         include: { currentVersion: true },
       });
     });
+
+    await this.audit.record({
+      actorId: user.id,
+      action: 'document_create',
+      resourceType: 'document',
+      resourceId: documentId,
+      ipAddress,
+    });
+
+    return created;
   }
 
-  async addVersion(user: AuthenticatedUser, documentId: string, file: UploadedFile) {
+  async addVersion(
+    user: AuthenticatedUser,
+    documentId: string,
+    file: UploadedFile,
+    ipAddress: string | null,
+  ) {
     const allowed = await this.acl.can(user, 'document', documentId, 'edit');
     if (!allowed) {
       throw new ForbiddenException('You do not have edit access to this document');
@@ -87,7 +105,7 @@ export class DocumentsService {
 
     await this.storage.putObject(objectKey, file.buffer, file.mimetype);
 
-    return this.prisma.$transaction(async (tx) => {
+    const version = await this.prisma.$transaction(async (tx) => {
       const version = await tx.documentVersion.create({
         data: {
           id: versionId,
@@ -108,8 +126,24 @@ export class DocumentsService {
 
       return version;
     });
+
+    await this.audit.record({
+      actorId: user.id,
+      action: 'document_version_upload',
+      resourceType: 'document',
+      resourceId: documentId,
+      ipAddress,
+    });
+
+    return version;
   }
 
+  // Not audited: listVersions is a metadata read on the same document already
+  // covered by document_view via getMetadata. The frontend calls getMetadata
+  // and listVersions together to render a document page, so logging both
+  // would double-record a single logical "viewed this document" event. If
+  // listVersions is ever called independently of getMetadata by a future
+  // caller, revisit this and audit it separately under document_view.
   async listVersions(user: AuthenticatedUser, documentId: string) {
     const allowed = await this.acl.can(user, 'document', documentId, 'view');
     if (!allowed) {
@@ -121,18 +155,33 @@ export class DocumentsService {
     });
   }
 
-  async getMetadata(user: AuthenticatedUser, documentId: string) {
+  async getMetadata(user: AuthenticatedUser, documentId: string, ipAddress: string | null) {
     const allowed = await this.acl.can(user, 'document', documentId, 'view');
     if (!allowed) {
       throw new ForbiddenException('You do not have view access to this document');
     }
-    return this.prisma.document.findUniqueOrThrow({
+    const document = await this.prisma.document.findUniqueOrThrow({
       where: { id: documentId },
       include: { currentVersion: true },
     });
+
+    await this.audit.record({
+      actorId: user.id,
+      action: 'document_view',
+      resourceType: 'document',
+      resourceId: documentId,
+      ipAddress,
+    });
+
+    return document;
   }
 
-  async getDownloadStream(user: AuthenticatedUser, documentId: string, versionId?: string) {
+  async getDownloadStream(
+    user: AuthenticatedUser,
+    documentId: string,
+    versionId: string | undefined,
+    ipAddress: string | null,
+  ) {
     const allowed = await this.acl.can(user, 'document', documentId, 'download');
     if (!allowed) {
       throw new ForbiddenException('You do not have download access to this document');
@@ -150,6 +199,14 @@ export class DocumentsService {
             }
             return doc.currentVersion;
           });
+
+    await this.audit.record({
+      actorId: user.id,
+      action: 'document_download',
+      resourceType: 'document',
+      resourceId: documentId,
+      ipAddress,
+    });
 
     const stream = await this.storage.getObjectStream(version.objectKey);
     return { stream, mimeType: version.mimeType, fileName: version.id };
