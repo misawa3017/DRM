@@ -35,6 +35,18 @@
         { "type": "password", "value": "testpass", "temporary": false }
       ],
       "realmRoles": ["employee"]
+    },
+    {
+      "username": "testadmin",
+      "enabled": true,
+      "email": "testadmin@example.com",
+      "firstName": "Test",
+      "lastName": "Admin",
+      "emailVerified": true,
+      "credentials": [
+        { "type": "password", "value": "testadminpass", "temporary": false }
+      ],
+      "realmRoles": ["admin"]
     }
   ]
 }
