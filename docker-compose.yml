@@ -119,6 +119,20 @@ services:
         condition: service_healthy
     restart: "no"
 
+  kes:
+    image: minio/kes:latest
+    entrypoint: ["/bin/sh", "/entrypoint.sh"]
+    volumes:
+      - ./kes/entrypoint.sh:/entrypoint.sh:ro
+      - ./kes/server-config.yaml.template:/template/server-config.yaml.template:ro
+      - ./secrets/kes:/certs:ro
+      - openbao_shared:/shared:ro
+    depends_on:
+      openbao-init:
+        condition: service_completed_successfully
+    ports:
+      - "127.0.0.1:7373:7373"  # loopback-only: local debugging/mc/curl access, matching Postgres/Traefik dashboard convention
+
 volumes:
   postgres_data:
   keycloak_data:

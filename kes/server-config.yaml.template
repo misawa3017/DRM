@@ -1,0 +1,60 @@
+# KES server configuration template.
+#
+# Rendered by kes/entrypoint.sh, which substitutes the __PLACEHOLDER__
+# tokens below with real values pulled from bind-mounted files at
+# container start (never baked into the image or committed to git):
+#   - __MINIO_IDENTITY__: the KES identity hash of MinIO's client cert
+#     (Task 2's secrets/kes/minio-client-identity.txt)
+#   - __VAULT_ROLE_ID__ / __VAULT_SECRET_ID__: OpenBao AppRole credentials
+#     (Task 1's openbao_shared:/shared/kes-approle.json)
+#
+# Schema verified against the real minio/kes:latest image (version
+# 2025-03-12T09-35-18Z) via `kes --help` / `kes server --help` and the
+# upstream example config (github.com/minio/kes/blob/master/server-config.yaml),
+# since the image ships no bundled example file to inspect directly.
+#
+# Corrections vs. the plan's original draft:
+#   - keystore.vault has separate `engine` (the K/V mount path) and
+#     `version` ("v1"/"v2") fields. The draft collapsed these into a
+#     single `engine: kv-v2` field, which isn't a real path -- Task 1
+#     mounted the kv-v2 engine at path "kes", so this must be
+#     `engine: kes` + `version: v2`.
+#   - `prefix: kes` from the draft is dropped: with `engine: kes` the
+#     mount is already at kes/, so an additional `prefix: kes` would
+#     nest keys at kes/data/kes/<name> for no reason. OpenBao's
+#     "kes-policy" (kes/data/*, kes/metadata/*) covers the unprefixed
+#     path used here.
+#   - `admin.identity: disabled` and the top-level `policy:` block
+#     structure in the draft were confirmed correct as written.
+
+address: 0.0.0.0:7373
+
+tls:
+  key: /certs/kes-server.key
+  cert: /certs/kes-server.cert
+
+admin:
+  # No standing admin identity: /v1/key/* access is scoped entirely by
+  # the "minio" policy below, and no certificate can match this value.
+  identity: disabled
+
+policy:
+  minio:
+    allow:
+      - /v1/key/create/*
+      - /v1/key/generate/*
+      - /v1/key/decrypt/*
+      - /v1/key/bulk/decrypt/*
+      - /v1/key/list/*
+    identities:
+      - __MINIO_IDENTITY__
+
+keystore:
+  vault:
+    endpoint: http://openbao:8200
+    engine: kes
+    version: v2
+    approle:
+      id: __VAULT_ROLE_ID__
+      secret: __VAULT_SECRET_ID__
+      retry: 15s
