@@ -132,6 +132,26 @@ services:
         condition: service_completed_successfully
     ports:
       - "127.0.0.1:7373:7373"  # loopback-only: local debugging/mc/curl access, matching Postgres/Traefik dashboard convention
+    healthcheck:
+      # minio/kes:latest has no curl/wget (confirmed: it's a minimal
+      # coreutils+bash image, see the note in entrypoint.sh), so this uses
+      # the `kes` binary's own CLI (`kes status`) instead of an HTTP tool.
+      # `kes status` mTLS-authenticates as the minio-client identity
+      # (KES_CLIENT_CERT/KEY below) and calls the server's /v1/status API
+      # over HTTPS on 127.0.0.1:7373 -- a real end-to-end check that the
+      # HTTPS listener is up, TLS is serving the right cert, and the
+      # identity/policy chain works, not just "is a process running".
+      # /v1/status was added to the minio identity's policy allow-list
+      # specifically for this (admin.identity is disabled, so there's no
+      # separate admin identity available to call it).
+      test:
+        [
+          "CMD-SHELL",
+          "KES_CLIENT_CERT=/certs/minio-client.cert KES_CLIENT_KEY=/certs/minio-client.key /kes status -k -s",
+        ]
+      interval: 5s
+      timeout: 5s
+      retries: 20
 
   minio:
     image: minio/minio:latest
@@ -155,7 +175,8 @@ services:
       - minio_data:/data
       - ./secrets/kes:/certs:ro
     depends_on:
-      - kes
+      kes:
+        condition: service_healthy
     labels:
       - traefik.enable=true
       - traefik.http.routers.minio-console.rule=Host(`storage.drm.localhost`)

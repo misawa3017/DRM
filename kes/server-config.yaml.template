@@ -46,6 +46,12 @@ policy:
       - /v1/key/decrypt/*
       - /v1/key/bulk/decrypt/*
       - /v1/key/list/*
+      # /v1/status added for the docker-compose healthcheck: it lets the
+      # kes container's own healthcheck (running as the minio-client
+      # identity, since admin.identity is disabled) confirm the HTTPS
+      # listener + TLS handshake are actually up before minio's
+      # `depends_on: kes: condition: service_healthy` proceeds.
+      - /v1/status
     identities:
       - __MINIO_IDENTITY__
 
