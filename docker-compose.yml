@@ -43,6 +43,24 @@ services:
       timeout: 5s
       retries: 10
 
+  redis:
+    image: redis:7-alpine
+    # --save "" --appendonly no disables persistence: this Redis instance is
+    # purely a BullMQ job queue backend, not a source of truth; losing
+    # queued-but-not-yet-processed jobs on a restart is an acceptable
+    # dev-environment tradeoff, not data loss of anything durable.
+    command: redis-server --save "" --appendonly no
+    ports:
+      - "127.0.0.1:6380:6379"  # loopback-only: host-side test access, matching Postgres/Traefik-dashboard convention. Not what the api/worker containers use (they use the internal redis:6379 hostname/port, see the api service's REDIS_HOST/REDIS_PORT below).
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    restart: unless-stopped
+
   keycloak:
     image: quay.io/keycloak/keycloak:25.0
     restart: unless-stopped
@@ -83,8 +101,16 @@ services:
       MINIO_BUCKET: documents
       MINIO_ACCESS_KEY: ${MINIO_API_ACCESS_KEY}
       MINIO_SECRET_KEY: ${MINIO_API_SECRET_KEY}
+      # Phase 4A: internal Docker-network address/port for the BullMQ
+      # producer (apps/api/src/jobs). The 127.0.0.1:6380 loopback publish
+      # on the redis service below is only for host-side test access, not
+      # what this container uses to reach Redis.
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
     depends_on:
       postgres:
+        condition: service_healthy
+      redis:
         condition: service_healthy
     labels:
       - traefik.enable=true
@@ -252,3 +278,4 @@ volumes:
   openbao_init:
   openbao_approle:
   minio_data:
+  redis_data:
