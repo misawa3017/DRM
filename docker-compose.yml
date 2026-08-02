@@ -153,6 +153,13 @@ services:
     # pressure); start_period is set to 900s so that value alone covers a
     # slow first boot, rather than relying on the implicit extra grace
     # period Docker grants via retries*interval after start_period expires.
+    # Virus definitions (~175MB, downloaded from an external freshclam
+    # mirror) are persisted in the clamav_data named volume rather than the
+    # container's writable layer, so a `docker compose down`/`up --build`/
+    # image bump reuses the already-downloaded database instead of paying
+    # the multi-minute re-download (and depending on the mirror being
+    # reachable) every single time. Only `docker compose down -v` (or
+    # deleting the volume directly) forces a fresh download again.
     # Healthcheck uses the image's own bundled clamdcheck.sh, confirmed
     # present in clamav/clamav:stable via `docker compose exec clamav which
     # clamdcheck.sh`.
@@ -168,6 +175,8 @@ services:
     # Using clamdcheck.sh directly as CMD lets its real exit code (1 when
     # clamd is unreachable) reach Docker's healthcheck evaluation.
     image: clamav/clamav:stable
+    volumes:
+      - clamav_data:/var/lib/clamav
     healthcheck:
       test: ["CMD", "clamdcheck.sh"]
       interval: 30s
@@ -338,3 +347,4 @@ volumes:
   openbao_approle:
   minio_data:
   redis_data:
+  clamav_data:
