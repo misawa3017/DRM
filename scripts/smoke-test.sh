@@ -12,6 +12,31 @@ check() {
   echo "OK: $url"
 }
 
+# Phase 4A's new services (redis, gotenberg, clamav, worker) don't publish
+# an HTTP port to the host, so check()'s plain HTTP GET doesn't apply to
+# them. This checks container health/state via `docker compose ps`
+# instead. Field/value names verified live against this host's Docker
+# Compose (v5.3.1): `docker compose ps --format '{{.Service}} {{.State}}
+# {{.Health}}'` reports State as "running" for all containers and Health
+# as "healthy"/"" depending on whether the service has a healthcheck
+# defined. redis, gotenberg, and clamav all have real healthchecks (see
+# docker-compose.yml), so they're checked against Health="healthy".
+# worker has no healthcheck defined (per the plan, it's a pure background
+# consumer, not an HTTP service) -- Health is empty for it, so it's
+# checked against State="running" instead.
+check_container_state() {
+  local service=$1
+  local field=$2
+  local expected=$3
+  local actual
+  actual=$(docker compose ps --format "{{.$field}}" "$service")
+  if [ "$actual" != "$expected" ]; then
+    echo "FAIL: $service $field is '$actual', expected '$expected'" >&2
+    exit 1
+  fi
+  echo "OK: $service $field is $expected"
+}
+
 check "http://api.drm.localhost/health"
 check "http://auth.drm.localhost/realms/drm/.well-known/openid-configuration"
 check "http://app.drm.localhost/"
@@ -26,5 +51,14 @@ check "http://storage.drm.localhost/"
 # check doesn't depend on Traefik routing at all. Verified live: returns a
 # bare 200 with an empty body.
 check "http://127.0.0.1:9000/minio/health/live"
+
+# Phase 4A: redis, gotenberg, clamav all have real healthchecks defined in
+# docker-compose.yml, so check Health rather than just State.
+check_container_state "redis" "Health" "healthy"
+check_container_state "gotenberg" "Health" "healthy"
+check_container_state "clamav" "Health" "healthy"
+# worker has no healthcheck (pure background BullMQ consumer), so State is
+# the right bar for it specifically.
+check_container_state "worker" "State" "running"
 
 echo "Smoke test passed."
