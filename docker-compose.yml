@@ -107,10 +107,22 @@ services:
       # what this container uses to reach Redis.
       REDIS_HOST: redis
       REDIS_PORT: 6379
+      # Phase 4B: VirusScanService's clamdscan TCP target -- the clamav
+      # service below, reachable over the internal Docker network only.
+      CLAMAV_HOST: clamav
+      CLAMAV_PORT: 3310
     depends_on:
       postgres:
         condition: service_healthy
       redis:
+        condition: service_healthy
+      # VirusScanService's constructor calls clamscan's init(), which pings
+      # clamd immediately at boot (bypassTest defaults to false). Without
+      # this, the api container can start (and pass its own healthcheck)
+      # before clamd has finished the multi-minute first-boot freshclam
+      # download, and every upload would fail at the scan step for
+      # however long the api container has already been "up".
+      clamav:
         condition: service_healthy
     labels:
       - traefik.enable=true

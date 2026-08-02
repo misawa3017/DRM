@@ -1,9 +1,10 @@
-import { ForbiddenException, Injectable } from '@nestjs/common';
+import { BadRequestException, ForbiddenException, Injectable } from '@nestjs/common';
 import { createHash, randomUUID } from 'crypto';
 import { PrismaService } from '../prisma/prisma.service';
 import { AclService } from '../acl/acl.service';
 import { StorageService } from '../storage/storage.service';
 import { AuditService } from '../audit/audit.service';
+import { VirusScanService } from './virus-scan.service';
 
 interface AuthenticatedUser {
   id: string;
@@ -22,7 +23,39 @@ export class DocumentsService {
     private readonly acl: AclService,
     private readonly storage: StorageService,
     private readonly audit: AuditService,
+    private readonly virusScan: VirusScanService,
   ) {}
+
+  // Scans `file` for malware and, if infected, records the rejection as a
+  // `virus_detected` audit entry and throws before the caller does any
+  // storage.putObject or Prisma write. Uses recordSafely (not record) even
+  // though this is a failure path: the client must always get back the 400
+  // "infected file" rejection regardless of whether the audit write itself
+  // succeeds, the same way recordSafely already protects success-path
+  // audits from turning into a misleading 500 for the caller. An audit
+  // write failure here is a logged gap, not grounds to mask a real virus
+  // detection behind an unrelated 500.
+  private async rejectIfInfected(
+    file: UploadedFile,
+    actorId: string,
+    resourceType: 'folder' | 'document',
+    resourceId: string,
+    ipAddress: string | null,
+  ): Promise<void> {
+    const scanResult = await this.virusScan.scanBuffer(file.buffer);
+    if (scanResult.isInfected) {
+      await this.audit.recordSafely({
+        actorId,
+        action: 'virus_detected',
+        resourceType,
+        resourceId,
+        ipAddress,
+      });
+      throw new BadRequestException(
+        `Upload rejected: infected file detected (${scanResult.viruses.join(', ')})`,
+      );
+    }
+  }
 
   async createDocument(
     user: AuthenticatedUser,
@@ -35,6 +68,10 @@ export class DocumentsService {
     if (!allowed) {
       throw new ForbiddenException('You do not have edit access to this folder');
     }
+
+    // No Document row exists yet at this point, so the rejection is
+    // audited against the upload target (the folder) instead.
+    await this.rejectIfInfected(file, user.id, 'folder', folderId, ipAddress);
 
     const documentId = randomUUID();
     const versionId = randomUUID();
@@ -92,6 +129,9 @@ export class DocumentsService {
     if (!allowed) {
       throw new ForbiddenException('You do not have edit access to this document');
     }
+
+    // The Document row already exists here, so audit the rejection against it.
+    await this.rejectIfInfected(file, user.id, 'document', documentId, ipAddress);
 
     const latest = await this.prisma.documentVersion.findFirst({
       where: { documentId },
