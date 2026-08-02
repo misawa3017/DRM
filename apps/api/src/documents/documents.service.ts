@@ -72,11 +72,28 @@ export class DocumentsService {
       return;
     }
     try {
-      await this.conversionQueue.add('convert', {
-        documentVersionId: versionId,
-        objectKey,
-        mimeType,
-      });
+      await this.conversionQueue.add(
+        'convert',
+        {
+          documentVersionId: versionId,
+          objectKey,
+          mimeType,
+        },
+        {
+          // A single transient Gotenberg blip shouldn't permanently cost
+          // the document its preview -- retry a few times with backoff
+          // before giving up (the 'failed' event handler in
+          // ConversionEventsListener still logs the final failure).
+          attempts: 3,
+          backoff: { type: 'exponential', delay: 5000 },
+          // Without these, BullMQ keeps every completed/failed job record
+          // in Redis forever -- unbounded growth for the life of the
+          // system. Cap it instead; these numbers are generous enough for
+          // debugging recent history without being unbounded.
+          removeOnComplete: 1000,
+          removeOnFail: 5000,
+        },
+      );
     } catch (error) {
       this.logger.error(
         `Failed to enqueue conversion job for document version ${versionId}: ${
