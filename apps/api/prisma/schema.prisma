@@ -74,6 +74,7 @@ model DocumentVersion {
   document      Document  @relation("DocumentVersions", fields: [documentId], references: [id])
   versionNumber Int
   objectKey     String
+  previewObjectKey String?
   sha256        String
   mimeType      String
   sizeBytes     Int
@@ -110,6 +111,7 @@ enum AuditAction {
   document_version_upload
   permission_grant
   permission_revoke
+  virus_detected
 }
 
 model AuditLog {
