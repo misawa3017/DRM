@@ -129,6 +129,20 @@ services:
         condition: service_healthy
     restart: unless-stopped
 
+  gotenberg:
+    # Phase 4A: document-to-PDF conversion service, consumed over the
+    # internal Docker network only (no host port publish -- nothing outside
+    # the compose network needs direct access). Health-checked via
+    # Gotenberg's own /health endpoint, which reports real liveness of its
+    # internal Chromium/LibreOffice modules, not just "container is up".
+    image: gotenberg/gotenberg:8
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://127.0.0.1:3000/health"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+    restart: unless-stopped
+
   web:
     build:
       context: .
