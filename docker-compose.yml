@@ -143,6 +143,35 @@ services:
       retries: 20
     restart: unless-stopped
 
+  clamav:
+    # Phase 4A: virus-scanning daemon, consumed over the internal Docker
+    # network only (no host port publish) via clamd's INSTREAM protocol on
+    # 3310. start_period is deliberately generous -- first-boot virus
+    # definition database download (freshclam) can take several minutes and
+    # is network-dependent; this is expected, not a sign of a broken
+    # container. Healthcheck uses the image's own bundled clamdcheck.sh,
+    # confirmed present in clamav/clamav:stable via `docker compose exec
+    # clamav which clamdcheck.sh`.
+    #
+    # NOTE: the plan's draft used `test: ["CMD", "sh", "-c", "clamdcheck.sh
+    # || echo unhealthy"]`. That form always exits 0 (the `echo` on the
+    # right of `||` always succeeds), so Docker reported the container
+    # "healthy" 13s after start -- while its own logs still showed "Socket
+    # for clamd not found yet, retrying" (freshclam hadn't even finished
+    # its first database check yet). Confirmed by manually running
+    # `clamdcheck.sh || echo unhealthy` in the running container: it prints
+    # "ERROR: Unable to contact server" + "unhealthy" but still exits 0.
+    # Using clamdcheck.sh directly as CMD lets its real exit code (1 when
+    # clamd is unreachable) reach Docker's healthcheck evaluation.
+    image: clamav/clamav:stable
+    healthcheck:
+      test: ["CMD", "clamdcheck.sh"]
+      interval: 30s
+      timeout: 10s
+      retries: 20
+      start_period: 300s
+    restart: unless-stopped
+
   web:
     build:
       context: .
