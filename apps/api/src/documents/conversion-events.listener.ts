@@ -39,7 +39,21 @@ export class ConversionEventsListener implements OnModuleInit, OnModuleDestroy {
     });
 
     this.queueEvents.on('completed', ({ returnvalue }) => {
-      void this.handleCompleted(returnvalue);
+      // handleCompleted must never produce an unhandled promise rejection
+      // here: this listener's constructor doesn't attach any other
+      // rejection handler, and under Node 20's default
+      // --unhandled-rejections=throw, an unhandled rejection crashes the
+      // *entire* api process on a single malformed conversion event --
+      // taking down every user's request, not just this one job. Catch
+      // defensively at the call site in addition to handleCompleted's own
+      // internal try/catch.
+      this.handleCompleted(returnvalue).catch((error: unknown) => {
+        this.logger.error(
+          `Failed to process conversion completion: ${
+            error instanceof Error ? error.message : String(error)
+          }`,
+        );
+      });
     });
 
     this.queueEvents.on('failed', ({ jobId, failedReason }) => {
@@ -48,22 +62,34 @@ export class ConversionEventsListener implements OnModuleInit, OnModuleDestroy {
   }
 
   private async handleCompleted(returnvalue: unknown) {
-    const result = (
-      typeof returnvalue === 'string' ? JSON.parse(returnvalue) : returnvalue
-    ) as ConversionJobResult;
-
     try {
+      // The parse/cast is inside the try (not just the Prisma call below)
+      // so a malformed or unparseable `returnvalue` is caught here too,
+      // instead of throwing synchronously out of this async function
+      // before the try block was even reached.
+      const result = (
+        typeof returnvalue === 'string' ? JSON.parse(returnvalue) : returnvalue
+      ) as ConversionJobResult;
+
+      if (!result || typeof result !== 'object' || !result.documentVersionId || !result.previewObjectKey) {
+        this.logger.error(
+          `Malformed conversion job completion event, ignoring: ${JSON.stringify(returnvalue)}`,
+        );
+        return;
+      }
+
       await this.prisma.documentVersion.update({
         where: { id: result.documentVersionId },
         data: { previewObjectKey: result.previewObjectKey },
       });
     } catch (error) {
-      // The conversion succeeded but recording the result failed (e.g. the
-      // DocumentVersion row was deleted in the meantime). Log and move on --
-      // there is no upload request left waiting on this async completion,
-      // so there is nothing to fail back to.
+      // Covers both a bad `returnvalue` (parse/shape failure above) and the
+      // conversion having succeeded but recording the result failing (e.g.
+      // the DocumentVersion row was deleted in the meantime). Log and move
+      // on -- there is no upload request left waiting on this async
+      // completion, so there is nothing to fail back to.
       this.logger.error(
-        `Failed to record previewObjectKey for document version ${result.documentVersionId}: ${
+        `Failed to process conversion completion: ${
           error instanceof Error ? error.message : String(error)
         }`,
       );
