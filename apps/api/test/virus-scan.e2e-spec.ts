@@ -17,6 +17,10 @@ interface FolderResponse {
   documents?: unknown[];
 }
 
+interface DocumentResponse {
+  id: string;
+}
+
 interface AuditLogResponse {
   action: string;
   resourceType: string;
@@ -105,5 +109,63 @@ describe('Virus scanning on upload (e2e)', () => {
       headers: { ...authHeader, ...form.getHeaders() },
     });
     expect(createRes.status).toBe(201);
+  });
+
+  // The plan's global constraint that virus scanning applies to BOTH
+  // createDocument and addVersion was implemented (confirmed in prior task
+  // reviews), but only createDocument's path had e2e coverage above.
+  // addVersion's rejectIfInfected call audits against a different
+  // resourceType/resourceId ('document'/documentId, vs.
+  // 'folder'/folderId for createDocument) -- that distinct behavior is
+  // what this test actually verifies.
+  it('rejects an infected new version of an existing document, and audits it against the document (not the folder)', async () => {
+    const adminToken = await getToken('testadmin', 'testadminpass');
+    const authHeader = { Authorization: `Bearer ${adminToken}` };
+
+    const folderRes = await axios.post<FolderResponse>(
+      `${API_BASE_URL}/folders`,
+      { name: `virus-scan-addversion-test-${Date.now()}` },
+      { headers: authHeader },
+    );
+
+    const cleanForm = new FormData();
+    cleanForm.append('folderId', folderRes.data.id);
+    cleanForm.append('name', 'clean-initial.txt');
+    cleanForm.append('file', Buffer.from('this initial version is not infected'), {
+      filename: 'clean-initial.txt',
+    });
+    const createRes = await axios.post<DocumentResponse>(`${API_BASE_URL}/documents`, cleanForm, {
+      headers: { ...authHeader, ...cleanForm.getHeaders() },
+    });
+    const documentId = createRes.data.id;
+
+    const infected = Buffer.from(EICAR_BASE64, 'base64');
+    const versionForm = new FormData();
+    versionForm.append('file', infected, { filename: 'eicar.txt' });
+
+    await expect(
+      axios.post(`${API_BASE_URL}/documents/${documentId}/versions`, versionForm, {
+        headers: { ...authHeader, ...versionForm.getHeaders() },
+      }),
+    ).rejects.toMatchObject({ response: { status: 400 } });
+
+    // No new version was created: listVersions still shows only the
+    // original, clean version.
+    const versionsRes = await axios.get(`${API_BASE_URL}/documents/${documentId}/versions`, {
+      headers: authHeader,
+    });
+    expect(versionsRes.data).toHaveLength(1);
+
+    const auditRes = await axios.get<AuditLogResponse[]>(
+      `${API_BASE_URL}/documents/${documentId}/audit-logs`,
+      { headers: authHeader },
+    );
+    expect(auditRes.data).toContainEqual(
+      expect.objectContaining({
+        action: 'virus_detected',
+        resourceType: 'document',
+        resourceId: documentId,
+      }),
+    );
   });
 });
