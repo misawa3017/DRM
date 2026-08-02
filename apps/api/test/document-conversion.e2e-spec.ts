@@ -89,8 +89,22 @@ describe('Document conversion pipeline (e2e)', () => {
     });
     const versionId = createRes.data.currentVersion.id;
 
+    // Poll budget: 90 x 1s = 90s. Originally 30s/40000ms Jest timeout, which
+    // this project's Phase 4B Task 6 combined-suite run (all automated
+    // suites + a fresh rebuild's residual memory/swap pressure running at
+    // once) proved too tight for real infrastructure latency -- Gotenberg's
+    // own access log recorded a genuine 17.7s latency for this exact
+    // conversion under that load (confirmed via `docker compose logs
+    // gotenberg`), and the DB row's previewObjectKey was confirmed to have
+    // landed correctly moments after the test's old 40s Jest timeout fired
+    // (the pipeline was never broken, just slower than the test budgeted
+    // for). Widened with real headroom rather than just nudged, since the
+    // full round trip is enqueue -> worker pickup -> MinIO fetch ->
+    // Gotenberg convert -> MinIO store -> BullMQ completed event over Redis
+    // -> Prisma update, several of which are individually slower under
+    // concurrent load than in isolation.
     let previewObjectKey: string | null = null;
-    for (let i = 0; i < 30; i++) {
+    for (let i = 0; i < 90; i++) {
       const version = await prisma.documentVersion.findUniqueOrThrow({ where: { id: versionId } });
       if (version.previewObjectKey) {
         previewObjectKey = version.previewObjectKey;
@@ -112,7 +126,7 @@ describe('Document conversion pipeline (e2e)', () => {
     const previewBuffer = await streamToBuffer(previewStream as NodeJS.ReadableStream);
     expect(previewBuffer.subarray(0, 4).toString('ascii')).toBe('%PDF');
     expect(previewBuffer.length).toBeGreaterThan(0);
-  }, 40000);
+  }, 100000);
 
   it('does not enqueue a conversion for a non-Office upload', async () => {
     const adminToken = await getToken('testadmin', 'testadminpass');

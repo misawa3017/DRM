@@ -10,6 +10,11 @@ interface TokenResponse {
 
 interface FolderResponse {
   id: string;
+  // Matches folders.e2e-spec.ts's FolderResponse: only the presence/length
+  // of this list matters to this suite's assertion below, not its element
+  // shape, so `unknown[]` (not a fuller Document type) is enough to type
+  // the axios.get response and satisfy @typescript-eslint/no-unsafe-*.
+  documents?: unknown[];
 }
 
 interface AuditLogResponse {
@@ -59,7 +64,7 @@ describe('Virus scanning on upload (e2e)', () => {
 
     // No Document row (and therefore no DocumentVersion / MinIO object) was
     // ever created: the folder's `documents` list stays empty.
-    const folderContentsRes = await axios.get(`${API_BASE_URL}/folders/${folderId}`, {
+    const folderContentsRes = await axios.get<FolderResponse>(`${API_BASE_URL}/folders/${folderId}`, {
       headers: authHeader,
     });
     expect(folderContentsRes.data.documents).toHaveLength(0);

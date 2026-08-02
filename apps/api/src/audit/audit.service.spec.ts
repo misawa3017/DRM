@@ -23,10 +23,14 @@ describe('AuditService', () => {
     audit = new AuditService(prisma as any);
   }, 60000);
 
+  // See user-persistence.spec.ts's afterAll for why this needs an explicit
+  // timeout matching beforeAll's: container.stop() genuinely exceeded
+  // Jest's default 5000ms hook timeout under this host's real memory/swap
+  // pressure during Phase 4B Task 6's combined-suite run.
   afterAll(async () => {
     await prisma.$disconnect();
     await container.stop();
-  });
+  }, 60000);
 
   it('the first entry has a null prevHash and a real hash', async () => {
     const entry = await audit.record({

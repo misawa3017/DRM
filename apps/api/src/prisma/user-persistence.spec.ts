@@ -18,10 +18,17 @@ describe('User persistence', () => {
     prisma = new PrismaClient();
   }, 60000);
 
+  // Explicit timeout, matching beforeAll's: container.stop() is a real
+  // Docker operation and Jest's default 5000ms hook timeout proved too
+  // tight for it under this host's real memory/swap pressure during Phase
+  // 4B Task 6's combined-suite run (confirmed via a genuine "Exceeded
+  // timeout of 5000 ms for a hook" failure here, not hypothetical) -- the
+  // same underlying resource constraint that already justified beforeAll's
+  // 60000ms budget for the container's *start*.
   afterAll(async () => {
     await prisma.$disconnect();
     await container.stop();
-  });
+  }, 60000);
 
   it('creates and retrieves a user', async () => {
     const created = await prisma.user.create({

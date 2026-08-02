@@ -22,10 +22,14 @@ describe('AclService', () => {
     acl = new AclService(prisma as any);
   }, 60000);
 
+  // See user-persistence.spec.ts's afterAll for why this needs an explicit
+  // timeout matching beforeAll's: container.stop() genuinely exceeded
+  // Jest's default 5000ms hook timeout under this host's real memory/swap
+  // pressure during Phase 4B Task 6's combined-suite run.
   afterAll(async () => {
     await prisma.$disconnect();
     await container.stop();
-  });
+  }, 60000);
 
   async function makeFolder(name: string, parentId: string | null = null) {
     return prisma.folder.create({ data: { name, parentId, createdBy: 'seed' } });
