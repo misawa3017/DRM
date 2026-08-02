@@ -2,7 +2,6 @@ import { Logger } from '@nestjs/common';
 import { Processor, WorkerHost } from '@nestjs/bullmq';
 import { Job } from 'bullmq';
 import { QUEUE_DOCUMENT_CONVERSION, ConversionJobData, ConversionJobResult } from '@drm/shared';
-import { randomUUID } from 'crypto';
 import axios from 'axios';
 import FormData from 'form-data';
 import { StorageService } from '../storage/storage.service';
@@ -65,9 +64,21 @@ export class ConversionProcessor extends WorkerHost {
     const response = await axios.post<Buffer>(`${gotenbergUrl}/forms/libreoffice/convert`, form, {
       headers: form.getHeaders(),
       responseType: 'arraybuffer',
+      // Axios has no default timeout, so a hung Gotenberg would otherwise
+      // hold this worker's job-processing slot indefinitely. 120s is
+      // comfortably above the 17.7s worst-case latency measured during
+      // Task 6's verification under load.
+      timeout: 120000,
     });
 
-    const previewObjectKey = `${objectKey}-preview-${randomUUID()}.pdf`;
+    // Deterministic key (not a random UUID per attempt): only the last
+    // completed job's result is ever referenced from Postgres
+    // (DocumentVersion.previewObjectKey), so a random key per attempt just
+    // orphans every earlier MinIO object -- especially now that this job
+    // has a real retry policy (see DocumentsService.maybeEnqueueConversion),
+    // where a retry would otherwise leave a stale object behind on every
+    // failed attempt. A retry now simply overwrites the same key.
+    const previewObjectKey = `${objectKey}-preview.pdf`;
     await this.storage.putObject(previewObjectKey, Buffer.from(response.data), 'application/pdf');
 
     return { documentVersionId, previewObjectKey };
