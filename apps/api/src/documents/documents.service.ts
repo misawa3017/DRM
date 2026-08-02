@@ -1,4 +1,11 @@
-import { BadRequestException, ForbiddenException, Injectable, Logger } from '@nestjs/common';
+import {
+  BadRequestException,
+  ForbiddenException,
+  Injectable,
+  Logger,
+  PayloadTooLargeException,
+  ServiceUnavailableException,
+} from '@nestjs/common';
 import { InjectQueue } from '@nestjs/bullmq';
 import { Queue } from 'bullmq';
 import { createHash, randomUUID } from 'crypto';
@@ -7,7 +14,12 @@ import { PrismaService } from '../prisma/prisma.service';
 import { AclService } from '../acl/acl.service';
 import { StorageService } from '../storage/storage.service';
 import { AuditService } from '../audit/audit.service';
-import { VirusScanService } from './virus-scan.service';
+import {
+  ScanResult,
+  VirusScanIndeterminateError,
+  VirusScanSizeLimitError,
+  VirusScanService,
+} from './virus-scan.service';
 
 interface AuthenticatedUser {
   id: string;
@@ -83,6 +95,19 @@ export class DocumentsService {
   // audits from turning into a misleading 500 for the caller. An audit
   // write failure here is a logged gap, not grounds to mask a real virus
   // detection behind an unrelated 500.
+  //
+  // Two additional, distinct failure modes are translated into their own
+  // typed HTTP errors here rather than being left to fall through as a raw
+  // 500 (see VirusScanService.scanBuffer's doc comment for why each can
+  // happen):
+  //   - VirusScanIndeterminateError (clamd returned no clear verdict, e.g.
+  //     a scan timeout): fails closed, not silently "clean" -- 503, since
+  //     this is an infrastructure problem, not something wrong with the
+  //     file itself, and must read as clearly different from a confirmed
+  //     infection.
+  //   - VirusScanSizeLimitError (buffer exceeds clamd.conf's
+  //     StreamMaxLength): 413, since this is a real constraint on what the
+  //     client uploaded, not a security rejection or a scan failure.
   private async rejectIfInfected(
     file: UploadedFile,
     actorId: string,
@@ -90,7 +115,22 @@ export class DocumentsService {
     resourceId: string,
     ipAddress: string | null,
   ): Promise<void> {
-    const scanResult = await this.virusScan.scanBuffer(file.buffer);
+    let scanResult: ScanResult;
+    try {
+      scanResult = await this.virusScan.scanBuffer(file.buffer);
+    } catch (error) {
+      if (error instanceof VirusScanSizeLimitError) {
+        throw new PayloadTooLargeException(
+          'Upload rejected: file exceeds the virus scanner\'s maximum scannable size',
+        );
+      }
+      if (error instanceof VirusScanIndeterminateError) {
+        throw new ServiceUnavailableException(
+          'Upload rejected: virus scan could not be completed',
+        );
+      }
+      throw error;
+    }
     if (scanResult.isInfected) {
       await this.audit.recordSafely({
         actorId,
