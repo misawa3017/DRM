@@ -5,6 +5,11 @@ import { AppModule } from './app.module';
 
 async function bootstrap() {
   const app = await NestFactory.create<NestExpressApplication>(AppModule);
+  // Without this, Nest's lifecycle hooks (OnModuleDestroy, e.g.
+  // ConversionEventsListener's QueueEvents connection close) never fire on
+  // SIGTERM -- matching the same fix already applied in
+  // apps/worker/src/main.ts (Phase 4A) for the identical reason.
+  app.enableShutdownHooks();
   app.enableCors({ origin: process.env.WEB_ORIGIN ?? 'http://app.drm.localhost' });
   app.useGlobalPipes(
     new ValidationPipe({ whitelist: true, transform: true, forbidNonWhitelisted: true }),
