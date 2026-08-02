@@ -149,9 +149,13 @@ services:
     # 3310. start_period is deliberately generous -- first-boot virus
     # definition database download (freshclam) can take several minutes and
     # is network-dependent; this is expected, not a sign of a broken
-    # container. Healthcheck uses the image's own bundled clamdcheck.sh,
-    # confirmed present in clamav/clamav:stable via `docker compose exec
-    # clamav which clamdcheck.sh`.
+    # container. Observed ~13 minutes to healthy on this host (under memory
+    # pressure); start_period is set to 900s so that value alone covers a
+    # slow first boot, rather than relying on the implicit extra grace
+    # period Docker grants via retries*interval after start_period expires.
+    # Healthcheck uses the image's own bundled clamdcheck.sh, confirmed
+    # present in clamav/clamav:stable via `docker compose exec clamav which
+    # clamdcheck.sh`.
     #
     # NOTE: the plan's draft used `test: ["CMD", "sh", "-c", "clamdcheck.sh
     # || echo unhealthy"]`. That form always exits 0 (the `echo` on the
@@ -168,8 +172,8 @@ services:
       test: ["CMD", "clamdcheck.sh"]
       interval: 30s
       timeout: 10s
-      retries: 20
-      start_period: 300s
+      retries: 10
+      start_period: 900s
     restart: unless-stopped
 
   web:
