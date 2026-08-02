@@ -1,6 +1,7 @@
 import { Module } from '@nestjs/common';
 import { BullModule } from '@nestjs/bullmq';
 import { HealthCheckModule } from './health-check/health-check.module';
+import { ConversionModule } from './conversion/conversion.module';
 
 @Module({
   imports: [
@@ -11,6 +12,7 @@ import { HealthCheckModule } from './health-check/health-check.module';
       },
     }),
     HealthCheckModule,
+    ConversionModule,
   ],
 })
 export class AppModule {}

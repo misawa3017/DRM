@@ -136,8 +136,21 @@ services:
     environment:
       REDIS_HOST: redis
       REDIS_PORT: 6379
+      # Phase 4B: StorageService's MinIO client + ConversionProcessor's
+      # Gotenberg target, same env var names/values as the api service
+      # above (see the api service's MINIO_* comment for the credential
+      # provisioning story).
+      MINIO_ENDPOINT: http://minio:9000
+      MINIO_BUCKET: documents
+      MINIO_ACCESS_KEY: ${MINIO_API_ACCESS_KEY}
+      MINIO_SECRET_KEY: ${MINIO_API_SECRET_KEY}
+      GOTENBERG_URL: http://gotenberg:3000
     depends_on:
       redis:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
+      gotenberg:
         condition: service_healthy
     restart: unless-stopped
 
