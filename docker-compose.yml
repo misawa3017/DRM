@@ -200,6 +200,23 @@ services:
     # Using clamdcheck.sh directly as CMD lets its real exit code (1 when
     # clamd is unreachable) reach Docker's healthcheck evaluation.
     image: clamav/clamav:stable
+    environment:
+      # This image's own /init entrypoint script (confirmed by reading it
+      # directly in the running container) applies any CLAMD_CONF_<KEY> env
+      # var to /etc/clamav/clamd.conf on every container start, via
+      # `sed -i "s/^#<KEY> .*/<KEY> <VALUE>/" clamd.conf` -- i.e. this is the
+      # image's own supported override mechanism, not a bind-mounted config
+      # file. Both directives default to 100M (confirmed via
+      # `docker compose exec clamav grep -i streammaxlength/maxfilesize
+      # /etc/clamav/clamd.conf`), well under apps/api's 200MB
+      # MAX_UPLOAD_BYTES (documents.controller.ts) -- a 110MB upload would
+      # get clamd's own "INSTREAM size limit exceeded" ERROR response,
+      # which used to surface as a raw 500 (see VirusScanService.scanBuffer
+      # and DocumentsService.rejectIfInfected for the typed-413 handling of
+      # that response, kept as defense in depth even with this raised).
+      # 220M gives 20MB of headroom above the 200MB app-level cap.
+      CLAMD_CONF_StreamMaxLength: 220M
+      CLAMD_CONF_MaxFileSize: 220M
     volumes:
       - clamav_data:/var/lib/clamav
     healthcheck:
