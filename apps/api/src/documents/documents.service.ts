@@ -1,5 +1,8 @@
-import { BadRequestException, ForbiddenException, Injectable } from '@nestjs/common';
+import { BadRequestException, ForbiddenException, Injectable, Logger } from '@nestjs/common';
+import { InjectQueue } from '@nestjs/bullmq';
+import { Queue } from 'bullmq';
 import { createHash, randomUUID } from 'crypto';
+import { QUEUE_DOCUMENT_CONVERSION, ConversionJobData } from '@drm/shared';
 import { PrismaService } from '../prisma/prisma.service';
 import { AclService } from '../acl/acl.service';
 import { StorageService } from '../storage/storage.service';
@@ -16,15 +19,60 @@ interface UploadedFile {
   mimetype: string;
 }
 
+// Office mimetypes that get a preview conversion job enqueued after upload.
+// Must stay exactly in sync with apps/worker/src/conversion/
+// conversion.processor.ts's MIME_EXTENSIONS lookup table for these six
+// entries -- the worker's real (LibreOffice/Gotenberg) coverage was
+// verified specifically against this set in Task 4, not against a broader
+// one, so enqueueing for a mimetype outside this list would hand the
+// worker something it isn't proven to convert correctly.
+const OFFICE_MIME_TYPES = new Set([
+  'application/msword',
+  'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+  'application/vnd.ms-excel',
+  'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+  'application/vnd.ms-powerpoint',
+  'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+]);
+
 @Injectable()
 export class DocumentsService {
+  private readonly logger = new Logger(DocumentsService.name);
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly acl: AclService,
     private readonly storage: StorageService,
     private readonly audit: AuditService,
     private readonly virusScan: VirusScanService,
+    @InjectQueue(QUEUE_DOCUMENT_CONVERSION)
+    private readonly conversionQueue: Queue<ConversionJobData>,
   ) {}
+
+  // Best-effort: enqueues a preview-conversion job for Office-mimetype
+  // uploads. Called after the upload's transaction has committed and its
+  // audit entry has been recorded, specifically so that a queue/Redis
+  // hiccup here can never turn an already-successful upload into a failed
+  // request -- the preview is a secondary enhancement, not part of the
+  // upload's contract. Any error here is logged, not thrown.
+  private async maybeEnqueueConversion(versionId: string, objectKey: string, mimeType: string) {
+    if (!OFFICE_MIME_TYPES.has(mimeType)) {
+      return;
+    }
+    try {
+      await this.conversionQueue.add('convert', {
+        documentVersionId: versionId,
+        objectKey,
+        mimeType,
+      });
+    } catch (error) {
+      this.logger.error(
+        `Failed to enqueue conversion job for document version ${versionId}: ${
+          error instanceof Error ? error.message : String(error)
+        }`,
+      );
+    }
+  }
 
   // Scans `file` for malware and, if infected, records the rejection as a
   // `virus_detected` audit entry and throws before the caller does any
@@ -116,6 +164,10 @@ export class DocumentsService {
       ipAddress,
     });
 
+    // versionId/objectKey are the same values just written to the
+    // DocumentVersion row created inside the transaction above.
+    await this.maybeEnqueueConversion(versionId, objectKey, file.mimetype);
+
     return created;
   }
 
@@ -174,6 +226,8 @@ export class DocumentsService {
       resourceId: documentId,
       ipAddress,
     });
+
+    await this.maybeEnqueueConversion(version.id, version.objectKey, file.mimetype);
 
     return version;
   }
