@@ -73,7 +73,7 @@ STACK_STOPPED=0
 restore_stack() {
   if [ "$STACK_STOPPED" = "1" ]; then
     log "restoring api/worker after backup (or after failure)"
-    docker compose start api worker || log "WARNING: failed to restart api/worker -- manual intervention required"
+    docker compose up -d --no-deps api worker || log "WARNING: failed to restart api/worker -- manual intervention required"
     STACK_STOPPED=0
   fi
 }
