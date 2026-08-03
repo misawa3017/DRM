@@ -85,12 +85,23 @@ echo "Starting the rest of the stack..."
 docker compose up -d
 
 echo "Waiting for api to respond healthy..."
-for i in $(seq 1 60); do
+# 500 * 2s = 1000s (~16-17 minutes). api depends_on clamav: condition:
+# service_healthy, and clamav's own healthcheck start_period is 900s --
+# on a genuinely fresh/destroyed host (the real disaster-recovery scenario
+# this script exists for), clamav_data won't exist yet, freshclam has to
+# download virus definitions from scratch, and api can't even start until
+# clamav passes its healthcheck. A shorter wait here risks a false "FAIL"
+# right after Postgres/MinIO/OpenBao/documents have already been correctly
+# restored, which could make a supervising operator wrongly think the
+# restore itself failed. This is a manual, human-supervised, infrequent,
+# high-stakes operation, so it's fine to wait comfortably past clamav's
+# documented worst case rather than optimize for a fast failure here.
+for i in $(seq 1 500); do
   if curl -sf http://api.drm.localhost/health >/dev/null 2>&1; then
     break
   fi
-  if [ "$i" = 60 ]; then
-    echo "FAIL: api did not respond healthy within 120s of restart" >&2
+  if [ "$i" = 500 ]; then
+    echo "FAIL: api did not respond healthy within 1000s of restart" >&2
     exit 1
   fi
   sleep 2
