@@ -133,4 +133,31 @@ GIT_COMMIT=$(git rev-parse HEAD)
   } > manifest.txt
 ) || fail "manifest" "writing manifest.txt/checksums.sha256 failed"
 
-log "backup packaging complete (encryption/upload happen in a later step)"
+log "encrypting backup bundle..."
+ENCRYPTED_FILE="$STAGING_ROOT/drm-backup-$DATE.tar.gpg"
+tar cf - -C "$STAGING_ROOT" "$DATE" \
+  | gpg --batch --yes --pinentry-mode loopback --passphrase-file "$PASSPHRASE_FILE" \
+        --symmetric --cipher-algo AES256 -o "$ENCRYPTED_FILE" \
+  || fail "encrypt" "gpg encryption of backup bundle failed"
+
+log "removing unencrypted staging directory..."
+rm -rf "$STAGING_DIR"
+
+log "uploading to NAS via rsync..."
+rsync -avz -e "ssh -i $BACKUP_SSH_KEY_PATH -o StrictHostKeyChecking=yes" \
+  "$ENCRYPTED_FILE" "$BACKUP_SSH_TARGET/" \
+  || fail "rsync" "rsync to $BACKUP_SSH_TARGET failed"
+
+log "pruning local backups older than $BACKUP_LOCAL_RETENTION_DAYS days..."
+find "$STAGING_ROOT" -maxdepth 1 -name 'drm-backup-*.tar.gpg' -mtime "+${BACKUP_LOCAL_RETENTION_DAYS}" -delete
+
+log "pruning remote backups older than $BACKUP_RETENTION_DAYS days..."
+REMOTE_HOST="${BACKUP_SSH_TARGET%%:*}"
+REMOTE_PATH="${BACKUP_SSH_TARGET#*:}"
+ssh -i "$BACKUP_SSH_KEY_PATH" -o StrictHostKeyChecking=yes "$REMOTE_HOST" \
+  "find '$REMOTE_PATH' -maxdepth 1 -name 'drm-backup-*.tar.gpg' -mtime +${BACKUP_RETENTION_DAYS} -delete" \
+  || fail "prune-remote" "pruning old backups on NAS failed"
+
+SIZE=$(du -h "$ENCRYPTED_FILE" | cut -f1)
+log "backup succeeded ($SIZE)"
+notify_success "$SIZE" || log "notify_success failed"
