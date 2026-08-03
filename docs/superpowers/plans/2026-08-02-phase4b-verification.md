@@ -1,58 +1,54 @@
-# Phase 4B Verification
+# Phase 4B 驗證
 
-Full-suite verification of Phase 4B (Upload Pipeline Integration: synchronous
-ClamAV virus scanning before store, asynchronous Office-to-PDF conversion via
-`apps/worker` + Gotenberg), run against a completely fresh stack
-(`docker compose down -v && docker compose up -d --build`) so that no state
-from individual task-level testing (Tasks 1-5) carried over, with every
-automated suite run together rather than in isolation, followed by a manual
-walkthrough of all three upload outcomes (infected / clean Office / clean
-plain-text).
+針對 Phase 4B(上傳流程整合:儲存前的同步 ClamAV 病毒掃描、透過
+`apps/worker` + Gotenberg 進行的非同步 Office 轉 PDF 轉換)進行完整套件驗證,
+在完全全新的堆疊上執行(`docker compose down -v && docker compose up -d --build`),
+以確保先前個別任務層級測試(任務 1-5)未留下任何殘留狀態,所有自動化套件皆一併執行而非個別隔離執行,
+接著手動走查全部三種上傳結果(受感染 / 乾淨 Office 檔案 / 乾淨純文字檔案)。
 
-## 1. Fresh full-stack rebuild
+## 1. 全新的完整堆疊重建
 
-Host disk was at 82% (`df -h /`) before starting.
+開始前主機磁碟使用率為 82%(`df -h /`)。
 
 ```
 docker compose down -v && docker compose up -d --build
 ```
 
-All 14 DRM containers and all named volumes (including `clamav_data`,
-`postgres_data`, `keycloak_data`, `minio_data`, etc.) were destroyed —
-confirmed via the `down -v` command's own output listing every volume
-`Removed`. `docker compose ps --format '{{.Service}}: {{.CreatedAt}}'` after
-the rebuild showed every container's `CreatedAt` at `05:54:38`-`05:54:41 UTC`,
-consistent with a genuine fresh recreation (not a cached/reused container),
-and matching the `down -v` timestamp of `05:46:21 UTC` plus the ~8-minute
-image-build phase that preceded container creation.
+全部 14 個 DRM 容器以及所有具名磁碟區(包含 `clamav_data`、
+`postgres_data`、`keycloak_data`、`minio_data` 等)都已被銷毀——
+透過 `down -v` 指令自身的輸出確認,列出每個磁碟區皆顯示
+`Removed`。重建後執行 `docker compose ps --format '{{.Service}}: {{.CreatedAt}}'`
+顯示每個容器的 `CreatedAt` 皆落在 `05:54:38`-`05:54:41 UTC`,
+與真正全新建立(而非快取/重用容器)一致,
+且與 `down -v` 的時間戳記 `05:46:21 UTC` 加上容器建立前約 8 分鐘的映像檔建置階段相符。
 
-**Image builds took noticeably longer than Phase 4A's** (roughly 8 minutes
-for all three application images vs. a few minutes previously) — `apps/api`'s
-`pnpm install` alone took 2m31s, and each image's final `exporting to image`
-layer-write step took 55-100 seconds. This tracked directly with host
-resource pressure: `free -h` showed swap climbing from ~1.7GiB used at the
-start of the build to fully exhausted (0 free) at points during the run (see
-below) on a host with only 1.9GiB of RAM, shared with several unrelated
-projects also running (`isms-*`, `compassionate_elgamal`, `silly_hopper`).
+**映像檔建置時間明顯比 Phase 4A 更長**(三個應用程式映像檔全部合計約 8 分鐘,
+相較於先前僅需數分鐘)——光是 `apps/api` 的
+`pnpm install` 就花了 2m31s,而每個映像檔最後的
+`exporting to image` 圖層寫入步驟花了 55-100 秒。這與主機資源壓力直接相關:
+`free -h` 顯示 swap 使用量從建置開始時約 1.7GiB 一路攀升到
+建置過程中某些時間點完全耗盡(0 free)(詳見下文),
+而主機僅有 1.9GiB 記憶體,還同時執行著數個不相關的專案
+(`isms-*`、`compassionate_elgamal`、`silly_hopper`)。
 
-**Disk hit 87% mid-rebuild**, inside the 84-88% range this project has
-previously seen stall builds, coinciding with Keycloak's realm-import phase
-throwing a real (if ultimately transient) H2 write error — see Section 2.
-`docker builder prune -f` reclaimed 1.526GB of stale build-cache layers,
-bringing disk back to 82%; this is the same precautionary step the plan's own
-Global Constraints call for when disk pressure appears mid-build.
+**重建過程中磁碟一度飆升至 87%**,落在本專案先前觀察到會導致建置卡住的
+84-88% 區間內,恰巧與 Keycloak 領域匯入(realm-import)階段拋出的一個
+真實(雖然最終是暫時性的)H2 寫入錯誤同時發生——詳見第 2 節。
+`docker builder prune -f` 回收了 1.526GB 的過期建置快取圖層,
+使磁碟使用率回落至 82%;這正是計畫本身的全域限制條件所要求的、
+在建置過程中出現磁碟壓力時應採取的預防性步驟。
 
-**ClamAV first-boot definition download: 9 minutes 29 seconds.** Measured
-directly from `docker inspect drm-clamav-1`'s health-check log: container
-created `2026-08-02T05:54:38Z`, first successful healthcheck (`Clamd is up`)
-at `2026-08-02T06:04:07Z`. Within the range of both Phase 4A's 7m41s
-observation and this project's prior ~13-minute observation on the same
-host; well inside the 900s `start_period` budgeted in `docker-compose.yml`.
+**ClamAV 首次啟動下載病毒碼定義花了 9 分 29 秒。** 直接從
+`docker inspect drm-clamav-1` 的健康檢查記錄量測所得:容器建立於
+`2026-08-02T05:54:38Z`,首次健康檢查成功(`Clamd is up`)
+於 `2026-08-02T06:04:07Z`。落在 Phase 4A 觀察到的 7m41s
+以及本專案在同一台主機上先前約 13 分鐘的觀察值之間;
+遠低於 `docker-compose.yml` 中設定的 900 秒 `start_period` 預算。
 
-**Keycloak's cold start took 5 minutes 31 seconds** (`Keycloak 25.0.6 on JVM
-... started in 331.072s`, from its own startup log) — slower than Phase 4A's
-~3.5-minute observation. Immediately before finishing, Keycloak's log showed
-a real, if self-recovering, error:
+**Keycloak 冷啟動花了 5 分 31 秒**(`Keycloak 25.0.6 on JVM
+... started in 331.072s`,取自其自身的啟動記錄)——比 Phase 4A
+觀察到的約 3.5 分鐘更慢。在完成前不久,Keycloak 的記錄顯示了一個
+真實但會自行恢復的錯誤:
 
 ```
 WARN [io.agroal.pool] (agroal-11) Datasource '<default>': General error:
@@ -60,86 +56,82 @@ WARN [io.agroal.pool] (agroal-11) Datasource '<default>': General error:
 failed; length 4096 at 8192 [2.2.224/2]"
 ```
 
-This is Keycloak's own embedded H2 database (dev-mode `start-dev`, unrelated
-to the project's Postgres) failing a write, coinciding with the disk-pressure
-peak described above. It self-recovered on retry without intervention —
-Keycloak's own Liquibase schema migration, master-realm init, and `drm` realm
-import (from `realm-export.json`) all completed successfully moments later,
-and `http://auth.drm.localhost/realms/drm/.well-known/openid-configuration`
-returned `200` immediately after. The `docker builder prune -f` run in
-response to the disk-pressure reading likely helped, though it's not certain
-this specific H2 warning depended on it — noted here as a real, observed
-symptom of this run's disk/memory pressure, not a code or config defect in
-this phase's own changes.
+這是 Keycloak 自身內嵌的 H2 資料庫(開發模式 `start-dev`,
+與本專案的 Postgres 無關)寫入失敗,恰好與上述磁碟壓力高峰同時發生。
+它在重試後自行恢復,無需人工介入——Keycloak 自身的 Liquibase 綱要遷移、
+主要領域(master-realm)初始化,以及 `drm` 領域匯入
+(來自 `realm-export.json`)片刻之後全數順利完成,
+且 `http://auth.drm.localhost/realms/drm/.well-known/openid-configuration`
+隨後立即回傳 `200`。針對磁碟壓力讀數所執行的
+`docker builder prune -f` 或許有所幫助,不過無法確定這個特定的 H2 警告
+是否確實與其相關——此處記錄下來作為本次執行過程中磁碟/記憶體壓力的
+真實觀察到的徵狀,而非本階段自身變更中的程式碼或設定缺陷。
 
-Total wall time from `down -v` to the `docker compose up -d --build` command
-itself returning (`EXIT:0`, once every `depends_on: condition: service_healthy`
-chain — including `api`'s wait on `clamav`'s health — was satisfied): **~18.5
-minutes**, dominated by the image-build phase (~8 min) and ClamAV's
-definition download (~9.5 min, run in parallel with Keycloak's cold start).
+從 `down -v` 到 `docker compose up -d --build` 指令本身返回
+(`EXIT:0`,亦即每一條 `depends_on: condition: service_healthy`
+鏈——包含 `api` 對 `clamav` 健康狀態的等待——都已滿足)的總耗時為:**約 18.5
+分鐘**,主要由映像檔建置階段(約 8 分鐘)以及 ClamAV
+病毒碼下載(約 9.5 分鐘,與 Keycloak 冷啟動並行執行)所主導。
 
-## 2. Automated suites, run together — three real integration-only issues found
+## 2. 一併執行的自動化套件——發現三個真實的、僅在整合層級才會出現的問題
 
-Per the task brief, all eight suites (`smoke-test.sh`, `api test`,
-`api test:e2e`, `api lint`, `worker lint`, `web test`,
-`verify-gotenberg.sh`, `verify-clamav.sh`) were run together, repeatedly,
-specifically to surface integration-only issues. Three distinct, real issues
-were found this way — none of them visible in any prior task's individual
-testing — plus two occurrences of ClamAV crashing under memory pressure
-(the same class of infrastructure issue Phase 4A first documented, not a new
-code defect).
+依照任務簡報的要求,全部八個套件(`smoke-test.sh`、`api test`、
+`api test:e2e`、`api lint`、`worker lint`、`web test`、
+`verify-gotenberg.sh`、`verify-clamav.sh`)被反覆一併執行,
+目的正是為了揭露僅在整合層級才會出現的問題。以此方式發現了三個
+不同的真實問題——皆未曾在先前任何個別任務的測試中出現過——
+另外還有兩次 ClamAV 在記憶體壓力下當機的事件
+(與 Phase 4A 最初記錄的同一類基礎設施問題,並非新的程式碼缺陷)。
 
-### 2a. `document-conversion.e2e-spec.ts`'s 40s test timeout, too tight for real infrastructure latency under combined load
+### 2a. `document-conversion.e2e-spec.ts` 的 40 秒測試逾時,對於合併負載下的真實基礎設施延遲而言過於緊繃
 
-The first full combined run's `api test:e2e` failed:
+第一次完整合併執行時,`api test:e2e` 失敗:
 
 ```
 FAIL test/document-conversion.e2e-spec.ts
   thrown: "Exceeded timeout of 40000 ms for a test."
 ```
 
-Investigation: the conversion pipeline had **not** actually failed. Gotenberg's
-own access log recorded a genuine `200` response with `"latency_human":
-"17.702273582s"` for this exact conversion — and a direct Postgres query for
-the test's `documentVersionId` moments later showed `previewObjectKey` had
-in fact been populated with a real object key. The full pipeline (enqueue →
-worker pickup → MinIO fetch → Gotenberg convert → MinIO store → BullMQ
-`completed` event over Redis → Prisma update) had genuinely completed — just
-slower than the test's 40-second budget (30 x 1s poll + Jest's own 40000ms
-timeout), because this run's real, concurrent load (other e2e suites running
-in parallel, right after the fresh rebuild's residual memory/swap pressure)
-made Gotenberg itself take over 4x longer than its typical sub-5s conversion
-of a trivial document.
+調查結果:轉換流程實際上**並未**失敗。Gotenberg 自身的存取記錄
+顯示了這次確切轉換的真實 `200` 回應,`"latency_human":
+"17.702273582s"`——片刻之後直接對該測試的 `documentVersionId`
+執行 Postgres 查詢,顯示 `previewObjectKey` 確實已經填入了真實的物件金鑰。
+整條流程(排入佇列 → worker 接收 → MinIO 擷取 → Gotenberg 轉換
+→ MinIO 儲存 → 透過 Redis 觸發的 BullMQ `completed` 事件 → Prisma
+更新)確實已經完整執行完畢——只是比測試的 40 秒預算
+(30 次 x 1 秒輪詢 + Jest 自身的 40000ms 逾時)還要慢,
+因為這次執行時真實的並行負載(其他 e2e 套件同時執行,
+緊接在全新重建後殘留的記憶體/swap 壓力之後)使得 Gotenberg
+本身花費的時間超過其一般轉換簡單文件所需不到 5 秒的 4 倍以上。
 
-**Fix:** widened the poll loop to 90 x 1s and the Jest test timeout to
-100000ms in `apps/api/test/document-conversion.e2e-spec.ts`, with a comment
-explaining the real, measured latency that justified the change (not an
-arbitrary bump). Re-ran `api test:e2e` immediately after: 13/13 suites,
-31/31 tests, with `document-conversion.e2e-spec.ts` completing in 31.987s —
-comfortably inside the new budget, confirming the pipeline itself was never
-broken.
+**修正方式:** 將輪詢迴圈放寬至 90 次 x 1 秒,並將 Jest 測試逾時
+放寬至 100000ms,位置在 `apps/api/test/document-conversion.e2e-spec.ts`,
+並附上說明真實測量延遲的註解,說明此變更是有依據的(而非隨意調高)。
+修正後立即重新執行 `api test:e2e`:13/13 個套件、
+31/31 個測試通過,其中 `document-conversion.e2e-spec.ts`
+在 31.987 秒內完成——輕鬆落在新的預算範圍內,確認該流程本身從未真正故障。
 
-### 2b. `virus-scan.e2e-spec.ts` lint failure (the same class of gap Phase 4A's Task 6 found)
+### 2b. `virus-scan.e2e-spec.ts` 的 lint 失敗(與 Phase 4A 任務 6 發現的同一類缺口)
 
 ```
 apps/api/test/virus-scan.e2e-spec.ts
   65:35  error  Unsafe member access .documents on an `any` value
 ```
 
-`axios.get(...)` without a generic type parameter returns `AxiosResponse<any>`;
-the test's `folderContentsRes.data.documents` access on that untyped `any`
-correctly tripped `@typescript-eslint/no-unsafe-member-access`. This mirrors
-Phase 4A's Task 6 finding almost exactly (an e2e test file that had never
-been run through lint in the same pass as `test:e2e`).
+`axios.get(...)` 若未指定泛型型別參數,會回傳 `AxiosResponse<any>`;
+該測試對這個未型別化的 `any` 存取 `folderContentsRes.data.documents`,
+因而正確地觸發了 `@typescript-eslint/no-unsafe-member-access` 規則。
+這幾乎完全對應 Phase 4A 任務 6 的發現(一個從未與
+`test:e2e` 在同一次執行中通過 lint 檢查的 e2e 測試檔案)。
 
-**Fix:** extended the file's existing `FolderResponse` interface with an
-`documents?: unknown[]` field (matching the identical pattern already used in
-`folders.e2e-spec.ts`) and typed the `axios.get<FolderResponse>(...)` call
-explicitly, rather than disabling the rule. Re-ran `api lint`: clean.
+**修正方式:** 為該檔案既有的 `FolderResponse` 介面擴充一個
+`documents?: unknown[]` 欄位(符合 `folders.e2e-spec.ts`
+中已使用的相同模式),並明確為 `axios.get<FolderResponse>(...)`
+呼叫加上型別,而非直接停用該規則。重新執行 `api lint`:結果乾淨無誤。
 
-### 2c. `afterAll` hook timeout too tight for `container.stop()` under real memory pressure, across three testcontainer-based unit specs
+### 2c. 三個以 testcontainer 為基礎的單元測試規格檔中,`afterAll` 掛鉤逾時對於真實記憶體壓力下的 `container.stop()` 而言過於緊繃
 
-During a later full combined run, `api test` failed:
+在稍後一次完整合併執行中,`api test` 失敗:
 
 ```
 FAIL src/prisma/user-persistence.spec.ts
@@ -147,76 +139,74 @@ FAIL src/prisma/user-persistence.spec.ts
     at prisma/user-persistence.spec.ts:21:3  (afterAll)
 ```
 
-and, in the same run, `audit/audit.service.spec.ts` hit the identical
-failure at its own `afterAll`. Both files' `beforeAll` (which starts a real
-`PostgreSqlContainer` via testcontainers) already carried an explicit
-60000ms timeout — but `afterAll` (`prisma.$disconnect()` +
-`container.stop()`) had no explicit timeout and fell back to Jest's default
-5000ms. `container.stop()` is a real Docker operation, and this run's host
-was under the same documented memory/swap pressure as everywhere else in
-this task — 5 seconds proved genuinely too tight for it, twice, in two
-different files.
+同一次執行中,`audit/audit.service.spec.ts` 也在自身的 `afterAll`
+遇到了相同的失敗。兩個檔案的 `beforeAll`(會透過 testcontainers
+啟動真實的 `PostgreSqlContainer`)都已經明確設定了 60000ms 逾時——
+但 `afterAll`(`prisma.$disconnect()` + `container.stop()`)
+並未明確設定逾時,因而落回 Jest 預設的 5000ms。`container.stop()`
+是真實的 Docker 操作,而這次執行的主機正處於與整個任務其他地方
+記錄相同的記憶體/swap 壓力之下——5 秒對它來說確實太緊繃,
+在兩個不同檔案中各發生了一次。
 
-**Fix:** added an explicit `60000` timeout to `afterAll` in all three
-testcontainer-based unit spec files that share this exact pattern —
-`apps/api/src/prisma/user-persistence.spec.ts`,
-`apps/api/src/acl/acl.service.spec.ts`, and
-`apps/api/src/audit/audit.service.spec.ts` — matching `beforeAll`'s existing
-budget rather than inventing a new one, since teardown is the same class of
-Docker operation as setup. Re-ran `api test` after the fix: all three files'
-`afterAll` hooks completed well within budget across two subsequent runs
-(30/30 tests passing each time).
+**修正方式:** 為所有三個共享此確切模式、以 testcontainer 為基礎的
+單元測試規格檔的 `afterAll` 加上明確的 `60000` 逾時——
+`apps/api/src/prisma/user-persistence.spec.ts`、
+`apps/api/src/acl/acl.service.spec.ts`,以及
+`apps/api/src/audit/audit.service.spec.ts`——與 `beforeAll`
+既有的預算保持一致,而非另行發明新的數值,因為清理階段
+與設定階段屬於同一類 Docker 操作。修正後重新執行 `api test`:
+在接下來兩次執行中,全部三個檔案的 `afterAll` 掛鉤都在預算內順利完成
+(每次都是 30/30 個測試通過)。
 
-**A fourth, distinct occurrence during the same investigation is not treated
-as a fourth bug**: in a later run, `acl.service.spec.ts` failed again — this
-time in `beforeAll` itself (`PostgreSqlContainer.start()` exceeding its
-existing 60000ms budget), at a moment `free -h` showed swap at **exactly
-0 bytes free** (3.8/3.8GiB used) — the single worst resource-pressure reading
-observed across this entire task. This is a genuine, extreme host-level
-resource exhaustion event, not a tunable-timeout gap like 2a/2c above:
-`beforeAll`'s budget already matched the project's established convention,
-and the same spec file passed cleanly (in 52.7s) on the very next run once
-memory pressure eased. No code change was made for this occurrence — bumping
-an already-generous timeout further would not fix a container genuinely
-unable to start because the host had no memory left, and the two other real
-fixes above already address every case where a *reasonable* timeout was
-provably too tight for genuine (not exhausted) infrastructure latency.
+**同一次調查過程中發生的第四個、獨立的事件並未被視為第四個錯誤**:
+在稍後一次執行中,`acl.service.spec.ts` 再次失敗——這次是在
+`beforeAll` 本身(`PostgreSqlContainer.start()` 超出其既有的
+60000ms 預算),發生在 `free -h` 顯示 swap **恰好剩餘 0 位元組**
+(3.8/3.8GiB 已使用)的那一刻——這是整個任務過程中觀察到的
+最嚴重資源壓力讀數。這是一個真實的、極端的主機層級資源耗盡事件,
+並非像 2a/2c 那樣可調整逾時值即可解決的缺口:`beforeAll`
+的預算原本就已經符合本專案既定的慣例,且緊接著在記憶體壓力緩解後,
+同一個規格檔在下一次執行(52.7 秒內)就順利通過了。
+針對此事件並未進行任何程式碼變更——對一個已經相當寬鬆的逾時值
+再進一步調高,並不能解決一個確實因主機記憶體耗盡而無法啟動的容器問題,
+上述另外兩個真實修正已經涵蓋了所有「合理」逾時值確實對真實
+(而非資源耗盡)基礎設施延遲而言過於緊繃的情況。
 
-### 2d. ClamAV crashed under memory pressure — twice, both times recovered per Phase 4A's established procedure
+### 2d. ClamAV 在記憶體壓力下當機——共兩次,兩次都依照 Phase 4A 既定程序順利恢復
 
-Twice during this task's repeated combined runs, `verify-clamav.sh` and/or
-`api test:e2e`'s `virus-scan`/`document-conversion` suites failed with:
+在本任務反覆執行合併測試套件的過程中,`verify-clamav.sh` 及/或
+`api test:e2e` 的 `virus-scan`/`document-conversion` 套件
+有兩次因以下錯誤而失敗:
 
 ```
 Error: connect ECONNREFUSED 172.19.0.5:3310
 ```
 
-Both times, `docker exec drm-clamav-1 ps -eo pid,stat,args` confirmed the
-root cause identically to Phase 4A: `clamd`'s process had gone to state `Z`
-(zombie) under host memory pressure — a real crash, not a slowdown. Both
-times, `docker compose ps`'s cached `healthy` status was stale (the 30s
-healthcheck interval / 10-retry threshold hadn't yet caught the crash),
-which is exactly why `verify-clamav.sh`'s direct scan attempt is a more
-reliable check than trusting compose's cached health field alone.
+兩次執行 `docker exec drm-clamav-1 ps -eo pid,stat,args`
+都確認了與 Phase 4A 完全相同的根本原因:`clamd` 的處理程序
+在主機記憶體壓力下進入了 `Z`(殭屍)狀態——這是真實的當機,
+而非單純的變慢。兩次事件中,`docker compose ps` 快取的 `healthy`
+狀態都已經過期(30 秒健康檢查間隔 / 10 次重試門檻尚未捕捉到這次當機),
+這正是為什麼 `verify-clamav.sh` 直接執行掃描嘗試,
+比單純信任 compose 快取的健康狀態欄位更為可靠。
 
-**Fix (both times): `docker compose restart clamav`** — the same established
-recovery Phase 4A documented. Recovery took longer on this run than Phase
-4A's ~5-second observation (roughly 1-3 minutes each time, including one
-stretch where `clamd`/`freshclam` sat in uninterruptible-sleep (`D`) state
-while swap was fully exhausted) — consistent with this run's overall higher
-memory pressure, not a change in ClamAV's own behavior. Both times, no fresh
-virus-definition download was needed (the `clamav_data` volume persists
-across a plain `restart`, only wiped by `down -v`), and both times
-`./scripts/verify-clamav.sh` and the affected `api test:e2e` suites were
-re-run immediately after and passed cleanly. No application or
-infrastructure config change was made — this remains a real, recurring
-operational characteristic of running this stack on a ~2GB-RAM host under
-concurrent load, now observed in two consecutive phases (4A: once; 4B:
-twice in one task), reinforcing Phase 4A's own carried-forward finding:
-**future CI or dev-host sizing for this stack should budget more than
-~2GB RAM.**
+**修正方式(兩次皆同):`docker compose restart clamav`**——
+與 Phase 4A 記錄的既定復原方式相同。這次執行的復原時間
+比 Phase 4A 觀察到的約 5 秒更長(每次大約 1-3 分鐘,
+其中一段期間 `clamd`/`freshclam` 在 swap 完全耗盡時
+停留在不可中斷睡眠(`D`)狀態)——這與這次執行整體較高的記憶體壓力一致,
+而非 ClamAV 自身行為的變化。兩次事件都不需要重新下載病毒碼定義
+(`clamav_data` 磁碟區在單純的 `restart` 過程中會保留下來,
+僅在 `down -v` 時才會被清除),且兩次都在事後立即重新執行
+`./scripts/verify-clamav.sh` 以及受影響的 `api test:e2e`
+套件,並且都順利通過。並未進行任何應用程式或基礎設施設定變更——
+這仍然是在約 2GB 記憶體的主機上、在並行負載下執行本堆疊的
+真實、反覆出現的運作特性,如今已在連續兩個階段中觀察到
+(Phase 4A:一次;Phase 4B:同一任務中兩次),
+強化了 Phase 4A 自身延續下來的結論:
+**未來 CI 或開發主機為此堆疊配置的規格,應預留超過約 2GB 的記憶體。**
 
-### Final clean runs, suite by suite
+### 最終乾淨執行結果,逐套件列出
 
 ```
 ./scripts/smoke-test.sh
@@ -237,34 +227,34 @@ Smoke test passed.
 ```
 pnpm --filter api test
 ```
-**5 suites passed, 30 tests passed** (`user-persistence.spec.ts`,
-`audit.service.spec.ts`, `acl.service.spec.ts`, `jwt.strategy.spec.ts`,
-`health.controller.spec.ts`) — confirmed clean on the final run, completing
-in 120s (vs. 257-259s on the runs that hit Section 2c's resource pressure).
+**5 個套件通過、30 個測試通過**(`user-persistence.spec.ts`、
+`audit.service.spec.ts`、`acl.service.spec.ts`、`jwt.strategy.spec.ts`、
+`health.controller.spec.ts`)——在最終這次執行中確認結果乾淨,
+耗時 120 秒(相較於遇到第 2c 節資源壓力問題的執行耗時 257-259 秒)。
 
 ```
 pnpm --filter api test:e2e
 ```
-**13 suites passed, 31 tests passed**, including both of Phase 4B's new
-suites: `virus-scan.e2e-spec.ts` (real EICAR rejection + audit entry, real
-clean-file acceptance) and `document-conversion.e2e-spec.ts` (real
-Office-mimetype upload → real worker pickup → real Gotenberg conversion →
-real MinIO PDF, verified by magic bytes, not just a DB column).
+**13 個套件通過、31 個測試通過**,包含 Phase 4B 兩個新增的套件:
+`virus-scan.e2e-spec.ts`(真實的 EICAR 拒絕 + 稽核紀錄項目、
+真實乾淨檔案的接受)以及 `document-conversion.e2e-spec.ts`
+(真實 Office mimetype 上傳 → 真實 worker 接收 → 真實 Gotenberg
+轉換 → 真實 MinIO PDF,以魔數位元組驗證,而不僅僅是檢查資料庫欄位)。
 
 ```
 pnpm --filter api lint
 ```
-Clean — no errors, no warnings.
+乾淨——無錯誤、無警告。
 
 ```
 pnpm --filter worker lint
 ```
-Clean — no errors, no warnings.
+乾淨——無錯誤、無警告。
 
 ```
 pnpm --filter web test
 ```
-**1 file passed, 2 tests passed** (`Home.test.tsx`).
+**1 個檔案通過、2 個測試通過**(`Home.test.tsx`)。
 
 ```
 ./scripts/verify-gotenberg.sh
@@ -286,113 +276,108 @@ Scanning the clean file (must pass)...
 ClamAV verification passed: EICAR detected, clean file passed.
 ```
 
-All eight checks pass, with both real code fixes (Sections 2a, 2c) and the
-lint fix (2b) confirmed in place, and ClamAV's `healthy` status confirmed
-immediately before and after the final sequence.
+全部八項檢查皆通過,兩項真正的程式碼修正(第 2a、2c 節)以及
+lint 修正(2b)都已確認就位,而 ClamAV 的 `healthy` 狀態
+在整個最終執行序列前後都已確認正常。
 
-## 3. Manual walkthrough
+## 3. 手動走查
 
-Performed as `testadmin` (the seeded admin user from
-`keycloak/realm-export.json`) against the live, freshly-rebuilt stack, via
-direct HTTP calls (not the automated suites) — a folder was created first
-(`POST /folders`), then three uploads into it:
+以 `testadmin`(來自 `keycloak/realm-export.json` 中預先建立的
+管理員使用者)身分,針對即時的、剛重建完成的堆疊,
+透過直接的 HTTP 呼叫(而非自動化套件)進行——先建立一個資料夾
+(`POST /folders`),接著向其中執行三次上傳:
 
-**3a. Infected upload (EICAR test string, base64-decoded at runtime, never
-committed as a literal):**
+**3a. 受感染上傳(EICAR 測試字串,執行時以 base64 解碼,從未以字面值提交):**
 ```
 POST /documents  ->  400 Bad Request
 {"message":"Upload rejected: infected file detected (Eicar-Test-Signature)", ...}
 ```
-Confirmed via `GET /folders/:id`: `"documents": []` — no `Document` row was
-ever created. Confirmed via `GET /folders/:id/audit-logs`: a `virus_detected`
-entry was recorded (`resourceType: "folder"`, `resourceId` matching the
-folder), sequenced correctly into the hash chain between the `folder_create`
-and subsequent `folder_view` entries.
+透過 `GET /folders/:id` 確認:`"documents": []`——從未建立任何
+`Document` 資料列。透過 `GET /folders/:id/audit-logs` 確認:
+記錄了一筆 `virus_detected` 項目(`resourceType: "folder"`,
+`resourceId` 與該資料夾相符),正確地依序排列在雜湊鏈中
+`folder_create` 與隨後的 `folder_view` 項目之間。
 
-**3b. Clean Office-mimetype upload** (`application/vnd.openxmlformats-officedocument.wordprocessingml.document`):
+**3b. 乾淨的 Office mimetype 上傳** (`application/vnd.openxmlformats-officedocument.wordprocessingml.document`):
 ```
 POST /documents  ->  201 Created
 "currentVersion": {"previewObjectKey": null, ...}
 ```
-Accepted immediately, `previewObjectKey` starts `null` as expected.
-`GET /documents/:id` was polled once per second; `previewObjectKey` was
-populated after **1 second** (`...-preview-e500e4cd-....pdf`). The preview
-object was then fetched directly from MinIO (`docker run ... minio/mc cat`,
-using the `drm-api` scoped credential) and confirmed to be a genuine PDF: its
-first bytes were `%PDF-1.7`, 14,690 bytes total — not merely a string in the
-`previewObjectKey` column, but a real, retrievable PDF object in the
-`documents` bucket.
+立即被接受,`previewObjectKey` 一開始如預期為 `null`。
+每隔一秒輪詢一次 `GET /documents/:id`;`previewObjectKey`
+在**1 秒**後被填入(`...-preview-e500e4cd-....pdf`)。
+接著直接從 MinIO 擷取該預覽物件(`docker run ... minio/mc cat`,
+使用 `drm-api` 限定範圍的憑證),確認為真實的 PDF:
+其開頭位元組為 `%PDF-1.7`,總計 14,690 位元組——並非僅僅是
+`previewObjectKey` 欄位中的一段字串,而是 `documents` bucket
+中真實、可擷取的 PDF 物件。
 
-**3c. Clean plain-text upload** (`text/plain`):
+**3c. 乾淨的純文字上傳** (`text/plain`):
 ```
 POST /documents  ->  201 Created
 "currentVersion": {"previewObjectKey": null, ...}
 ```
-Accepted, and `previewObjectKey` was confirmed still `null` via
-`GET /documents/:id` after a 6-second wait (no conversion job is enqueued
-for a non-Office mimetype, per `DocumentsService`'s `OFFICE_MIME_TYPES`
-allow-list — a plain-text upload never touches the queue at all).
+被接受,並且透過 `GET /documents/:id` 在等待 6 秒後確認
+`previewObjectKey` 依然為 `null`(依照 `DocumentsService` 的
+`OFFICE_MIME_TYPES` 允許清單,非 Office mimetype 不會排入
+轉換工作佇列——純文字上傳完全不會碰到佇列)。
 
-All three manual-walkthrough cases from the task brief were exercised and
-matched expectations exactly, against a stack that had not been touched by
-any of this task's own automated test runs moments before (fresh folder,
-fresh documents, real HTTP calls).
+任務簡報中的全部三種手動走查情境都已實際執行,
+結果完全符合預期,且針對的堆疊在此之前片刻並未受到
+本任務自身任何自動化測試執行的影響(全新資料夾、全新文件、真實 HTTP 呼叫)。
 
-## Files changed
+## 變更的檔案
 
-- `apps/api/test/document-conversion.e2e-spec.ts` — widened the
-  preview-polling loop (30 → 90 iterations) and the test's own Jest timeout
-  (40000 → 100000ms), with a comment recording the real 17.7s Gotenberg
-  latency this task's combined run measured (Section 2a).
-- `apps/api/test/virus-scan.e2e-spec.ts` — typed the `axios.get` folder-read
-  call (`FolderResponse` extended with `documents?: unknown[]`, matching
-  `folders.e2e-spec.ts`'s existing pattern), fixing the lint error Section 2b
-  found (a real gap, not previously caught because lint had never run
-  against this file in the same pass as `test:e2e`).
-- `apps/api/src/prisma/user-persistence.spec.ts`,
-  `apps/api/src/acl/acl.service.spec.ts`,
-  `apps/api/src/audit/audit.service.spec.ts` — added an explicit 60000ms
-  timeout to each file's `afterAll` hook (matching each file's existing
-  `beforeAll` budget), fixing the real `container.stop()` timeout Section 2c
-  found in two of the three files, applied preemptively to the third since
-  all three share the identical testcontainers teardown pattern.
-- `docs/superpowers/plans/2026-08-02-phase4b-verification.md` — this
-  document.
+- `apps/api/test/document-conversion.e2e-spec.ts`——放寬了
+  預覽輪詢迴圈(30 → 90 次),以及測試自身的 Jest 逾時
+  (40000 → 100000ms),並附上記錄本任務合併執行時測量到的
+  真實 17.7 秒 Gotenberg 延遲的註解(第 2a 節)。
+- `apps/api/test/virus-scan.e2e-spec.ts`——為 `axios.get` 的
+  資料夾讀取呼叫加上型別(`FolderResponse` 擴充了
+  `documents?: unknown[]`,符合 `folders.e2e-spec.ts` 既有的模式),
+  修正了第 2b 節發現的 lint 錯誤(一個真實的缺口,先前未被發現的原因
+  是該檔案從未與 `test:e2e` 在同一次執行中通過 lint 檢查)。
+- `apps/api/src/prisma/user-persistence.spec.ts`、
+  `apps/api/src/acl/acl.service.spec.ts`、
+  `apps/api/src/audit/audit.service.spec.ts`——為每個檔案的
+  `afterAll` 掛鉤加上明確的 60000ms 逾時(與各檔案既有的
+  `beforeAll` 預算一致),修正了第 2c 節在三個檔案中的其中兩個
+  發現的真實 `container.stop()` 逾時問題,並基於三者共享完全相同的
+  testcontainers 清理模式,對第三個檔案也預先性地一併套用了修正。
+- `docs/superpowers/plans/2026-08-02-phase4b-verification.md`——本文件。
 
-## Result
+## 結果
 
-All automated suites pass together on a fresh, fully-rebuilt stack: smoke
-test (9/9 checks); 5/5 API unit suites, 30/30 unit tests; 13/13 API e2e
-suites, 31/31 e2e tests (including both of this phase's new suites,
-`virus-scan` and `document-conversion`, the latter verified against a real
-PDF's magic bytes in MinIO, not just a DB column); API lint clean; worker
-lint clean; 1/1 web suite, 2/2 web tests; Gotenberg conversion verified
-against a real document; ClamAV verified against both a real EICAR detection
-and a clean-file pass.
+所有自動化套件在全新、完整重建的堆疊上一併執行皆通過:
+smoke test(9/9 項檢查通過);5/5 個 API 單元測試套件、
+30/30 個單元測試通過;13/13 個 API e2e 套件、31/31 個 e2e
+測試通過(包含本階段兩個新套件 `virus-scan` 與
+`document-conversion`,後者已針對 MinIO 中真實 PDF 的魔數位元組驗證,
+而不僅僅是資料庫欄位);API lint 乾淨;worker lint 乾淨;
+1/1 個 web 套件、2/2 個 web 測試通過;Gotenberg 轉換已針對
+真實文件驗證;ClamAV 已針對真實 EICAR 偵測與乾淨檔案通過雙重驗證。
 
-Three real, integration-only issues were found and fixed exactly as this
-task's brief anticipated — a test timeout too tight for genuine (measured,
-not hypothetical) infrastructure latency under combined-suite load
-(Section 2a), a lint gap in an e2e test file never previously run through
-lint in the same pass as `test:e2e` (Section 2b, the same class of issue
-Phase 4A's Task 6 found), and an `afterAll` hook timeout gap across three
-testcontainer-based unit specs (Section 2c). Additionally, ClamAV crashed
-under this host's real memory pressure twice during this task's repeated
-combined runs (Section 2d) — both recovered via Phase 4A's established
-`docker compose restart clamav` procedure, with no code or config change,
-reinforcing that finding's carried-forward conclusion that this host's
-~2GB RAM is genuinely undersized for this stack's concurrent load.
+三個真實的、僅在整合層級才會出現的問題,如本任務簡報所預期地,
+被發現並修正——在合併套件負載下,對於真實(經測量,而非假設性)
+基礎設施延遲而言過於緊繃的測試逾時(第 2a 節);一個從未與
+`test:e2e` 在同一次執行中通過 lint 檢查的 e2e 測試檔案中的
+lint 缺口(第 2b 節,與 Phase 4A 任務 6 發現的同一類問題);
+以及三個以 testcontainer 為基礎的單元測試規格檔中的
+`afterAll` 掛鉤逾時缺口(第 2c 節)。此外,ClamAV 在本任務
+反覆執行合併測試的過程中,因主機真實的記憶體壓力而當機了兩次
+(第 2d 節)——兩次都透過 Phase 4A 既定的
+`docker compose restart clamav` 程序順利恢復,未進行任何
+程式碼或設定變更,進一步強化了該項發現延續下來的結論:
+本主機約 2GB 的記憶體對於此堆疊的並行負載而言確實規格不足。
 
-The manual walkthrough confirmed all three of the design spec's upload
-outcomes work correctly end-to-end on the freshly rebuilt stack: an infected
-upload is rejected before any storage or database write and is audited as a
-deliberate exception to Phase 3's success-only audit principle; a clean
-Office-mimetype upload is accepted immediately and asynchronously gains a
-real, verified PDF preview within seconds; a clean plain-text upload is
-accepted and correctly never enters the conversion pipeline at all.
+手動走查確認了設計規格中全部三種上傳結果,在剛重建完成的堆疊上
+皆能正確地端對端運作:受感染的上傳在任何儲存或資料庫寫入之前
+即被拒絕,並依照 Phase 3「僅成功才稽核」原則的一項刻意例外
+被記錄下來;乾淨的 Office mimetype 上傳立即被接受,
+並在數秒內非同步地取得真實、經驗證的 PDF 預覽;
+乾淨的純文字上傳被接受,且正確地完全不會進入轉換流程。
 
-Phase 4B's upload pipeline — synchronous ClamAV virus scanning before any
-write, and asynchronous Office-to-PDF conversion via `apps/worker` and
-Gotenberg — is verified working together, from a completely fresh
-`docker compose up`, alongside the full existing stack built across Phases
-1 through 4A.
+Phase 4B 的上傳流程——任何寫入之前的同步 ClamAV 病毒掃描,
+以及透過 `apps/worker` 與 Gotenberg 進行的非同步 Office 轉 PDF
+轉換——已驗證能在完全全新的 `docker compose up` 之下,
+與跨越 Phase 1 到 Phase 4A 建置完成的完整既有堆疊一起正常協同運作。

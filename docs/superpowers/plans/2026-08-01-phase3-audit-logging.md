@@ -1,41 +1,41 @@
-# Phase 3: Audit Logging Implementation Plan
+# Phase 3：稽核日誌實作計畫
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+> **給代理工作者的說明：** 必要子技能：使用 superpowers:subagent-driven-development（建議）或 superpowers:executing-plans 逐工作項目（task-by-task）實作此計畫。步驟使用核取方塊（`- [ ]`）語法進行追蹤。
 
-**Goal:** Every sensitive action against a folder, document, or permission grant is recorded in a tamper-evident, hash-chained `audit_logs` table, and the chain can be independently verified end-to-end.
+**目標：** 針對資料夾、文件或權限授予的每一項敏感操作，都會記錄在具防竄改能力、以雜湊鏈（hash-chained）方式串接的 `audit_logs` 資料表中，且該鏈可被獨立進行端對端驗證。
 
-**Architecture:** A new `AuditModule` (`AuditService` + `AuditController`) sits alongside the existing `FoldersModule`/`DocumentsModule`/`PermissionsModule`. Each of those services gets an `AuditService` dependency and calls `record(...)` after a state-changing or sensitive-read operation succeeds. Hash-chain writes are serialized with a Postgres advisory lock so concurrent requests can never fork the chain. Real client IP capture requires trusting Traefik as this app's sole reverse proxy (`app.set('trust proxy', true)` in `main.ts`).
+**架構：** 新增的 `AuditModule`（`AuditService` + `AuditController`）與既有的 `FoldersModule`/`DocumentsModule`/`PermissionsModule` 並列運作。上述每個服務都會取得一個 `AuditService` 依賴項，並在狀態變更或敏感讀取操作成功後呼叫 `record(...)`。雜湊鏈寫入操作會透過 Postgres 的 advisory lock 進行序列化，確保並行請求絕不會使鏈分岔。要擷取真實的客戶端 IP，需要將 Traefik 視為此應用程式唯一的反向代理並加以信任（在 `main.ts` 中設定 `app.set('trust proxy', true)`）。
 
-**Tech Stack:** NestJS 10, Prisma 5, Node's built-in `crypto` (SHA-256), Jest + Testcontainers (chain integrity, including a concurrency test).
+**技術堆疊：** NestJS 10、Prisma 5、Node 內建的 `crypto`（SHA-256）、Jest + Testcontainers（鏈完整性驗證，包含一個並行測試）。
 
-## Global Constraints
+## 全域限制條件
 
-- **Action taxonomy is a concrete mapping of the design spec's seven Chinese categories (上傳/檢視/下載/編輯/刪除/權限變更/到期) onto this codebase's actual operations**, not a literal transcription — deliberately scoped to only what exists after Phase 2B:
-  - `folder_create`, `folder_view` (folder creation and `GET /folders/:id`)
-  - `document_create`, `document_version_upload` (both "上傳"), `document_view` (covers both `GET /documents/:id` metadata and `GET /documents/:id/versions` — both are read operations on the same resource, not split into two actions), `document_download` ("下載")
-  - `permission_grant`, `permission_revoke` (both "權限變更")
-  - "刪除" (delete) and "到期" (expire) are explicitly NOT in this enum — no delete or expiration endpoint exists anywhere in the codebase yet (delete is out of scope entirely so far; expiration is Phase 4). Adding audit actions for operations that can't happen yet would be speculative. Extend the enum when those operations are actually built.
-  - Listing permissions (`GET .../permissions`) is deliberately NOT audited in this phase — the state-changing grant/revoke events are what matters most for compliance; auditing every read of the ACL list is a reasonable future addition, not required now.
-- **The hash chain must be strictly linear under concurrency.** Two simultaneous audit writes must never both read the same "latest" hash and insert two rows claiming the same `prevHash` — that would fork the chain and break end-to-end verification. Every write acquires a Postgres advisory lock (`pg_advisory_xact_lock`, held for the transaction) before reading the current chain tip and inserting, serializing all audit writes application-wide. Audit writes are not this app's throughput bottleneck, so global serialization is an acceptable, simple correctness guarantee — do not replace it with an unserialized "good enough" version.
-- **Ordering for the chain must not depend on `createdAt` alone** (timestamp collisions are possible under load, and this project has already observed a single-CPU host running under contention from unrelated processes). `AuditLog` gets an auto-incrementing `sequence` column used for both "find the chain tip" and "walk the chain in order" — never `orderBy: { createdAt: ... }` for chain-critical operations.
-- **Hash input is a fixed, deterministic, pipe-delimited string** — `id|actorId|action|resourceType|resourceId|ipAddress|createdAt(ISO)|prevHash` — not JSON (JSON key-ordering determinism is a real footgun; avoiding it entirely is simpler than getting it right). `createdAt` is generated in application code (`new Date()`) before the insert, not left to a DB `@default(now())`, so the exact timestamp used in the hash matches what's stored byte-for-byte.
-- **IP capture requires `app.set('trust proxy', true)` in `main.ts`.** This project's Phase 1 final review flagged this exact gap ("`req.ip` reflects Traefik's address, not the real client") as deferred until IP was actually consumed by something — it's consumed now. Traefik is the sole entry point into the `api` service (confirmed: no other route reaches it directly, `docker-compose.yml`'s `api` service has no published port), so trusting all proxies is safe here — document this reasoning in a code comment, since `trust proxy: true` is a footgun in a topology with untrusted intermediate proxies (not this one).
-- Real integration tests: `AclService`-style Testcontainers tests for `AuditService`'s chain logic (including a genuine concurrency test — fire multiple `record()` calls concurrently and confirm the chain is still strictly linear afterward), e2e tests against the live stack for the audit trail actually being populated by real operations.
-- Docker daemon on this host is sometimes under load from unrelated processes, and this session has repeatedly hit disk-space stalls during `docker compose build` — check `df -h /` and `docker builder prune -f` if a build hangs unusually long. Verify a container was actually recreated after any rebuild (check image ID/start time), not just that the build command exited 0.
+- **動作分類法是將設計規格中七個中文分類（上傳/檢視/下載/編輯/刪除/權限變更/到期）具體對應到此程式碼庫實際操作**，而非逐字轉錄——刻意將範圍限定於 Phase 2B 之後實際存在的功能：
+  - `folder_create`、`folder_view`（資料夾建立與 `GET /folders/:id`）
+  - `document_create`、`document_version_upload`（兩者皆屬「上傳」）、`document_view`（涵蓋 `GET /documents/:id` 的中繼資料與 `GET /documents/:id/versions` 兩者——兩者皆為對同一資源的讀取操作，不拆分為兩個動作）、`document_download`（「下載」）
+  - `permission_grant`、`permission_revoke`（兩者皆屬「權限變更」）
+  - 「刪除」（delete）與「到期」（expire）明確不在此列舉（enum）中——目前程式碼庫中尚無任何刪除或到期端點（delete 目前完全不在範圍內；到期則屬於 Phase 4）。為目前還不可能發生的操作新增稽核動作只會是臆測性的。等這些操作實際被建置後再擴充此列舉。
+  - 列出權限（`GET .../permissions`）在此階段刻意不進行稽核——對合規性而言，最重要的是狀態變更的授予/撤銷事件；稽核每一次 ACL 清單讀取是合理的未來擴充項目，但目前並非必要。
+- **在並行情況下，雜湊鏈必須嚴格保持線性。** 兩筆同時發生的稽核寫入絕不能同時讀取到相同的「最新」雜湊值，並各自插入宣稱擁有相同 `prevHash` 的資料列——那將使鏈分岔，並破壞端對端驗證。每次寫入在讀取目前鏈尾並執行插入之前，都會先取得一個 Postgres advisory lock（`pg_advisory_xact_lock`，在交易期間持有），將整個應用程式範圍內的所有稽核寫入序列化。稽核寫入並非此應用程式的吞吐量瓶頸，因此全域序列化是可接受、簡單的正確性保證——不要以未序列化的「差不多就好」版本取代它。
+- **鏈的排序不得僅依賴 `createdAt`**（在負載下時間戳記可能發生碰撞，且此專案已觀察到單 CPU 主機在與無關程序爭用資源時執行的情況）。`AuditLog` 新增了一個自動遞增的 `sequence` 欄位，同時用於「找出鏈尾」與「依序走訪整條鏈」——對鏈完整性至關重要的操作絕不使用 `orderBy: { createdAt: ... }`。
+- **雜湊輸入是一個固定、具決定性、以管線符號分隔的字串**——`id|actorId|action|resourceType|resourceId|ipAddress|createdAt(ISO)|prevHash`——而非 JSON（JSON 的鍵值順序決定性是個實際存在的陷阱；完全避開它比正確處理它更簡單）。`createdAt` 是在插入之前由應用程式程式碼產生（`new Date()`），而非交由資料庫的 `@default(now())` 產生，如此一來雜湊中所使用的確切時間戳記，才會與實際儲存的內容逐位元組相符。
+- **IP 擷取需要在 `main.ts` 中設定 `app.set('trust proxy', true)`。** 此專案 Phase 1 的最終審查曾指出這個確切的缺口（「`req.ip` 反映的是 Traefik 的位址，而非真實客戶端」），並將其延後處理，直到真的有東西會使用該 IP 為止——現在確實有了。Traefik 是進入 `api` 服務的唯一入口（已確認：沒有其他路由能直接抵達該服務，`docker-compose.yml` 中的 `api` 服務沒有對外發布任何連接埠），因此在此情境下信任所有代理是安全的——請在程式碼註解中記錄這項推理，因為在存在不受信任的中介代理的拓撲中，`trust proxy: true` 會是個陷阱（但此處並非那種情況）。
+- 真正的整合測試：以 `AclService` 的風格，針對 `AuditService` 的鏈邏輯撰寫 Testcontainers 測試（包含一個真正的並行測試——同時觸發多個 `record()` 呼叫，並在事後確認鏈仍然嚴格線性），並針對實際運行中的堆疊撰寫 e2e 測試，確認稽核軌跡確實由真實操作所填入。
+- 此主機上的 Docker daemon 有時會受到無關程序的負載影響，且本次工作階段已多次在 `docker compose build` 期間遇到磁碟空間不足導致的停滯——若建置異常地長時間卡住，請檢查 `df -h /` 並執行 `docker builder prune -f`。每次重新建置後，務必確認容器確實已被重新建立（檢查 image ID／啟動時間），而不只是確認建置指令的結束碼為 0。
 
 ---
 
-### Task 1: AuditLog schema
+### 工作項目 1：AuditLog 結構描述
 
-**Files:**
-- Modify: `apps/api/prisma/schema.prisma`
-- Create: `apps/api/prisma/migrations/<timestamp>_audit_logs/migration.sql` (generated)
+**檔案：**
+- 修改：`apps/api/prisma/schema.prisma`
+- 新增：`apps/api/prisma/migrations/<timestamp>_audit_logs/migration.sql`（自動產生）
 
-**Interfaces:**
-- Consumes: nothing new.
-- Produces: `AuditLog` model and `AuditAction` enum (8 values, see Global Constraints), importable from `@prisma/client`.
+**介面：**
+- 消費：無新項目。
+- 產出：`AuditLog` 模型與 `AuditAction` 列舉（8 個值，詳見全域限制條件），可從 `@prisma/client` 匯入。
 
-- [ ] **Step 1: Extend `apps/api/prisma/schema.prisma`**
+- [ ] **步驟 1：擴充 `apps/api/prisma/schema.prisma`**
 
 ```prisma
 enum AuditAction {
@@ -68,26 +68,26 @@ model AuditLog {
 }
 ```
 
-- [ ] **Step 2: Start a temporary local Postgres for migration authoring**
+- [ ] **步驟 2：啟動一個暫時的本機 Postgres 以撰寫 migration**
 
-Run: `docker run --rm -d --name drm-dev-postgres -e POSTGRES_USER=drm -e POSTGRES_PASSWORD=drm_dev_password -e POSTGRES_DB=drm -p 5435:5432 postgres:16-alpine`
+執行：`docker run --rm -d --name drm-dev-postgres -e POSTGRES_USER=drm -e POSTGRES_PASSWORD=drm_dev_password -e POSTGRES_DB=drm -p 5435:5432 postgres:16-alpine`
 
-(Port 5435 — 5433 is the project's real Postgres, 5434 was used by Phase 2B's Task 1 migration authoring; check `docker compose ps` and adjust if 5435 is also taken.)
+（連接埠 5435——5433 是此專案真正的 Postgres，5434 曾在 Phase 2B 的工作項目 1 migration 撰寫時使用；請檢查 `docker compose ps`，若 5435 也已被占用則需調整。）
 
-- [ ] **Step 3: Generate the migration**
+- [ ] **步驟 3：產生 migration**
 
-Run: `cd apps/api && DATABASE_URL="postgresql://drm:drm_dev_password@localhost:5435/drm" pnpm exec prisma migrate dev --name audit_logs`
+執行：`cd apps/api && DATABASE_URL="postgresql://drm:drm_dev_password@localhost:5435/drm" pnpm exec prisma migrate dev --name audit_logs`
 
-- [ ] **Step 4: Stop the temporary Postgres**
+- [ ] **步驟 4：停止暫時的 Postgres**
 
-Run: `docker stop drm-dev-postgres`
+執行：`docker stop drm-dev-postgres`
 
-- [ ] **Step 5: Regenerate the client and verify the build**
+- [ ] **步驟 5：重新產生 client 並驗證建置**
 
-Run: `cd apps/api && pnpm exec prisma generate && pnpm run build`
-Expected: no TypeScript errors.
+執行：`cd apps/api && pnpm exec prisma generate && pnpm run build`
+預期結果：沒有 TypeScript 錯誤。
 
-- [ ] **Step 6: Commit**
+- [ ] **步驟 6：提交（Commit）**
 
 ```bash
 git add apps/api/prisma
@@ -96,20 +96,20 @@ git commit -m "feat(api): add AuditLog schema with hash-chain fields"
 
 ---
 
-### Task 2: AuditService — hash-chained, concurrency-safe recording and verification
+### 工作項目 2：AuditService——具雜湊鏈、並行安全的記錄與驗證
 
-**Files:**
-- Create: `apps/api/src/audit/audit.service.ts`
-- Create: `apps/api/src/audit/audit.module.ts`
-- Test: `apps/api/src/audit/audit.service.spec.ts`
+**檔案：**
+- 新增：`apps/api/src/audit/audit.service.ts`
+- 新增：`apps/api/src/audit/audit.module.ts`
+- 測試：`apps/api/src/audit/audit.service.spec.ts`
 
-**Interfaces:**
-- Consumes: `PrismaService`.
-- Produces: `AuditService.record(entry: { actorId: string; action: AuditAction; resourceType: ResourceType; resourceId: string; ipAddress: string | null }): Promise<AuditLog>`, `AuditService.verifyChain(): Promise<{ valid: boolean; brokenAtId?: string }>`, `AuditService.listForResource(resourceType: ResourceType, resourceId: string): Promise<AuditLog[]>`.
+**介面：**
+- 消費：`PrismaService`。
+- 產出：`AuditService.record(entry: { actorId: string; action: AuditAction; resourceType: ResourceType; resourceId: string; ipAddress: string | null }): Promise<AuditLog>`、`AuditService.verifyChain(): Promise<{ valid: boolean; brokenAtId?: string }>`、`AuditService.listForResource(resourceType: ResourceType, resourceId: string): Promise<AuditLog[]>`。
 
-- [ ] **Step 1: Write the failing tests**
+- [ ] **步驟 1：撰寫會失敗的測試**
 
-`apps/api/src/audit/audit.service.spec.ts`:
+`apps/api/src/audit/audit.service.spec.ts`：
 
 ```ts
 import { PostgreSqlContainer, StartedPostgreSqlContainer } from '@testcontainers/postgresql';
@@ -249,14 +249,14 @@ describe('AuditService', () => {
 });
 ```
 
-- [ ] **Step 2: Run tests to verify they fail**
+- [ ] **步驟 2：執行測試以確認其失敗**
 
-Run: `cd apps/api && pnpm test -- audit.service`
-Expected: FAIL — `Cannot find module './audit.service'`
+執行：`cd apps/api && pnpm test -- audit.service`
+預期結果：FAIL——`Cannot find module './audit.service'`
 
-- [ ] **Step 3: Implement `AuditService`**
+- [ ] **步驟 3：實作 `AuditService`**
 
-`apps/api/src/audit/audit.service.ts`:
+`apps/api/src/audit/audit.service.ts`：
 
 ```ts
 import { Injectable } from '@nestjs/common';
@@ -356,14 +356,14 @@ export class AuditService {
 }
 ```
 
-`Prisma` is imported but only used for its namespace types if your editor/tsc flags an unused import — remove it if `tx`'s inferred type doesn't need an explicit `Prisma.TransactionClient` annotation; keep the code compiling cleanly either way.
+`Prisma` 被匯入，但若你的編輯器／tsc 標記為未使用匯入，它只在需要其命名空間型別時才會用到——如果 `tx` 的推斷型別不需要明確標註 `Prisma.TransactionClient`，就將其移除；無論哪種方式都要確保程式碼能順利編譯。
 
-- [ ] **Step 4: Run tests to verify they pass**
+- [ ] **步驟 4：執行測試以確認其通過**
 
-Run: `cd apps/api && pnpm test -- audit.service`
-Expected: PASS (6 tests). The concurrency test is the one most likely to reveal a real bug if the advisory lock isn't actually serializing writes — if it fails intermittently, that's a real correctness problem to fix, not a flaky test to retry away.
+執行：`cd apps/api && pnpm test -- audit.service`
+預期結果：PASS（6 個測試）。並行測試是最有可能揭露 advisory lock 是否真的有序列化寫入的一項測試——如果它間歇性失敗，這是一個需要修正的真實正確性問題，而不是應該重試帶過的不穩定測試。
 
-- [ ] **Step 5: Create `apps/api/src/audit/audit.module.ts`**
+- [ ] **步驟 5：建立 `apps/api/src/audit/audit.module.ts`**
 
 ```ts
 import { Module } from '@nestjs/common';
@@ -376,7 +376,7 @@ import { AuditService } from './audit.service';
 export class AuditModule {}
 ```
 
-- [ ] **Step 6: Commit**
+- [ ] **步驟 6：提交（Commit）**
 
 ```bash
 git add apps/api/src/audit
@@ -385,24 +385,24 @@ git commit -m "feat(api): add AuditService with concurrency-safe hash-chained re
 
 ---
 
-### Task 3: Trust proxy config + wire audit logging into FoldersModule
+### 工作項目 3：Trust proxy 設定 + 將稽核記錄整合進 FoldersModule
 
-**Files:**
-- Modify: `apps/api/src/main.ts`
-- Modify: `apps/api/src/folders/folders.controller.ts`
-- Modify: `apps/api/src/folders/folders.service.ts`
-- Modify: `apps/api/src/folders/folders.module.ts`
-- Test: `apps/api/test/audit-folders.e2e-spec.ts`
+**檔案：**
+- 修改：`apps/api/src/main.ts`
+- 修改：`apps/api/src/folders/folders.controller.ts`
+- 修改：`apps/api/src/folders/folders.service.ts`
+- 修改：`apps/api/src/folders/folders.module.ts`
+- 測試：`apps/api/test/audit-folders.e2e-spec.ts`
 
-**Interfaces:**
-- Consumes: `AuditService.record` (Task 2).
-- Produces: `req.ip` across the whole app now reflects the real client IP (not Traefik's) — set up once here, reused by Tasks 4-5 without repeating the config. `FoldersService.create`/`.getWithContents` now accept a trailing `ipAddress: string | null` parameter and record `folder_create`/`folder_view` audit entries after success.
+**介面：**
+- 消費：`AuditService.record`（工作項目 2）。
+- 產出：整個應用程式中的 `req.ip` 現在會反映真實客戶端 IP（而非 Traefik 的 IP）——在此處一次性設定完成，供工作項目 4-5 重複使用，無需重複設定。`FoldersService.create`/`.getWithContents` 現在接受一個尾端的 `ipAddress: string | null` 參數，並在成功後記錄 `folder_create`/`folder_view` 稽核項目。
 
-This task does the trust-proxy setup AND the first module's audit wiring together (not as two separate tasks), specifically so there's no intermediate commit where the code doesn't compile — `req.ip` capture and the service methods that consume it land in the same task.
+此工作項目將 trust-proxy 設定「與」第一個模組的稽核記錄整合工作放在一起完成（而非拆成兩個獨立工作項目），原因是要避免出現中間某個提交（commit）使程式碼無法編譯的狀況——`req.ip` 的擷取與消費它的服務方法會在同一個工作項目中一起完成。
 
-- [ ] **Step 1: Configure trust proxy in `apps/api/src/main.ts`**
+- [ ] **步驟 1：在 `apps/api/src/main.ts` 中設定 trust proxy**
 
-Add before `app.listen(...)`:
+在 `app.listen(...)` 之前加入：
 
 ```ts
   // Traefik is the sole entry point into this service — docker-compose.yml
@@ -412,7 +412,7 @@ Add before `app.listen(...)`:
   app.set('trust proxy', true);
 ```
 
-- [ ] **Step 2: Update `FoldersService` to accept `ipAddress` and record audit entries**
+- [ ] **步驟 2：更新 `FoldersService` 以接受 `ipAddress` 並記錄稽核項目**
 
 ```ts
 import { ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
@@ -490,9 +490,9 @@ export class FoldersService {
 }
 ```
 
-Note the audit call happens AFTER the operation succeeds (after `create`/after the `NotFoundException` check), not before — a failed or unauthorized attempt is not logged as if it happened. This is a deliberate scope decision for this phase: only successful actions are audited, matching the design spec's framing of the audit log as a record of what was done, not an access-attempt log. (Logging denied attempts is a reasonable future addition, not built here.)
+請注意，稽核呼叫是在操作「成功之後」才發生（在 `create` 之後／`NotFoundException` 檢查之後），而不是在之前——失敗或未經授權的嘗試不會被記錄成好像已經發生過一樣。這是此階段一項刻意的範圍決策：僅稽核成功的操作，這與設計規格中將稽核日誌定位為「已執行操作的記錄」而非「存取嘗試日誌」的框架一致。（記錄被拒絕的嘗試是合理的未來擴充項目，但此處未實作。）
 
-- [ ] **Step 3: Update `FoldersController` to capture and pass `req.ip`**
+- [ ] **步驟 3：更新 `FoldersController` 以擷取並傳遞 `req.ip`**
 
 ```ts
   @Post()
@@ -513,7 +513,7 @@ Note the audit call happens AFTER the operation succeeds (after `create`/after t
   }
 ```
 
-- [ ] **Step 4: Import `AuditModule` into `FoldersModule`**
+- [ ] **步驟 4：將 `AuditModule` 匯入 `FoldersModule`**
 
 ```ts
 import { Module } from '@nestjs/common';
@@ -532,9 +532,9 @@ import { AuditModule } from '../audit/audit.module';
 export class FoldersModule {}
 ```
 
-- [ ] **Step 5: Write the e2e test**
+- [ ] **步驟 5：撰寫 e2e 測試**
 
-`apps/api/test/audit-folders.e2e-spec.ts`:
+`apps/api/test/audit-folders.e2e-spec.ts`：
 
 ```ts
 import axios from 'axios';
@@ -597,15 +597,15 @@ describe('Folder audit logging (e2e)', () => {
 });
 ```
 
-The last assertion (`ipAddress` isn't the loopback-wrapped address) is a real check that `trust proxy` is actually doing something — if it weren't configured, every request would show Traefik's or the raw socket's address rather than a forwarded one. Adjust the exact "wrong" value you assert against based on what you actually observe in a failing run before the trust-proxy fix (temporarily comment out Step 1's `main.ts` change locally, run the test, note the IP it captures, then restore the fix) — don't just guess at the string; verify it.
+最後一個斷言（`ipAddress` 不是被 loopback 包裝過的位址）是一項確實有意義的檢查，用來確認 `trust proxy` 真的有作用——如果沒有設定它，每個請求顯示的都會是 Traefik 或原始 socket 的位址，而不是被轉發過來的位址。請根據你在修正 trust-proxy 之前的失敗執行結果中實際觀察到的內容，來調整你所斷言的確切「錯誤」值（暫時在本機註解掉步驟 1 中對 `main.ts` 的修改、執行測試、記下它擷取到的 IP，然後再還原修正）——不要只是猜測那個字串，要實際驗證。
 
-- [ ] **Step 6: Rebuild and run**
+- [ ] **步驟 6：重新建置並執行**
 
-Run: `docker compose up -d --build api` (verify actual container recreation)
-Run: `cd apps/api && pnpm test:e2e -- audit-folders`
-Expected: PASS
+執行：`docker compose up -d --build api`（驗證容器確實已重新建立）
+執行：`cd apps/api && pnpm test:e2e -- audit-folders`
+預期結果：PASS
 
-- [ ] **Step 7: Commit**
+- [ ] **步驟 7：提交（Commit）**
 
 ```bash
 git add apps/api/src/main.ts apps/api/src/folders apps/api/test/audit-folders.e2e-spec.ts
@@ -614,46 +614,46 @@ git commit -m "feat(api): trust Traefik as sole proxy, audit-log folder create a
 
 ---
 
-### Task 4: Wire audit logging into DocumentsModule
+### 工作項目 4：將稽核記錄整合進 DocumentsModule
 
-**Files:**
-- Modify: `apps/api/src/documents/documents.service.ts`
-- Modify: `apps/api/src/documents/documents.controller.ts`
-- Modify: `apps/api/src/documents/documents.module.ts`
-- Test: `apps/api/test/audit-documents.e2e-spec.ts`
+**檔案：**
+- 修改：`apps/api/src/documents/documents.service.ts`
+- 修改：`apps/api/src/documents/documents.controller.ts`
+- 修改：`apps/api/src/documents/documents.module.ts`
+- 測試：`apps/api/test/audit-documents.e2e-spec.ts`
 
-**Interfaces:**
-- Consumes: `AuditService.record` (Task 2).
-- Produces: `DocumentsService.createDocument`/`.addVersion`/`.getMetadata`/`.getDownloadStream` now accept a trailing `ipAddress` parameter and record `document_create`/`document_version_upload`/`document_view`/`document_download` respectively.
+**介面：**
+- 消費：`AuditService.record`（工作項目 2）。
+- 產出：`DocumentsService.createDocument`/`.addVersion`/`.getMetadata`/`.getDownloadStream` 現在都接受一個尾端的 `ipAddress` 參數，並分別記錄 `document_create`/`document_version_upload`/`document_view`/`document_download`。
 
-- [ ] **Step 1: Add `AuditService` to `DocumentsService`'s constructor, add `ipAddress` params, and record after each success**
+- [ ] **步驟 1：將 `AuditService` 加入 `DocumentsService` 的建構子，新增 `ipAddress` 參數，並在每次成功後進行記錄**
 
-Update `apps/api/src/documents/documents.service.ts`:
-- Add `private readonly audit: AuditService` to the constructor (import from `'../audit/audit.service'`).
-- `createDocument(user, folderId, name, file, ipAddress: string | null)` — after the `$transaction` resolves successfully, call `this.audit.record({ actorId: user.id, action: 'document_create', resourceType: 'document', resourceId: documentId, ipAddress })`.
-- `addVersion(user, documentId, file, ipAddress: string | null)` — after the transaction resolves, `action: 'document_version_upload'`.
-- `getMetadata(user, documentId, ipAddress: string | null)` — after the successful fetch, `action: 'document_view'`. (Also apply this to the version-list read if you choose to route it through the same method path — per the plan's Global Constraints, `document_view` covers both; if `listVersions` remains a separate method, you may leave it unaudited per the constraints, or audit it too under `document_view` for completeness — either is acceptable, just be consistent and note your choice in the commit.)
-- `getDownloadStream(user, documentId, versionId, ipAddress: string | null)` — after ACL passes and the version is resolved (but the audit write doesn't need to wait for the stream to finish transferring — record it once you know the download is authorized and about to start, not after the client finishes receiving bytes), `action: 'document_download'`.
+更新 `apps/api/src/documents/documents.service.ts`：
+- 在建構子中加入 `private readonly audit: AuditService`（從 `'../audit/audit.service'` 匯入）。
+- `createDocument(user, folderId, name, file, ipAddress: string | null)`——在 `$transaction` 成功解析後，呼叫 `this.audit.record({ actorId: user.id, action: 'document_create', resourceType: 'document', resourceId: documentId, ipAddress })`。
+- `addVersion(user, documentId, file, ipAddress: string | null)`——在交易解析後，`action: 'document_version_upload'`。
+- `getMetadata(user, documentId, ipAddress: string | null)`——在成功取得資料後，`action: 'document_view'`。（若你選擇讓版本清單讀取也走同一個方法路徑，也請將此邏輯套用於該讀取上——根據此計畫的全域限制條件，`document_view` 涵蓋這兩者；若 `listVersions` 仍是獨立的方法，你可以依照限制條件不對其進行稽核，或為求完整性也以 `document_view` 對其進行稽核——兩種做法皆可接受，只需保持一致並在提交（commit）中註明你的選擇。）
+- `getDownloadStream(user, documentId, versionId, ipAddress: string | null)`——在 ACL 通過且版本已解析後（但稽核寫入不需要等到串流傳輸完成才進行——只要你知道下載已獲授權且即將開始，就可以記錄，不必等到客戶端接收完所有位元組），`action: 'document_download'`。
 
-- [ ] **Step 2: Update `DocumentsController` to pass `req.ip`**
+- [ ] **步驟 2：更新 `DocumentsController` 以傳遞 `req.ip`**
 
-Thread `req.ip ?? null` as the trailing argument into each of the four calls above, matching the pattern established in Task 3/4.
+依照工作項目 3/4 所建立的模式，將 `req.ip ?? null` 作為尾端引數傳入上述四個呼叫中。
 
-- [ ] **Step 3: Import `AuditModule` into `DocumentsModule`**
+- [ ] **步驟 3：將 `AuditModule` 匯入 `DocumentsModule`**
 
-Add `AuditModule` to the `imports` array in `apps/api/src/documents/documents.module.ts`.
+將 `AuditModule` 加入 `apps/api/src/documents/documents.module.ts` 的 `imports` 陣列中。
 
-- [ ] **Step 4: Write the e2e test**
+- [ ] **步驟 4：撰寫 e2e 測試**
 
-`apps/api/test/audit-documents.e2e-spec.ts` — follow the exact structure of `audit-folders.e2e-spec.ts` (Task 4), but: create a folder, upload a document (expect `document_create`), fetch metadata (expect `document_view`), download it (expect `document_download`), upload a second version (expect `document_version_upload`). Assert the full chain of 4 entries for that document's `resourceId` is present, in order, each correctly linked to the previous via `prevHash`. Use typed axios calls throughout (this project's established convention — see `documents-read.e2e-spec.ts` for the pattern) and `form-data` for the multipart uploads (see `documents-write.e2e-spec.ts`).
+`apps/api/test/audit-documents.e2e-spec.ts`——依照 `audit-folders.e2e-spec.ts`（工作項目 4）的確切結構，但需：建立一個資料夾、上傳一份文件（預期 `document_create`）、取得中繼資料（預期 `document_view`）、下載它（預期 `document_download`）、上傳第二個版本（預期 `document_version_upload`）。斷言該文件 `resourceId` 的完整 4 筆項目鏈依序存在，且每一筆都正確地透過 `prevHash` 與前一筆連結。全程使用具型別的 axios 呼叫（此專案既有慣例——參見 `documents-read.e2e-spec.ts` 的做法）以及 `form-data` 進行多部分（multipart）上傳（參見 `documents-write.e2e-spec.ts`）。
 
-- [ ] **Step 5: Rebuild and run**
+- [ ] **步驟 5：重新建置並執行**
 
-Run: `docker compose up -d --build api` (verify actual recreation)
-Run: `cd apps/api && pnpm test:e2e -- audit-documents`
-Expected: PASS
+執行：`docker compose up -d --build api`（驗證確實已重新建立）
+執行：`cd apps/api && pnpm test:e2e -- audit-documents`
+預期結果：PASS
 
-- [ ] **Step 6: Commit**
+- [ ] **步驟 6：提交（Commit）**
 
 ```bash
 git add apps/api/src/documents apps/api/test/audit-documents.e2e-spec.ts
@@ -662,40 +662,40 @@ git commit -m "feat(api): audit-log document create, view, download, and version
 
 ---
 
-### Task 5: Wire audit logging into PermissionsModule
+### 工作項目 5：將稽核記錄整合進 PermissionsModule
 
-**Files:**
-- Modify: `apps/api/src/permissions/permissions.service.ts`
-- Modify: `apps/api/src/permissions/permissions.controller.ts`
-- Modify: `apps/api/src/permissions/permissions.module.ts`
-- Test: `apps/api/test/audit-permissions.e2e-spec.ts`
+**檔案：**
+- 修改：`apps/api/src/permissions/permissions.service.ts`
+- 修改：`apps/api/src/permissions/permissions.controller.ts`
+- 修改：`apps/api/src/permissions/permissions.module.ts`
+- 測試：`apps/api/test/audit-permissions.e2e-spec.ts`
 
-**Interfaces:**
-- Consumes: `AuditService.record` (Task 2).
-- Produces: `PermissionsService.grant`/`.revoke` accept a trailing `ipAddress` parameter and record `permission_grant`/`permission_revoke`.
+**介面：**
+- 消費：`AuditService.record`（工作項目 2）。
+- 產出：`PermissionsService.grant`/`.revoke` 接受一個尾端的 `ipAddress` 參數，並記錄 `permission_grant`/`permission_revoke`。
 
-- [ ] **Step 1: Add `AuditService` to `PermissionsService`, thread `ipAddress`, record after success**
+- [ ] **步驟 1：將 `AuditService` 加入 `PermissionsService`，傳入 `ipAddress`，並在成功後記錄**
 
-- `grant(user, resourceType, resourceId, principalType, principalId, permissionLevel, ipAddress: string | null)` — after the group-rejection check and the `manage` ACL check both pass and the `upsert` completes, record `permission_grant` against `(resourceType, resourceId)` (the resource being granted on, not the principal receiving it — a grant is an event on the resource's ACL, and that's also the `resourceType`/`resourceId` the caller was already authorized against).
-- `revoke(user, resourceType, resourceId, permissionId, ipAddress: string | null)` — after the scoped `deleteMany` succeeds (count > 0), record `permission_revoke`.
+- `grant(user, resourceType, resourceId, principalType, principalId, permissionLevel, ipAddress: string | null)`——在群組拒絕檢查與 `manage` ACL 檢查皆通過、且 `upsert` 完成後，針對 `(resourceType, resourceId)` 記錄 `permission_grant`（是被授予權限的資源，而非接收權限的主體——授予是發生在資源 ACL 上的事件，而這也正是呼叫者原本就已被授權操作的 `resourceType`/`resourceId`）。
+- `revoke(user, resourceType, resourceId, permissionId, ipAddress: string | null)`——在範圍限定的 `deleteMany` 成功後（count > 0），記錄 `permission_revoke`。
 
-- [ ] **Step 2: Update `PermissionsController` to pass `req.ip`**
+- [ ] **步驟 2：更新 `PermissionsController` 以傳遞 `req.ip`**
 
-Thread `req.ip ?? null` into all four grant/revoke handlers (both folder and document variants).
+將 `req.ip ?? null` 傳入所有四個授予/撤銷處理常式（資料夾與文件兩種變體皆需）。
 
-- [ ] **Step 3: Import `AuditModule` into `PermissionsModule`**
+- [ ] **步驟 3：將 `AuditModule` 匯入 `PermissionsModule`**
 
-- [ ] **Step 4: Write the e2e test**
+- [ ] **步驟 4：撰寫 e2e 測試**
 
-`apps/api/test/audit-permissions.e2e-spec.ts` — create a folder, grant a permission (expect `permission_grant`), revoke it (expect `permission_revoke`), assert both entries exist against the folder's `resourceId`, correctly chained.
+`apps/api/test/audit-permissions.e2e-spec.ts`——建立一個資料夾、授予一項權限（預期 `permission_grant`）、撤銷它（預期 `permission_revoke`），斷言該資料夾 `resourceId` 下兩筆項目皆存在，且正確地鏈結在一起。
 
-- [ ] **Step 5: Rebuild and run**
+- [ ] **步驟 5：重新建置並執行**
 
-Run: `docker compose up -d --build api` (verify actual recreation)
-Run: `cd apps/api && pnpm test:e2e -- audit-permissions`
-Expected: PASS
+執行：`docker compose up -d --build api`（驗證確實已重新建立）
+執行：`cd apps/api && pnpm test:e2e -- audit-permissions`
+預期結果：PASS
 
-- [ ] **Step 6: Commit**
+- [ ] **步驟 6：提交（Commit）**
 
 ```bash
 git add apps/api/src/permissions apps/api/test/audit-permissions.e2e-spec.ts
@@ -704,19 +704,19 @@ git commit -m "feat(api): audit-log permission grant and revoke"
 
 ---
 
-### Task 6: Audit log read endpoints and chain-verification endpoint
+### 工作項目 6：稽核日誌讀取端點與鏈驗證端點
 
-**Files:**
-- Create: `apps/api/src/audit/audit.controller.ts`
-- Modify: `apps/api/src/audit/audit.module.ts`
-- Modify: `apps/api/src/app.module.ts`
-- Test: `apps/api/test/audit-endpoints.e2e-spec.ts`
+**檔案：**
+- 新增：`apps/api/src/audit/audit.controller.ts`
+- 修改：`apps/api/src/audit/audit.module.ts`
+- 修改：`apps/api/src/app.module.ts`
+- 測試：`apps/api/test/audit-endpoints.e2e-spec.ts`
 
-**Interfaces:**
-- Consumes: `AuditService.listForResource`, `AuditService.verifyChain`, `AclService.can`, `UsersService.upsertFromToken`.
-- Produces: `GET /folders/:id/audit-logs` and `GET /documents/:id/audit-logs` (both require `manage` on the resource → `200 AuditLog[]`), `GET /audit-logs/verify` (admin-only → `200 { valid: boolean; brokenAtId?: string }`).
+**介面：**
+- 消費：`AuditService.listForResource`、`AuditService.verifyChain`、`AclService.can`、`UsersService.upsertFromToken`。
+- 產出：`GET /folders/:id/audit-logs` 與 `GET /documents/:id/audit-logs`（皆需要對該資源具備 `manage` 權限 → `200 AuditLog[]`）、`GET /audit-logs/verify`（僅限管理員 → `200 { valid: boolean; brokenAtId?: string }`）。
 
-- [ ] **Step 1: Create `apps/api/src/audit/audit.controller.ts`**
+- [ ] **步驟 1：建立 `apps/api/src/audit/audit.controller.ts`**
 
 ```ts
 import { Controller, ForbiddenException, Get, Param, Req, UseGuards } from '@nestjs/common';
@@ -769,7 +769,7 @@ export class AuditController {
 }
 ```
 
-- [ ] **Step 2: Update `apps/api/src/audit/audit.module.ts`**
+- [ ] **步驟 2：更新 `apps/api/src/audit/audit.module.ts`**
 
 ```ts
 import { Module } from '@nestjs/common';
@@ -787,23 +787,23 @@ import { UsersModule } from '../users/users.module';
 export class AuditModule {}
 ```
 
-(`AclModule`/`UsersModule` are now needed here since `AuditController` uses them directly — this is a new dependency direction, but no circular import: `AclModule` and `UsersModule` don't import `AuditModule`.)
+（`AclModule`/`UsersModule` 現在需要在此匯入，因為 `AuditController` 直接使用它們——這是一個新的依賴方向，但不會造成循環匯入：`AclModule` 和 `UsersModule` 都不會匯入 `AuditModule`。）
 
-- [ ] **Step 3: Wire `AuditModule` into `AppModule`**
+- [ ] **步驟 3：將 `AuditModule` 接入 `AppModule`**
 
-Add `AuditModule` to the `imports` array in `apps/api/src/app.module.ts` (it's likely already imported transitively via `FoldersModule`/`DocumentsModule`/`PermissionsModule`, but it needs to be imported directly too since it now has its own `controllers`).
+將 `AuditModule` 加入 `apps/api/src/app.module.ts` 的 `imports` 陣列中（它可能已經透過 `FoldersModule`/`DocumentsModule`/`PermissionsModule` 被間接匯入了，但由於它現在有自己的 `controllers`，因此也需要直接匯入）。
 
-- [ ] **Step 4: Write the e2e test**
+- [ ] **步驟 4：撰寫 e2e 測試**
 
-`apps/api/test/audit-endpoints.e2e-spec.ts` — create a folder as testadmin, grant `view` (not `manage`) to testuser, confirm testuser gets `403` on `GET /folders/:id/audit-logs`, confirm testadmin gets `200` with the `folder_create` entry present. Confirm a non-admin gets `403` on `GET /audit-logs/verify`, and testadmin gets `200 { valid: true }`.
+`apps/api/test/audit-endpoints.e2e-spec.ts`——以 testadmin 身分建立一個資料夾，將 `view`（而非 `manage`）授予 testuser，確認 testuser 在 `GET /folders/:id/audit-logs` 上會得到 `403`，確認 testadmin 會得到 `200` 且其中含有 `folder_create` 項目。確認非管理員在 `GET /audit-logs/verify` 上會得到 `403`，而 testadmin 會得到 `200 { valid: true }`。
 
-- [ ] **Step 5: Rebuild and run**
+- [ ] **步驟 5：重新建置並執行**
 
-Run: `docker compose up -d --build api` (verify actual recreation)
-Run: `cd apps/api && pnpm test:e2e -- audit-endpoints`
-Expected: PASS
+執行：`docker compose up -d --build api`（驗證確實已重新建立）
+執行：`cd apps/api && pnpm test:e2e -- audit-endpoints`
+預期結果：PASS
 
-- [ ] **Step 6: Commit**
+- [ ] **步驟 6：提交（Commit）**
 
 ```bash
 git add apps/api/src/audit apps/api/src/app.module.ts apps/api/test/audit-endpoints.e2e-spec.ts
@@ -812,35 +812,35 @@ git commit -m "feat(api): add audit log read endpoints and chain-verification en
 
 ---
 
-### Task 7: Full-suite verification
+### 工作項目 7：完整套件驗證
 
-**Files:**
-- Create: `docs/superpowers/plans/2026-08-01-phase3-verification.md`
+**檔案：**
+- 新增：`docs/superpowers/plans/2026-08-01-phase3-verification.md`
 
-**Interfaces:**
-- Consumes: everything from Tasks 1-7.
-- Produces: a written verification record confirming the audit trail and hash chain hold up under the full test suite and a real manual walkthrough.
+**介面：**
+- 消費：工作項目 1-7 的所有內容。
+- 產出：一份書面驗證記錄，確認稽核軌跡與雜湊鏈在完整測試套件與真實人工走查下皆能維持正確。
 
-- [ ] **Step 1: Fresh full-stack rebuild**
+- [ ] **步驟 1：全新的全端重新建置**
 
-Run: `docker compose down -v && docker compose up -d --build`
-Wait for all services healthy.
+執行：`docker compose down -v && docker compose up -d --build`
+等待所有服務進入健康（healthy）狀態。
 
-- [ ] **Step 2: Run every automated suite together**
+- [ ] **步驟 2：一併執行所有自動化套件**
 
-`./scripts/smoke-test.sh`, `pnpm --filter api test`, `pnpm --filter api test:e2e`, `pnpm --filter api lint`, `pnpm --filter web test`. All must pass. Fix any integration-only failure (test data collisions, timing under load) that individual task-level testing couldn't have caught — this project has hit exactly this class of issue before (Phase 2B's final verification task).
+`./scripts/smoke-test.sh`、`pnpm --filter api test`、`pnpm --filter api test:e2e`、`pnpm --filter api lint`、`pnpm --filter web test`。全部都必須通過。修正任何僅在整合層級才會出現、個別工作項目層級測試無法察覺的失敗（例如測試資料衝突、負載下的時序問題）——此專案先前已經遇過完全相同類型的問題（Phase 2B 的最終驗證工作項目）。
 
-- [ ] **Step 3: Manual walkthrough**
+- [ ] **步驟 3：人工走查**
 
-As testadmin: create a folder, upload a document, view its metadata, download it, upload a second version, grant `view` to testuser, revoke it. After each step, query `GET /folders/:id/audit-logs` or `GET /documents/:id/audit-logs` and confirm the expected entry appears with a correctly linked `prevHash`. Finally call `GET /audit-logs/verify` and confirm `{ valid: true }`.
+以 testadmin 身分：建立一個資料夾、上傳一份文件、檢視其中繼資料、下載它、上傳第二個版本、將 `view` 授予 testuser、再撤銷它。每個步驟之後，查詢 `GET /folders/:id/audit-logs` 或 `GET /documents/:id/audit-logs`，確認預期的項目出現，且 `prevHash` 正確連結。最後呼叫 `GET /audit-logs/verify`，確認結果為 `{ valid: true }`。
 
-Then, as a deliberate tamper check: connect directly to Postgres (`postgresql://drm:drm_dev_password@localhost:5433/drm`) and hand-edit one `audit_logs` row's `actorId` (matching the tamper-detection test from Task 2, but against the real running database this time). Call `GET /audit-logs/verify` again and confirm it now reports `{ valid: false, brokenAtId: "<the row you edited>" }`. Revert your manual edit afterward (or just leave the tampered row and note it in the verification doc — this is disposable dev data either way; document which you did).
+接著，進行一項刻意的竄改檢查：直接連線到 Postgres（`postgresql://drm:drm_dev_password@localhost:5433/drm`），手動編輯某一筆 `audit_logs` 資料列的 `actorId`（與工作項目 2 的竄改偵測測試相符，但這次是針對真實運行中的資料庫）。再次呼叫 `GET /audit-logs/verify`，確認它現在回報 `{ valid: false, brokenAtId: "<你所編輯的資料列>" }`。之後請還原你的手動編輯（或者也可以保留該被竄改的資料列，並在驗證文件中註明——無論哪種方式，這都是可拋棄的開發用資料；請記錄你實際採取了哪一種做法）。
 
-- [ ] **Step 4: Write `docs/superpowers/plans/2026-08-01-phase3-verification.md`**
+- [ ] **步驟 4：撰寫 `docs/superpowers/plans/2026-08-01-phase3-verification.md`**
 
-Record the suite results and the walkthrough narrative, following the format established by `docs/superpowers/plans/2026-08-01-phase2b-verification.md`.
+記錄套件執行結果與走查敘述，遵循 `docs/superpowers/plans/2026-08-01-phase2b-verification.md` 所建立的格式。
 
-- [ ] **Step 5: Commit**
+- [ ] **步驟 5：提交（Commit）**
 
 ```bash
 git add docs/superpowers/plans/2026-08-01-phase3-verification.md
@@ -849,9 +849,9 @@ git commit -m "docs: add Phase 3 verification record"
 
 ---
 
-## Self-Review Notes
+## 自我審查備註
 
-- **Spec coverage:** Implements the design spec's `audit_logs` requirement in full — every operation category the spec names that has a corresponding real endpoint is audited, with hash chaining for tamper evidence, plus a verification endpoint to actually exercise that tamper evidence (the spec says "以達防竄改效果" — evidence of tampering is only useful if something can detect it, hence Task 6's `/audit-logs/verify`). "刪除"/"到期" are explicitly out of scope since no delete or expiration operation exists yet.
-- **Placeholder scan:** No TBD/TODO markers. Task 3 merges the trust-proxy config with FoldersModule's audit wiring specifically so no task leaves the build in a non-compiling state between commits.
-- **Type consistency:** `AuditService.record`'s entry shape (`actorId`, `action`, `resourceType`, `resourceId`, `ipAddress`) is defined once in Task 2 and used identically by Tasks 4-6. The `ipAddress: string | null` trailing-parameter convention is introduced in Task 3 and applied consistently across all three existing services.
-- **Scope:** Audit logging only. No changes to ACL semantics, storage, or any Phase 4+ feature (watermarking, expiration, virus scanning, Office conversion) — those remain untouched.
+- **規格涵蓋範圍：** 完整實作設計規格中對 `audit_logs` 的要求——規格中提及、且在此程式碼庫中確實有對應真實端點的每一種操作分類，都已被稽核，並透過雜湊鏈提供防竄改證據，再加上一個驗證端點，讓這項防竄改能力能被真正實際運用（規格中提到「以達防竄改效果」——防竄改的證據，唯有在有東西能偵測到竄改時才有用，這也正是工作項目 6 中 `/audit-logs/verify` 存在的原因）。「刪除」／「到期」明確不在範圍內，因為目前尚無刪除或到期操作存在。
+- **佔位符掃描：** 沒有 TBD/TODO 標記。工作項目 3 特意將 trust-proxy 設定與 FoldersModule 的稽核整合合併在一起，確保沒有任何工作項目會讓建置在提交（commit）之間處於無法編譯的狀態。
+- **型別一致性：** `AuditService.record` 的項目形狀（`actorId`、`action`、`resourceType`、`resourceId`、`ipAddress`）在工作項目 2 中定義一次，並在工作項目 4-6 中以相同方式使用。`ipAddress: string | null` 這個尾端參數慣例是在工作項目 3 中引入，並在其餘三個既有服務中一致地套用。
+- **範圍：** 僅涉及稽核記錄。不變更 ACL 語意、儲存機制，或任何 Phase 4 以上的功能（浮水印、到期、病毒掃描、Office 轉換）——這些皆維持不動。

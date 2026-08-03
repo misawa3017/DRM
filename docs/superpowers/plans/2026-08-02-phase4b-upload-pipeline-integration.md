@@ -1,44 +1,44 @@
-# Phase 4B: Upload Pipeline Integration Implementation Plan
+# Phase 4B：上傳流程整合實作計畫
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+> **給代理型工作者：** 必要的子技能：使用 superpowers:subagent-driven-development（建議）或 superpowers:executing-plans 來逐項任務執行此計畫。步驟使用核取方塊（`- [ ]`）語法來追蹤進度。
 
-**Goal:** Every document upload is virus-scanned before it's ever stored, and Office documents (Word/Excel/PowerPoint) get a PDF preview generated in the background — using the infrastructure Phase 4A already proved works (ClamAV, Gotenberg, Redis/BullMQ, `apps/worker`), wired for the first time into the real upload flow built in Phase 2B.
+**目標：** 每一份文件上傳都會在儲存之前先經過病毒掃描，而 Office 文件（Word/Excel/PowerPoint）則會在背景產生 PDF 預覽——使用 Phase 4A 已證實可行的基礎設施（ClamAV、Gotenberg、Redis/BullMQ、`apps/worker`），首次接上 Phase 2B 建立的實際上傳流程。
 
-**Architecture:** Virus scanning is synchronous, in the `apps/api` request path, before anything is written to MinIO or Postgres — an infected file is rejected outright, matching the design spec's literal upload sequence (scan before store). PDF conversion is asynchronous: `apps/api` enqueues a BullMQ job after a successful upload, `apps/worker` fetches the file from MinIO, converts it via Gotenberg, and stores the result back to MinIO; `apps/api` listens for job completion (via BullMQ's own event stream, not a callback endpoint) and records the result. This phase also resolves the database-access question Phase 4A's final review deliberately deferred: **`apps/worker` stays database-free** — `apps/api` remains the sole owner of all Postgres access, including background-job outcomes, avoiding the Prisma/Dockerfile complications flagged as a risk in Phase 4A's review. A new `packages/shared` workspace package (queue name + job payload/result types only, no logic) is introduced now, the lightweight version of the shared-package question Phase 4A's review recommended settling before anything heavier.
+**架構：** 病毒掃描是同步的，發生在 `apps/api` 的請求路徑中，在任何東西寫入 MinIO 或 Postgres 之前——被感染的檔案會直接被拒絕，符合設計規格中明確的上傳順序（先掃描再儲存）。PDF 轉換則是非同步的：`apps/api` 在上傳成功後排入一個 BullMQ 工作，`apps/worker` 從 MinIO 取得檔案，透過 Gotenberg 進行轉換，再將結果存回 MinIO；`apps/api` 監聽工作完成事件（透過 BullMQ 自身的事件串流，而非回呼端點）並記錄結果。此階段也解決了 Phase 4A 最終審查中刻意延後的資料庫存取問題：**`apps/worker` 保持無資料庫存取**——`apps/api` 仍是唯一擁有所有 Postgres 存取權的角色，包括背景工作的結果，藉此避免 Phase 4A 審查中提出的 Prisma/Dockerfile 相關風險。現在引入一個新的 `packages/shared` 工作區套件（只包含佇列名稱與工作 payload/結果型別，不含任何邏輯），這是 Phase 4A 審查建議在導入更重的共用套件之前先解決的輕量版共用套件問題。
 
-**Tech Stack:** `clamscan` (npm, already researched/chosen in Phase 4A) for the synchronous scan, BullMQ (`Queue`/`QueueEvents`/`Worker` — all already proven in Phase 4A) for the async conversion pipeline, Gotenberg's already-verified LibreOffice conversion route, Jest e2e tests against the live stack (this project's established convention).
+**技術棧：** `clamscan`（npm，已在 Phase 4A 研究並選定）用於同步掃描，BullMQ（`Queue`/`QueueEvents`/`Worker`——皆已在 Phase 4A 驗證過）用於非同步轉換流程，Gotenberg 已驗證過的 LibreOffice 轉換路由，以及針對實際運行中系統的 Jest e2e 測試（此專案既有的慣例）。
 
-## Global Constraints
+## 全域限制條件
 
-- **Virus scanning is synchronous and blocks the upload request.** It happens in `DocumentsService.createDocument`/`.addVersion`, before `storage.putObject` and before any `Document`/`DocumentVersion` row is created. An infected file is rejected with `400 Bad Request`; nothing is written to MinIO or Postgres for it. This matches the design spec's literal flow ("Client → API → 暫存 → ClamAV 掃描 → ... → 寫入MinIO") and gives the uploader immediate feedback rather than a later "your upload turned out to be malware" surprise.
-- **A rejected (infected) upload IS audited, as a deliberate, explicit exception to Phase 3's "only audit successful actions" principle.** A virus-upload attempt is a security event worth recording regardless of outcome — this is not a contradiction of the earlier principle, it's a narrow, named carve-out for this one case. A new `virus_detected` `AuditAction` is added. Since no `Document`/`DocumentVersion` row exists at reject-time, the audit entry's `resourceType`/`resourceId` is the **folder** being uploaded into (for `createDocument`) or the **document** being versioned (for `addVersion`) — whichever resource identifier already exists at that point.
-- **PDF conversion is asynchronous and does not block the upload request.** Office documents (Word/Excel/PowerPoint — see the concrete MIME-type list in Task 5) get a `document-conversion` BullMQ job enqueued after the upload succeeds. Non-Office files never get a conversion job. `DocumentVersion.previewObjectKey` starts `null` and is populated later by `apps/api`'s job-completion listener once conversion finishes. **`null` deliberately means both "not applicable" and "not yet converted"** — this phase does not add a separate status/enum field to distinguish them. That's an accepted simplification; revisit it if a future phase's frontend needs to show a "converting..." state.
-- **`apps/worker` remains database-free**, resolving the question Phase 4A's final review flagged as unresolved. `apps/api` is the only process that ever talks to Postgres, including recording the outcome of background jobs — it does this by listening to BullMQ's own `completed`/`failed` events (via `QueueEvents`, the same class already proven in Phase 4A's `jobs.e2e-spec.ts`), not via a callback HTTP endpoint on `apps/api` and not via a shared Prisma package. `apps/worker`'s Dockerfile therefore still does not need `openssl`/`prisma generate`/any Prisma-related step — the three traps Phase 4A's review predicted for a shared-database approach don't apply here.
-- **`apps/worker` gets its own minimal MinIO client**, duplicated from (not shared with) `apps/api`'s `StorageService` — it's ~30 lines, low risk to duplicate, unlike Prisma's whole toolchain. It reuses the **same scoped `drm-api` MinIO credential** `apps/api` already uses (env vars `MINIO_ENDPOINT`/`MINIO_BUCKET`/`MINIO_ACCESS_KEY`/`MINIO_SECRET_KEY`, already scoped to only the `documents` bucket per Phase 2A) — not a separate worker-specific credential. A dedicated worker credential would be a defense-in-depth refinement worth considering later, not required now.
-- **`packages/shared` is introduced now**, containing only the `document-conversion` queue name constant and the `ConversionJobData`/`ConversionJobResult` TypeScript interfaces — no runtime logic. This is the lightweight "dry run" Phase 4A's review explicitly recommended before any heavier shared package: it exercises the exact Dockerfile changes (`COPY packages/shared`, building it before the consuming app) that a future `packages/database` extraction would also need, at much lower risk. Both `apps/api` and `apps/worker` depend on it via the `workspace:*` protocol.
-- **Download/view endpoints are unchanged in this phase.** `previewObjectKey` gets populated but nothing reads it yet — consuming it for watermarked preview rendering is Phase 4C's job, not this one.
-- **`clamscan`'s exact buffer-scanning API is not fully certain from memory** — Phase 4A's Task 5 used it successfully against real files via `docker run`, which is real, useful prior verification, but this phase needs it scanning an in-memory `Buffer` (from multer's memory storage) inside a long-running NestJS service, not a one-shot script. Verify the real method (`scanStream` wrapping a `Readable.from(buffer)`, or whatever the actually-installed package supports) against the installed package's types before trusting this plan's draft code.
-- Real integration tests: e2e against the live stack (real ClamAV rejecting a real EICAR-laced upload, real Gotenberg converting a real uploaded Office-mimetype file, real MinIO object created) — this project's established convention, no mocked infrastructure for anything this plan touches.
-- Docker daemon on this host is sometimes under load, and this session has repeatedly hit disk-space stalls during `docker compose build` — check `df -h /` and prune (`docker builder prune -f`, `docker image prune -a -f --filter "until=24h"` if plain prune reclaims 0B) if a build hangs unusually long. Verify a container was actually recreated after any rebuild (image ID/start-time comparison), not just that the build command exited 0 — a real, recurring issue in this project. ClamAV's first-boot definition download can take several minutes if its volume is ever wiped (`docker compose down -v`) — expected, not a hang.
+- **病毒掃描是同步的，會阻塞上傳請求。** 它發生在 `DocumentsService.createDocument`/`.addVersion` 中，在 `storage.putObject` 之前、在任何 `Document`/`DocumentVersion` 資料列建立之前。被感染的檔案會以 `400 Bad Request` 拒絕；不會有任何東西寫入 MinIO 或 Postgres。這符合設計規格中明確的流程（「Client → API → 暫存 → ClamAV 掃描 → ... → 寫入MinIO」），並讓上傳者立即獲得回饋，而非事後才發現「你上傳的東西其實是惡意軟體」。
+- **被拒絕（受感染）的上傳「確實會」被稽核，這是刻意的、明確的例外，違反 Phase 3「只稽核成功動作」的原則。** 病毒上傳嘗試無論結果如何都是值得記錄的安全事件——這並非與先前原則矛盾，而是針對這一個特殊案例所做的狹義、明確命名的例外。新增了一個 `virus_detected` 的 `AuditAction`。由於拒絕當下不存在任何 `Document`/`DocumentVersion` 資料列，稽核項目的 `resourceType`/`resourceId` 會是（在 `createDocument` 情況下）正在上傳目標的**資料夾**，或（在 `addVersion` 情況下）正在建立新版本的**文件**——也就是當下已經存在的那個資源識別碼。
+- **PDF 轉換是非同步的，不會阻塞上傳請求。** Office 文件（Word/Excel/PowerPoint——具體 MIME 類型清單見任務 5）在上傳成功後會排入一個 `document-conversion` BullMQ 工作。非 Office 檔案永遠不會有轉換工作。`DocumentVersion.previewObjectKey` 一開始為 `null`，之後在轉換完成時由 `apps/api` 的工作完成監聽器填入。**`null` 刻意同時代表「不適用」與「尚未轉換」**——此階段不會另外新增一個狀態／列舉欄位來區分這兩種情況。這是可接受的簡化；如果未來階段的前端需要顯示「轉換中……」的狀態，屆時再重新檢視此決定。
+- **`apps/worker` 保持無資料庫存取**，解決了 Phase 4A 最終審查中標記為未解決的問題。`apps/api` 是唯一與 Postgres 溝通的行程，包括記錄背景工作的結果——做法是監聽 BullMQ 自身的 `completed`/`failed` 事件（透過 `QueueEvents`，這個類別已在 Phase 4A 的 `jobs.e2e-spec.ts` 中驗證過），而非透過 `apps/api` 上的回呼 HTTP 端點,也不是透過共用的 Prisma 套件。因此 `apps/worker` 的 Dockerfile 依然不需要 `openssl`/`prisma generate`/任何 Prisma 相關步驟——Phase 4A 審查中預測共用資料庫做法會遇到的三個陷阱，在這裡都不適用。
+- **`apps/worker` 擁有自己的最小化 MinIO 客戶端**，與 `apps/api` 的 `StorageService` 是複製（而非共用）的關係——只有約 30 行程式碼，複製的風險很低，不像 Prisma 那整套工具鏈。它重複使用 `apps/api` 已經在用的**同一組限定範圍的 `drm-api` MinIO 憑證**（環境變數 `MINIO_ENDPOINT`/`MINIO_BUCKET`/`MINIO_ACCESS_KEY`/`MINIO_SECRET_KEY`，依照 Phase 2A 的設定已限定範圍只能存取 `documents` bucket）——而非另外一組 worker 專用憑證。日後可以考慮設置一組專用的 worker 憑證作為縱深防禦的強化措施，但目前不是必要項目。
+- **`packages/shared` 現在正式引入**，只包含 `document-conversion` 佇列名稱常數以及 `ConversionJobData`/`ConversionJobResult` 這兩個 TypeScript 介面——不含任何執行期邏輯。這正是 Phase 4A 審查明確建議、在導入更重的共用套件之前先做的輕量版「試跑」：它演練了未來 `packages/database` 抽取套件也需要的完全相同的 Dockerfile 變更（`COPY packages/shared`，在建置依賴它的應用程式之前先建置它），但風險低得多。`apps/api` 與 `apps/worker` 都透過 `workspace:*` 協定依賴它。
+- **下載／檢視端點在此階段不變。** `previewObjectKey` 會被填入，但目前還沒有任何東西讀取它——將它用於浮水印預覽渲染是 Phase 4C 的工作，不屬於這一階段。
+- **`clamscan` 精確的緩衝區掃描 API 無法完全從記憶中確定**——Phase 4A 的任務 5 曾透過 `docker run` 成功對真實檔案使用過它，這是真實且有用的先前驗證，但這個階段需要它在一個長時間運行的 NestJS 服務內掃描一個記憶體中的 `Buffer`（來自 multer 的記憶體儲存），而非一次性腳本。在信任這份計畫的草稿程式碼之前，請對照實際安裝套件的型別定義，驗證真正的方法（`scanStream` 包裝 `Readable.from(buffer)`，或實際安裝的套件所支援的其他方式）。
+- 真實整合測試：針對實際運行中系統的 e2e 測試（真實的 ClamAV 拒絕真實含有 EICAR 特徵的上傳、真實的 Gotenberg 轉換真實上傳的 Office MIME 類型檔案、真實建立的 MinIO 物件）——這是此專案既有的慣例，此計畫涉及的任何部分都不使用模擬的基礎設施。
+- 此主機上的 Docker daemon 有時負載較重，且此工作階段在 `docker compose build` 過程中已多次遇到磁碟空間卡住的情況——如果建置異常長時間卡住，請檢查 `df -h /` 並清理（`docker builder prune -f`，如果單純的 prune 回收了 0B 空間，則用 `docker image prune -a -f --filter "until=24h"`）。每次重建後請確認容器確實有被重新建立（比較映像檔 ID／啟動時間），而不是只看建置指令是否回傳 0——這是此專案中真實且反覆出現的問題。如果 ClamAV 的資料卷曾被清除（`docker compose down -v`），它首次啟動下載病毒碼可能需要數分鐘——這是預期行為，不是卡住。
 
 ---
 
-### Task 1: `packages/shared` scaffold + Dockerfile updates
+### 任務 1：`packages/shared` 骨架建立＋Dockerfile 更新
 
-**Files:**
+**檔案：**
 - Create: `packages/shared/package.json`
 - Create: `packages/shared/tsconfig.json`
 - Create: `packages/shared/src/index.ts`
-- Modify: `apps/api/package.json` (add `@drm/shared` dependency)
+- Modify: `apps/api/package.json`（新增 `@drm/shared` 依賴）
 - Modify: `apps/api/Dockerfile`
-- Modify: `apps/worker/package.json` (add `@drm/shared` dependency)
+- Modify: `apps/worker/package.json`（新增 `@drm/shared` 依賴）
 - Modify: `apps/worker/Dockerfile`
 
-**Interfaces:**
-- Consumes: nothing new.
-- Produces: `@drm/shared` exporting `QUEUE_DOCUMENT_CONVERSION: string`, `interface ConversionJobData { documentVersionId: string; objectKey: string; mimeType: string }`, `interface ConversionJobResult { documentVersionId: string; previewObjectKey: string }`. Both `apps/api` and `apps/worker` can build against it.
+**介面：**
+- 使用： 無新增內容。
+- 產出： `@drm/shared` 匯出 `QUEUE_DOCUMENT_CONVERSION: string`、`interface ConversionJobData { documentVersionId: string; objectKey: string; mimeType: string }`、`interface ConversionJobResult { documentVersionId: string; previewObjectKey: string }`。`apps/api` 與 `apps/worker` 都能對它進行建置。
 
-- [ ] **Step 1: Create `packages/shared/package.json`**
+- [ ] **步驟 1：建立 `packages/shared/package.json`**
 
 ```json
 {
@@ -57,7 +57,7 @@
 }
 ```
 
-- [ ] **Step 2: Create `packages/shared/tsconfig.json`**
+- [ ] **步驟 2：建立 `packages/shared/tsconfig.json`**
 
 ```json
 {
@@ -75,7 +75,7 @@
 }
 ```
 
-- [ ] **Step 3: Create `packages/shared/src/index.ts`**
+- [ ] **步驟 3：建立 `packages/shared/src/index.ts`**
 
 ```ts
 export const QUEUE_DOCUMENT_CONVERSION = 'document-conversion';
@@ -92,29 +92,29 @@ export interface ConversionJobResult {
 }
 ```
 
-- [ ] **Step 4: Verify it builds standalone**
+- [ ] **步驟 4：驗證它能獨立建置**
 
-Run: `cd packages/shared && pnpm install && pnpm run build`
-Expected: `dist/index.js` and `dist/index.d.ts` created, no errors.
+執行：`cd packages/shared && pnpm install && pnpm run build`
+預期結果：建立出 `dist/index.js` 與 `dist/index.d.ts`，沒有錯誤。
 
-- [ ] **Step 5: Add `@drm/shared` as a dependency of `apps/api` and `apps/worker`**
+- [ ] **步驟 5：將 `@drm/shared` 加入 `apps/api` 與 `apps/worker` 的依賴中**
 
-Add to both `apps/api/package.json` and `apps/worker/package.json`'s `dependencies`:
+在 `apps/api/package.json` 與 `apps/worker/package.json` 的 `dependencies` 中都加入：
 
 ```json
     "@drm/shared": "workspace:*",
 ```
 
-Run from the repo root: `pnpm install` (this needs to happen at the root so pnpm resolves the `workspace:*` protocol and updates the single root `pnpm-lock.yaml`).
+從專案根目錄執行：`pnpm install`（這必須在根目錄執行，pnpm 才能解析 `workspace:*` 協定並更新唯一的根目錄 `pnpm-lock.yaml`）。
 
-- [ ] **Step 6: Verify both apps still build locally with the new dependency**
+- [ ] **步驟 6：驗證兩個應用程式在新增依賴後仍能於本機正常建置**
 
-Run: `cd apps/api && pnpm run build` — expected: no errors (nothing imports `@drm/shared` yet, this just confirms the dependency resolves).
-Run: `cd apps/worker && pnpm run build` — same expectation.
+執行：`cd apps/api && pnpm run build` ——預期結果：沒有錯誤（目前還沒有東西匯入 `@drm/shared`，這一步只是確認依賴能被正確解析）。
+執行：`cd apps/worker && pnpm run build` ——預期結果相同。
 
-- [ ] **Step 7: Update `apps/api/Dockerfile` to build `packages/shared` first**
+- [ ] **步驟 7：更新 `apps/api/Dockerfile`，先建置 `packages/shared`**
 
-The build stage needs `packages/shared`'s `package.json` copied in before `pnpm install` (so the workspace link resolves), the full `packages/shared` source copied in before building, and `packages/shared` built before `apps/api`:
+建置階段需要在 `pnpm install` 之前先複製進 `packages/shared` 的 `package.json`（讓工作區連結能被解析），在建置之前複製整個 `packages/shared` 原始碼，並在建置 `apps/api` 之前先建置 `packages/shared`：
 
 ```dockerfile
 FROM node:20-alpine AS build
@@ -132,9 +132,9 @@ RUN pnpm --filter api exec prisma generate || true
 RUN pnpm --filter api run build
 ```
 
-(Runtime stage is unchanged — `packages/shared`'s compiled `dist/` is already inside `node_modules/@drm/shared` via the workspace symlink that `pnpm install` sets up, so it's carried along by the existing `COPY --from=build /repo/node_modules ./node_modules` line. Verify this is actually true once you build — pnpm workspace symlinks inside `node_modules` can be real symlinks pointing outside the copied tree, which would break in the runtime stage if the target isn't also copied. If that's the case, add an explicit `COPY --from=build /repo/packages/shared/dist ./packages/shared/dist` line to the runtime stage and confirm the symlink resolves correctly inside the final image.)
+（執行階段不變——`packages/shared` 編譯好的 `dist/` 已經透過 `pnpm install` 建立的工作區符號連結，位於 `node_modules/@drm/shared` 內，因此會隨現有的 `COPY --from=build /repo/node_modules ./node_modules` 這一行一起被帶過去。實際建置後務必驗證這一點是否成立——pnpm 工作區在 `node_modules` 內的符號連結可能是指向被複製範圍之外的真實符號連結，如果目標沒有一併被複製，在執行階段就會失效。如果是這種情況，請在執行階段加入一行明確的 `COPY --from=build /repo/packages/shared/dist ./packages/shared/dist`，並確認符號連結在最終映像檔內能正確解析。）
 
-- [ ] **Step 8: Update `apps/worker/Dockerfile` the same way**
+- [ ] **步驟 8：以相同方式更新 `apps/worker/Dockerfile`**
 
 ```dockerfile
 FROM node:20-alpine AS build
@@ -161,20 +161,20 @@ WORKDIR /repo/apps/worker
 CMD ["node", "dist/main.js"]
 ```
 
-(Same symlink caveat as Step 7 applies here — verify for real.)
+（此處同樣適用步驟 7 的符號連結注意事項——請務必實際驗證。）
 
-- [ ] **Step 9: Rebuild both containers and confirm they still start cleanly**
+- [ ] **步驟 9：重新建置兩個容器，確認能正常啟動**
 
-Run: `docker compose up -d --build api worker` (verify actual recreation of both via image ID/start-time)
-Run: `docker compose logs api worker`
-Expected: both start with no errors (neither imports `@drm/shared` yet — this step only proves the Docker build pipeline for the new workspace package works before anything depends on it functionally).
+執行：`docker compose up -d --build api worker`（透過映像檔 ID／啟動時間驗證兩者確實有被重新建立）
+執行：`docker compose logs api worker`
+預期結果：兩者都能無錯誤啟動（目前都還沒有匯入 `@drm/shared`——這一步只是要證明新工作區套件的 Docker 建置流程在任何功能性依賴之前就能運作）。
 
-- [ ] **Step 10: Run the existing full suite to confirm nothing broke**
+- [ ] **步驟 10：執行既有的完整測試套件，確認沒有東西壞掉**
 
-Run: `pnpm --filter api test`, `pnpm --filter api test:e2e`, `pnpm --filter api lint`, `pnpm --filter worker lint`, `./scripts/smoke-test.sh`.
-Expected: all pass, same as before this task.
+執行：`pnpm --filter api test`、`pnpm --filter api test:e2e`、`pnpm --filter api lint`、`pnpm --filter worker lint`、`./scripts/smoke-test.sh`。
+預期結果：全部通過，與此任務之前相同。
 
-- [ ] **Step 11: Commit**
+- [ ] **步驟 11：提交**
 
 ```bash
 git add packages/shared apps/api/package.json apps/api/Dockerfile apps/worker/package.json apps/worker/Dockerfile pnpm-lock.yaml pnpm-workspace.yaml
@@ -183,25 +183,25 @@ git commit -m "feat: add packages/shared workspace package, wire into api/worker
 
 ---
 
-### Task 2: Schema migration — `previewObjectKey` + `virus_detected` action
+### 任務 2：資料庫遷移 —— `previewObjectKey` ＋ `virus_detected` 動作
 
-**Files:**
+**檔案：**
 - Modify: `apps/api/prisma/schema.prisma`
-- Create: `apps/api/prisma/migrations/<timestamp>_conversion_preview_and_virus_action/migration.sql` (generated)
+- Create: `apps/api/prisma/migrations/<timestamp>_conversion_preview_and_virus_action/migration.sql`（自動產生）
 
-**Interfaces:**
-- Consumes: nothing new.
-- Produces: `DocumentVersion.previewObjectKey: string | null`, `AuditAction.virus_detected` — both importable from `@prisma/client` once generated.
+**介面：**
+- 使用： 無新增內容。
+- 產出： `DocumentVersion.previewObjectKey: string | null`、`AuditAction.virus_detected`——兩者在產生後皆可從 `@prisma/client` 匯入。
 
-- [ ] **Step 1: Add `previewObjectKey` to the `DocumentVersion` model in `apps/api/prisma/schema.prisma`**
+- [ ] **步驟 1：在 `apps/api/prisma/schema.prisma` 的 `DocumentVersion` 模型中加入 `previewObjectKey`**
 
-Add the field to the existing model (don't recreate the whole model — just add this line among its existing fields):
+將此欄位加入現有模型中（不要重新建立整個模型——只需在既有欄位之間加入這一行）：
 
 ```prisma
   previewObjectKey String?
 ```
 
-- [ ] **Step 2: Add `virus_detected` to the `AuditAction` enum**
+- [ ] **步驟 2：在 `AuditAction` 列舉中加入 `virus_detected`**
 
 ```prisma
 enum AuditAction {
@@ -217,26 +217,26 @@ enum AuditAction {
 }
 ```
 
-- [ ] **Step 3: Start a temporary local Postgres for migration authoring**
+- [ ] **步驟 3：啟動一個臨時的本機 Postgres 以撰寫遷移**
 
-Run: `docker run --rm -d --name drm-dev-postgres -e POSTGRES_USER=drm -e POSTGRES_PASSWORD=drm_dev_password -e POSTGRES_DB=drm -p 5436:5432 postgres:16-alpine`
+執行：`docker run --rm -d --name drm-dev-postgres -e POSTGRES_USER=drm -e POSTGRES_PASSWORD=drm_dev_password -e POSTGRES_DB=drm -p 5436:5432 postgres:16-alpine`
 
-(Port 5436 — 5433/5434/5435 were used by prior phases' migration authoring; check `docker compose ps` and `docker ps` first, adjust if taken.)
+（連接埠 5436——5433/5434/5435 已被先前階段撰寫遷移時使用，請先檢查 `docker compose ps` 與 `docker ps`，如已被佔用則調整。）
 
-- [ ] **Step 4: Generate the migration**
+- [ ] **步驟 4：產生遷移**
 
-Run: `cd apps/api && DATABASE_URL="postgresql://drm:drm_dev_password@localhost:5436/drm" pnpm exec prisma migrate dev --name conversion_preview_and_virus_action`
+執行：`cd apps/api && DATABASE_URL="postgresql://drm:drm_dev_password@localhost:5436/drm" pnpm exec prisma migrate dev --name conversion_preview_and_virus_action`
 
-- [ ] **Step 5: Stop the temporary Postgres**
+- [ ] **步驟 5：停止臨時 Postgres**
 
-Run: `docker stop drm-dev-postgres`
+執行：`docker stop drm-dev-postgres`
 
-- [ ] **Step 6: Regenerate the client and verify the build**
+- [ ] **步驟 6：重新產生客戶端並驗證建置**
 
-Run: `cd apps/api && pnpm exec prisma generate && pnpm run build`
-Expected: no TypeScript errors.
+執行：`cd apps/api && pnpm exec prisma generate && pnpm run build`
+預期結果：沒有 TypeScript 錯誤。
 
-- [ ] **Step 7: Commit**
+- [ ] **步驟 7：提交**
 
 ```bash
 git add apps/api/prisma
@@ -245,28 +245,28 @@ git commit -m "feat(api): add DocumentVersion.previewObjectKey and virus_detecte
 
 ---
 
-### Task 3: `VirusScanService` — synchronous scan-before-store
+### 任務 3：`VirusScanService` —— 同步的儲存前掃描
 
-**Files:**
+**檔案：**
 - Create: `apps/api/src/documents/virus-scan.service.ts`
 - Modify: `apps/api/src/documents/documents.service.ts`
 - Modify: `apps/api/src/documents/documents.module.ts`
-- Modify: `apps/api/package.json` (add `clamscan` dependency)
+- Modify: `apps/api/package.json`（新增 `clamscan` 依賴）
 - Test: `apps/api/test/virus-scan.e2e-spec.ts`
 
-**Interfaces:**
-- Consumes: nothing new (talks directly to the `clamav` service already running from Phase 4A, over the internal Docker network).
-- Produces: `VirusScanService.scanBuffer(buffer: Buffer): Promise<{ isInfected: boolean; viruses: string[] }>`. `DocumentsService.createDocument`/`.addVersion` now reject infected uploads with `400` before any storage/DB write, and audit the rejection as `virus_detected`.
+**介面：**
+- 使用： 無新增內容（透過內部 Docker 網路直接與 Phase 4A 已在運行的 `clamav` 服務溝通）。
+- 產出： `VirusScanService.scanBuffer(buffer: Buffer): Promise<{ isInfected: boolean; viruses: string[] }>`。`DocumentsService.createDocument`/`.addVersion` 現在會在任何儲存／資料庫寫入之前，以 `400` 拒絕受感染的上傳，並將此次拒絕以 `virus_detected` 稽核記錄下來。
 
-- [ ] **Step 1: Add `clamscan` dependency to `apps/api`**
+- [ ] **步驟 1：將 `clamscan` 依賴加入 `apps/api`**
 
 ```json
     "clamscan": "^2.4.0",
 ```
 
-Run: `cd apps/api && pnpm install`. Verify the real installed package's API for buffer/stream scanning before writing `VirusScanService` — check `node_modules/clamscan`'s types/README, the same way Phase 4A's Task 5 had to research this package for real rather than trust a guess.
+執行：`cd apps/api && pnpm install`。在撰寫 `VirusScanService` 之前，先驗證實際安裝套件在緩衝區／串流掃描上的 API——查看 `node_modules/clamscan` 的型別定義／README，就像 Phase 4A 的任務 5 當初必須實際研究這個套件，而非憑猜測相信。
 
-- [ ] **Step 2: Create `apps/api/src/documents/virus-scan.service.ts`**
+- [ ] **步驟 2：建立 `apps/api/src/documents/virus-scan.service.ts`**
 
 ```ts
 import { Injectable } from '@nestjs/common';
@@ -305,20 +305,20 @@ export class VirusScanService {
 }
 ```
 
-This is a best-effort draft, explicitly flagged as uncertain in the Global Constraints — verify `init()`'s option shape and `scanStream`'s real return shape against the actually-installed `clamscan` version, and fix any mismatch based on real errors, the same way Phase 4A's Task 5 iterated against real ClamAV behavior.
+這是一份盡力而為的草稿，在「全域限制條件」中已明確標註為不確定——請對照實際安裝的 `clamscan` 版本，驗證 `init()` 的選項格式與 `scanStream` 的實際回傳格式，並根據真實錯誤修正任何不符之處，就像 Phase 4A 的任務 5 當初也是根據真實的 ClamAV 行為反覆迭代出來的一樣。
 
-- [ ] **Step 3: Add `CLAMAV_HOST`/`CLAMAV_PORT` to the `api` service's environment in `docker-compose.yml`**
+- [ ] **步驟 3：在 `docker-compose.yml` 的 `api` 服務環境變數中加入 `CLAMAV_HOST`/`CLAMAV_PORT`**
 
 ```yaml
       CLAMAV_HOST: clamav
       CLAMAV_PORT: 3310
 ```
 
-Add `clamav: condition: service_healthy` to the `api` service's `depends_on`.
+在 `api` 服務的 `depends_on` 中加入 `clamav: condition: service_healthy`。
 
-- [ ] **Step 4: Wire the scan into `DocumentsService.createDocument` and `.addVersion`**
+- [ ] **步驟 4：將掃描接入 `DocumentsService.createDocument` 與 `.addVersion`**
 
-In `apps/api/src/documents/documents.service.ts`, inject `VirusScanService` (and it already has `AuditService` from Phase 3). At the very start of both methods, before `storage.putObject` and before any Prisma write:
+在 `apps/api/src/documents/documents.service.ts` 中注入 `VirusScanService`（它已經有 Phase 3 提供的 `AuditService`）。在兩個方法一開始、`storage.putObject` 之前、以及任何 Prisma 寫入之前：
 
 ```ts
     const scanResult = await this.virusScan.scanBuffer(file.buffer);
@@ -336,15 +336,15 @@ In `apps/api/src/documents/documents.service.ts`, inject `VirusScanService` (and
     }
 ```
 
-In `createDocument`, use `resourceType: 'folder'` / `resourceId: folderId` (the upload target — no `Document` row exists yet to reference). In `addVersion`, use `resourceType: 'document'` / `resourceId: documentId` (that row already exists). Import `BadRequestException` from `@nestjs/common`.
+在 `createDocument` 中，使用 `resourceType: 'folder'`／`resourceId: folderId`（上傳目標——此時尚不存在可參照的 `Document` 資料列）。在 `addVersion` 中，使用 `resourceType: 'document'`／`resourceId: documentId`（該資料列已經存在）。從 `@nestjs/common` 匯入 `BadRequestException`。
 
-- [ ] **Step 5: Import `VirusScanService` into `DocumentsModule`**
+- [ ] **步驟 5：將 `VirusScanService` 匯入 `DocumentsModule`**
 
-Add `VirusScanService` to `apps/api/src/documents/documents.module.ts`'s `providers` array.
+將 `VirusScanService` 加入 `apps/api/src/documents/documents.module.ts` 的 `providers` 陣列。
 
-- [ ] **Step 6: Write the e2e test**
+- [ ] **步驟 6：撰寫 e2e 測試**
 
-`apps/api/test/virus-scan.e2e-spec.ts`:
+`apps/api/test/virus-scan.e2e-spec.ts`：
 
 ```ts
 import axios from 'axios';
@@ -427,13 +427,13 @@ describe('Virus scanning on upload (e2e)', () => {
 });
 ```
 
-- [ ] **Step 7: Rebuild and run**
+- [ ] **步驟 7：重新建置並執行**
 
-Run: `docker compose up -d --build api` (verify actual recreation)
-Run: `cd apps/api && pnpm test:e2e -- virus-scan`
-Expected: PASS (2 tests)
+執行：`docker compose up -d --build api`（驗證確實有被重新建立）
+執行：`cd apps/api && pnpm test:e2e -- virus-scan`
+預期結果：PASS（2 個測試）
 
-- [ ] **Step 8: Commit**
+- [ ] **步驟 8：提交**
 
 ```bash
 git add apps/api/package.json apps/api/pnpm-lock.yaml apps/api/src/documents apps/api/test/virus-scan.e2e-spec.ts docker-compose.yml
@@ -442,32 +442,32 @@ git commit -m "feat(api): scan uploads for viruses before storage, reject infect
 
 ---
 
-### Task 4: Worker `StorageService` + `ConversionProcessor`
+### 任務 4：Worker 的 `StorageService` ＋ `ConversionProcessor`
 
-**Files:**
+**檔案：**
 - Create: `apps/worker/src/storage/storage.service.ts`
 - Create: `apps/worker/src/storage/storage.module.ts`
 - Create: `apps/worker/src/conversion/conversion.processor.ts`
 - Create: `apps/worker/src/conversion/conversion.module.ts`
 - Modify: `apps/worker/src/app.module.ts`
-- Modify: `apps/worker/package.json` (add `@aws-sdk/client-s3` dependency)
-- Modify: `docker-compose.yml` (add MinIO/Gotenberg env vars + `depends_on` to `worker`)
+- Modify: `apps/worker/package.json`（新增 `@aws-sdk/client-s3` 依賴）
+- Modify: `docker-compose.yml`（新增 MinIO/Gotenberg 環境變數＋`worker` 的 `depends_on`）
 
-**Interfaces:**
-- Consumes: `@drm/shared`'s `QUEUE_DOCUMENT_CONVERSION`/`ConversionJobData`/`ConversionJobResult` (Task 1).
-- Produces: a `document-conversion` BullMQ processor in `apps/worker` that fetches an object from MinIO, converts it via Gotenberg, stores the result back to MinIO, and returns `ConversionJobResult`.
+**介面：**
+- 使用： `@drm/shared` 的 `QUEUE_DOCUMENT_CONVERSION`/`ConversionJobData`/`ConversionJobResult`（任務 1）。
+- 產出： `apps/worker` 中一個 `document-conversion` BullMQ 處理器，會從 MinIO 取得物件、透過 Gotenberg 轉換、將結果存回 MinIO，並回傳 `ConversionJobResult`。
 
-- [ ] **Step 1: Add `@aws-sdk/client-s3` to `apps/worker`**
+- [ ] **步驟 1：將 `@aws-sdk/client-s3` 加入 `apps/worker`**
 
 ```json
     "@aws-sdk/client-s3": "^3.658.0",
 ```
 
-Run: `cd apps/worker && pnpm install`
+執行：`cd apps/worker && pnpm install`
 
-- [ ] **Step 2: Create `apps/worker/src/storage/storage.service.ts`**
+- [ ] **步驟 2：建立 `apps/worker/src/storage/storage.service.ts`**
 
-A deliberate, minimal duplication of `apps/api/src/storage/storage.service.ts` — same env vars, same `forcePathStyle: true` requirement for MinIO, adds a `getObjectBuffer` method (the worker needs the whole file in memory to POST to Gotenberg, unlike `apps/api`'s streaming download):
+刻意做的最小化複製，對照 `apps/api/src/storage/storage.service.ts`——相同的環境變數、對 MinIO 相同的 `forcePathStyle: true` 要求，額外加入一個 `getObjectBuffer` 方法（worker 需要把整個檔案讀進記憶體才能 POST 給 Gotenberg，不像 `apps/api` 用串流方式下載）：
 
 ```ts
 import { Injectable } from '@nestjs/common';
@@ -510,7 +510,7 @@ export class StorageService {
 }
 ```
 
-- [ ] **Step 3: Create `apps/worker/src/storage/storage.module.ts`**
+- [ ] **步驟 3：建立 `apps/worker/src/storage/storage.module.ts`**
 
 ```ts
 import { Module } from '@nestjs/common';
@@ -523,7 +523,7 @@ import { StorageService } from './storage.service';
 export class StorageModule {}
 ```
 
-- [ ] **Step 4: Create `apps/worker/src/conversion/conversion.processor.ts`**
+- [ ] **步驟 4：建立 `apps/worker/src/conversion/conversion.processor.ts`**
 
 ```ts
 import { Processor, WorkerHost } from '@nestjs/bullmq';
@@ -562,9 +562,9 @@ export class ConversionProcessor extends WorkerHost {
 }
 ```
 
-Verify `axios`/`form-data` are added as `apps/worker` dependencies (they aren't yet — add both to `apps/worker/package.json`). Verify the Gotenberg route/form-field name against Task 4 of the Phase 4A plan's already-proven-correct usage (`scripts/verify-gotenberg.sh`) — it should match exactly since this is the same Gotenberg service, already confirmed working.
+驗證 `axios`/`form-data` 有被加入為 `apps/worker` 的依賴（目前還沒有——請將兩者都加進 `apps/worker/package.json`）。對照 Phase 4A 計畫任務 4 中已證實正確的用法（`scripts/verify-gotenberg.sh`），驗證 Gotenberg 的路由／表單欄位名稱——由於這是同一個 Gotenberg 服務、已確認可正常運作，應該要完全一致。
 
-- [ ] **Step 5: Create `apps/worker/src/conversion/conversion.module.ts`**
+- [ ] **步驟 5：建立 `apps/worker/src/conversion/conversion.module.ts`**
 
 ```ts
 import { Module } from '@nestjs/common';
@@ -580,11 +580,11 @@ import { StorageModule } from '../storage/storage.module';
 export class ConversionModule {}
 ```
 
-- [ ] **Step 6: Wire `ConversionModule` into `apps/worker/src/app.module.ts`**
+- [ ] **步驟 6：將 `ConversionModule` 接入 `apps/worker/src/app.module.ts`**
 
-Add `ConversionModule` to the `imports` array alongside the existing `HealthCheckModule`.
+在 `imports` 陣列中，於既有的 `HealthCheckModule` 旁加入 `ConversionModule`。
 
-- [ ] **Step 7: Add MinIO/Gotenberg env vars to the `worker` service in `docker-compose.yml`**
+- [ ] **步驟 7：在 `docker-compose.yml` 的 `worker` 服務中加入 MinIO/Gotenberg 環境變數**
 
 ```yaml
       MINIO_ENDPOINT: http://minio:9000
@@ -594,15 +594,15 @@ Add `ConversionModule` to the `imports` array alongside the existing `HealthChec
       GOTENBERG_URL: http://gotenberg:3000
 ```
 
-Add `minio: condition: service_healthy` and `gotenberg: condition: service_healthy` to the `worker` service's `depends_on`.
+在 `worker` 服務的 `depends_on` 中加入 `minio: condition: service_healthy` 與 `gotenberg: condition: service_healthy`。
 
-- [ ] **Step 8: Rebuild and verify the worker starts cleanly**
+- [ ] **步驟 8：重新建置並確認 worker 能正常啟動**
 
-Run: `docker compose up -d --build worker` (verify actual recreation)
-Run: `docker compose logs worker`
-Expected: clean start, no errors, the `document-conversion` queue registered alongside `health-check`.
+執行：`docker compose up -d --build worker`（驗證確實有被重新建立）
+執行：`docker compose logs worker`
+預期結果：乾淨啟動、無錯誤，`document-conversion` 佇列與 `health-check` 一同註冊完成。
 
-- [ ] **Step 9: Commit**
+- [ ] **步驟 9：提交**
 
 ```bash
 git add apps/worker docker-compose.yml
@@ -611,22 +611,22 @@ git commit -m "feat(worker): add StorageService and ConversionProcessor (MinIO -
 
 ---
 
-### Task 5: Wire conversion into the upload flow (enqueue + completion listener)
+### 任務 5：將轉換流程接入上傳流程（排入工作＋完成監聽器）
 
-**Files:**
+**檔案：**
 - Create: `apps/api/src/documents/conversion-events.listener.ts`
 - Modify: `apps/api/src/documents/documents.service.ts`
 - Modify: `apps/api/src/documents/documents.module.ts`
-- Modify: `apps/api/package.json` (add `bullmq`'s already-present dependency is enough; add `@drm/shared` usage)
+- Modify: `apps/api/package.json`（`bullmq` 已有的依賴已足夠；新增 `@drm/shared` 的使用）
 - Test: `apps/api/test/document-conversion.e2e-spec.ts`
 
-**Interfaces:**
-- Consumes: `@drm/shared` (Task 1), the `document-conversion` queue (Task 4's consumer side).
-- Produces: `DocumentsService.createDocument`/`.addVersion` enqueue a conversion job for Office-mimetype uploads; `ConversionEventsListener` updates `DocumentVersion.previewObjectKey` when a job completes.
+**介面：**
+- 使用： `@drm/shared`（任務 1）、`document-conversion` 佇列（任務 4 的消費端）。
+- 產出： `DocumentsService.createDocument`/`.addVersion` 對 Office MIME 類型的上傳排入轉換工作；`ConversionEventsListener` 在工作完成時更新 `DocumentVersion.previewObjectKey`。
 
-- [ ] **Step 1: Create `apps/api/src/documents/conversion-events.listener.ts`**
+- [ ] **步驟 1：建立 `apps/api/src/documents/conversion-events.listener.ts`**
 
-Uses `bullmq`'s `QueueEvents` directly (the same class already proven in Phase 4A's `jobs.e2e-spec.ts`), not `@nestjs/bullmq`'s decorator sugar — keeping this on an already-verified pattern.
+直接使用 `bullmq` 的 `QueueEvents`（此類別已在 Phase 4A 的 `jobs.e2e-spec.ts` 中驗證過），而非 `@nestjs/bullmq` 的裝飾器語法糖——維持使用已驗證過的模式。
 
 ```ts
 import { Injectable, Logger, OnModuleDestroy, OnModuleInit } from '@nestjs/common';
@@ -675,13 +675,13 @@ export class ConversionEventsListener implements OnModuleInit, OnModuleDestroy {
 }
 ```
 
-Verify whether `returnvalue` on the `completed` event is genuinely always a JSON string (BullMQ typically serializes job results when they pass through Redis) or sometimes already an object, against real observed behavior — the `typeof` check handles both, but confirm which case actually occurs in this project's setup and note it.
+驗證 `completed` 事件上的 `returnvalue` 究竟真的一律是 JSON 字串（BullMQ 通常會在工作結果經過 Redis 時序列化），還是有時已經是物件——請對照實際觀察到的行為，`typeof` 檢查兩種情況都能處理，但請確認此專案的設定實際上會出現哪一種情況並記錄下來。
 
-- [ ] **Step 2: Add a producer method and Office-mimetype detection to `DocumentsService`**
+- [ ] **步驟 2：在 `DocumentsService` 中加入一個產生者方法與 Office MIME 類型偵測**
 
-In `apps/api/src/documents/documents.service.ts`, inject `@InjectQueue(QUEUE_DOCUMENT_CONVERSION) private readonly conversionQueue: Queue<ConversionJobData>` (import `InjectQueue` from `@nestjs/bullmq`, `Queue` from `bullmq`, `QUEUE_DOCUMENT_CONVERSION`/`ConversionJobData` from `@drm/shared`).
+在 `apps/api/src/documents/documents.service.ts` 中，注入 `@InjectQueue(QUEUE_DOCUMENT_CONVERSION) private readonly conversionQueue: Queue<ConversionJobData>`（從 `@nestjs/bullmq` 匯入 `InjectQueue`，從 `bullmq` 匯入 `Queue`，從 `@drm/shared` 匯入 `QUEUE_DOCUMENT_CONVERSION`/`ConversionJobData`）。
 
-Add a private helper:
+加入一個私有輔助方法：
 
 ```ts
   private readonly OFFICE_MIME_TYPES = new Set([
@@ -705,9 +705,9 @@ Add a private helper:
   }
 ```
 
-Call `await this.maybeEnqueueConversion(version.id, objectKey, file.mimetype)` at the end of both `createDocument` (after the transaction commits, using the created version's `id`/`objectKey`) and `addVersion` (same, after its transaction commits) — after the existing audit-recording call, so an enqueue failure doesn't prevent the upload itself from being recorded as successful (the upload succeeded; the preview is a secondary, best-effort enhancement).
+在 `createDocument`（交易提交後，使用建立完成版本的 `id`/`objectKey`）與 `addVersion`（同樣在其交易提交後）的結尾都呼叫 `await this.maybeEnqueueConversion(version.id, objectKey, file.mimetype)`——放在既有的稽核記錄呼叫之後，這樣排入工作失敗時就不會妨礙上傳本身被記錄為成功（上傳已經成功；預覽只是次要的、盡力而為的加值功能）。
 
-- [ ] **Step 3: Register the `document-conversion` queue and the listener in `DocumentsModule`**
+- [ ] **步驟 3：在 `DocumentsModule` 中註冊 `document-conversion` 佇列與監聽器**
 
 ```ts
 import { BullModule } from '@nestjs/bullmq';
@@ -729,9 +729,9 @@ import { ConversionEventsListener } from './conversion-events.listener';
 export class DocumentsModule {}
 ```
 
-- [ ] **Step 4: Write the e2e test**
+- [ ] **步驟 4：撰寫 e2e 測試**
 
-`apps/api/test/document-conversion.e2e-spec.ts`:
+`apps/api/test/document-conversion.e2e-spec.ts`：
 
 ```ts
 import axios from 'axios';
@@ -837,15 +837,15 @@ describe('Document conversion pipeline (e2e)', () => {
 });
 ```
 
-The `MC` constant is unused in this draft — remove it, or use it to add a stronger assertion that verifies the preview object genuinely exists in MinIO and is a real PDF (magic bytes check, matching Phase 4A's `verify-gotenberg.sh` pattern) rather than only checking the DB column got set. Strengthening this test that way is worth doing if it's not much extra work.
+這份草稿中的 `MC` 常數並未被使用——請將它移除，或用它加入一個更嚴謹的斷言，確認預覽物件確實存在於 MinIO 中且是一個真正的 PDF（透過檔頭 magic bytes 檢查，對照 Phase 4A 的 `verify-gotenberg.sh` 模式），而不只是檢查資料庫欄位有沒有被設定。如果不會花太多額外工夫，值得以這種方式強化這個測試。
 
-- [ ] **Step 5: Rebuild and run**
+- [ ] **步驟 5：重新建置並執行**
 
-Run: `docker compose up -d --build api worker` (verify actual recreation of both)
-Run: `cd apps/api && pnpm test:e2e -- document-conversion`
-Expected: PASS. The first test has real async wait time (polling up to 30s) — this is expected, not a hang.
+執行：`docker compose up -d --build api worker`（驗證兩者確實有被重新建立）
+執行：`cd apps/api && pnpm test:e2e -- document-conversion`
+預期結果：PASS。第一個測試有真實的非同步等待時間（輪詢最長達 30 秒）——這是預期行為，不是卡住。
 
-- [ ] **Step 6: Commit**
+- [ ] **步驟 6：提交**
 
 ```bash
 git add apps/api/src/documents apps/api/test/document-conversion.e2e-spec.ts
@@ -854,33 +854,33 @@ git commit -m "feat(api): enqueue Office document conversion on upload, record p
 
 ---
 
-### Task 6: Full-suite verification
+### 任務 6：完整測試套件驗證
 
-**Files:**
+**檔案：**
 - Create: `docs/superpowers/plans/2026-08-02-phase4b-verification.md`
 
-**Interfaces:**
-- Consumes: everything from Tasks 1-5.
-- Produces: a written verification record confirming the full upload → scan → store → convert → preview pipeline works together, fresh.
+**介面：**
+- 使用： 任務 1 至 5 的所有內容。
+- 產出： 一份書面驗證紀錄，確認上傳 → 掃描 → 儲存 → 轉換 → 預覽整條流程能一起正常運作，並且是全新驗證過的。
 
-- [ ] **Step 1: Fresh full-stack rebuild**
+- [ ] **步驟 1：全新的全端重新建置**
 
-Run: `docker compose down -v && docker compose up -d --build`
-Wait for all services healthy (Keycloak cold start, ClamAV definition re-download — both expected to take several minutes, be patient per prior phases' precedent).
+執行：`docker compose down -v && docker compose up -d --build`
+等待所有服務達到健康狀態（Keycloak 冷啟動、ClamAV 病毒碼重新下載——兩者依先前階段的經驗都預期需要數分鐘，請耐心等待）。
 
-- [ ] **Step 2: Run every automated suite together**
+- [ ] **步驟 2：一起執行所有自動化測試套件**
 
-`./scripts/smoke-test.sh`, `pnpm --filter api test`, `pnpm --filter api test:e2e`, `pnpm --filter api lint`, `pnpm --filter worker lint`, `pnpm --filter web test`, `./scripts/verify-gotenberg.sh`, `./scripts/verify-clamav.sh`. All must pass together. Fix any integration-only issue this reveals — this project has repeatedly found real issues exactly this way in every prior phase.
+`./scripts/smoke-test.sh`、`pnpm --filter api test`、`pnpm --filter api test:e2e`、`pnpm --filter api lint`、`pnpm --filter worker lint`、`pnpm --filter web test`、`./scripts/verify-gotenberg.sh`、`./scripts/verify-clamav.sh`。全部必須一起通過。修正任何由此揭露出來、僅在整合層面才會出現的問題——此專案在先前每個階段都確實透過這種方式發現過真實問題。
 
-- [ ] **Step 3: Manual walkthrough**
+- [ ] **步驟 3：手動走查**
 
-As testadmin: create a folder, upload an infected test file (confirm rejected, confirm no document created, confirm audit entry), upload a clean Office-mimetype file (confirm accepted immediately, poll `GET /documents/:id` until `currentVersion.previewObjectKey` is set, confirm the preview object is a real PDF in MinIO), upload a clean plain-text file (confirm accepted, confirm `previewObjectKey` stays null).
+以 testadmin 身分：建立一個資料夾、上傳一個受感染的測試檔案（確認被拒絕、確認沒有建立文件、確認有稽核紀錄）、上傳一個乾淨的 Office MIME 類型檔案（確認立即被接受，輪詢 `GET /documents/:id` 直到 `currentVersion.previewObjectKey` 被設定，確認預覽物件在 MinIO 中是一個真正的 PDF）、上傳一個乾淨的純文字檔案（確認被接受，確認 `previewObjectKey` 保持為 null）。
 
-- [ ] **Step 4: Write `docs/superpowers/plans/2026-08-02-phase4b-verification.md`**
+- [ ] **步驟 4：撰寫 `docs/superpowers/plans/2026-08-02-phase4b-verification.md`**
 
-Follow the format established by prior phases' verification docs.
+依循先前階段驗證文件所建立的格式。
 
-- [ ] **Step 5: Commit**
+- [ ] **步驟 5：提交**
 
 ```bash
 git add docs/superpowers/plans/2026-08-02-phase4b-verification.md
@@ -889,9 +889,9 @@ git commit -m "docs: add Phase 4B verification record"
 
 ---
 
-## Self-Review Notes
+## 自我審查筆記
 
-- **Spec coverage:** Implements the design spec's upload-flow description exactly (scan before store, Office conversion via worker+Gotenberg after). Watermarking and expiration are explicitly Phase 4C, untouched here.
-- **Placeholder scan:** No TBD/TODO markers. The one deliberately-left area of genuine uncertainty (`clamscan`'s exact buffer-scanning API) is explicitly flagged for real verification during implementation, consistent with how this project has handled comparable third-party-API uncertainty in every prior phase (KES in 2A, ClamAV's own client choice in 4A) — not a placeholder in the sense the process warns against, since concrete starting code is provided either way.
-- **Type consistency:** `ConversionJobData`/`ConversionJobResult`/`QUEUE_DOCUMENT_CONVERSION` are defined once in `packages/shared` (Task 1) and used identically by the producer (`apps/api`, Task 5) and consumer (`apps/worker`, Task 4) — the exact cross-cutting-constant risk Phase 4A's final review flagged is closed by construction here, not left as a bare string duplicated in multiple files.
-- **Scope:** Upload-pipeline integration only. No ACL/permission changes, no download/view endpoint changes, no watermarking, no expiration — all explicitly deferred to later phases.
+- **規格涵蓋範圍：** 完全依照設計規格對上傳流程的描述實作（先掃描再儲存、Office 文件透過 worker+Gotenberg 於事後轉換）。浮水印與到期機制明確屬於 Phase 4C，此處未涉及。
+- **佔位程式碼檢查：** 沒有 TBD/TODO 標記。唯一刻意保留、真實存在不確定性的部分（`clamscan` 精確的緩衝區掃描 API）已明確標註,需在實作期間進行真實驗證，與此專案在先前每個階段處理類似第三方 API 不確定性的方式一致（2A 階段的 KES、4A 階段 ClamAV 客戶端本身的選擇）——這並非流程所警惕的那種佔位程式碼，因為無論如何都已提供了具體的起始程式碼。
+- **型別一致性：** `ConversionJobData`/`ConversionJobResult`/`QUEUE_DOCUMENT_CONVERSION` 只在 `packages/shared`（任務 1）中定義一次，並由產生端（`apps/api`，任務 5）與消費端（`apps/worker`，任務 4）以完全相同的方式使用——這正是 Phase 4A 最終審查標記出來的跨切面常數風險，在此透過結構設計徹底解決，而非留下一個在多個檔案中重複的裸字串。
+- **範圍：** 僅限於上傳流程整合。沒有 ACL／權限變更，沒有下載／檢視端點變更，沒有浮水印，沒有到期機制——全都明確延後至後續階段處理。

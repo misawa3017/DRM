@@ -1,62 +1,62 @@
-# Phase 4C: Watermarking & Expiration Design
+# Phase 4C：浮水印與到期設計
 
-## Context
+## 背景
 
-This is the third and final sub-phase of the original Phase 4 split (4A infrastructure / 4B upload pipeline integration / 4C watermarking + expiration), both already complete. It implements the last two v1 features named in the original system design spec (`docs/superpowers/specs/2026-07-31-confidential-document-management-design.md`): dynamic watermarking and document expiration/auto-invalidation.
+這是原始 Phase 4 拆分（4A 基礎設施／4B 上傳流程整合／4C 浮水印＋到期）中的第三個、也是最後一個子階段，前兩者皆已完成。此階段實作原始系統設計規格（`docs/superpowers/specs/2026-07-31-confidential-document-management-design.md`）中所列出的最後兩項 v1 功能：動態浮水印，以及文件到期／自動失效。
 
-Since the original spec was written, Phase 4B established a firm architectural principle: `apps/worker` never touches Postgres directly; `apps/api` is the sole owner of all database writes, including background-job outcomes. This design deliberately deviates from the original spec's literal wording in one place (the expiration sweep mechanism) to stay consistent with that now-reviewed principle — see below.
+自原始規格撰寫以來，Phase 4B 建立了一項堅實的架構原則：`apps/worker` 永遠不直接存取 Postgres；`apps/api` 是所有資料庫寫入（包括背景工作結果）的唯一擁有者。本設計在一處刻意偏離原始規格的字面描述（到期掃描機制），以維持與這項已審查通過原則的一致性——詳見下文。
 
-## Architecture
+## 架構
 
-**Expiration sweep**: the original spec called for a worker-side BullMQ repeatable job. Instead, this uses `@nestjs/schedule`'s `@Cron` decorator running directly inside `apps/api`. The sweep is a pure "query Postgres, update status" operation with no need for any external service the worker exists to reach (MinIO, Gotenberg, ClamAV), so there's no reason to route it through the worker and reintroduce a database dependency there — the exact Dockerfile/Prisma complications Phase 4B's review flagged and avoided. A single `apps/api` instance runs the cron; this is a documented limitation if the deployment is ever horizontally scaled to multiple `api` replicas (out of scope for this v1 single-VM deployment — see Out of Scope).
+**到期掃描：** 原始規格要求使用 worker 端的 BullMQ 週期性工作（repeatable job）。本設計改為直接在 `apps/api` 內部使用 `@nestjs/schedule` 的 `@Cron` 裝飾器。這項掃描是純粹的「查詢 Postgres、更新狀態」操作，不需要用到 worker 存在的理由——也就是那些外部服務（MinIO、Gotenberg、ClamAV）——因此沒有理由將它繞道經過 worker，重新在那裡引入資料庫依賴——這正是 Phase 4B 審查中標記並避免的那類 Dockerfile／Prisma 相關問題。由單一個 `apps/api` 實例執行這個 cron；如果日後部署被水平擴展為多個 `api` 副本，這是一項已記錄在案的限制（超出本 v1 單一 VM 部署的範圍——詳見「範圍之外」）。
 
-**Watermarking**: never pre-generated, never cached. Every `GET /documents/:id/download` request that resolves to a watermark-eligible PDF gets the watermark overlaid on-the-fly via `pdf-lib` before the response is sent.
+**浮水印：** 永不預先產生，也永不快取。每一個解析到符合浮水印條件 PDF 的 `GET /documents/:id/download` 請求，都會在傳回回應之前，即時透過 `pdf-lib` 疊加浮水印。
 
-## Data Model Changes
+## 資料模型變更
 
-`Document` model gains:
-- `expiresAt DateTime?` — nullable; `null` means never expires.
-- `status DocumentStatus` — new enum `active` / `expired`, default `active`.
-- `watermarkEnabled Boolean?` — nullable; `null` means "not explicitly set, inherit from the folder chain"; `true`/`false` is an explicit override that stops inheritance at this document.
+`Document` 模型新增：
+- `expiresAt DateTime?` —— 可為 null；`null` 代表永不到期。
+- `status DocumentStatus` —— 新增列舉 `active` / `expired`，預設為 `active`。
+- `watermarkEnabled Boolean?` —— 可為 null；`null` 代表「未明確設定，繼承自資料夾鏈」；`true`/`false` 則是明確的覆寫值，會在該文件處中止繼承。
 
-`Folder` model gains:
-- `watermarkEnabled Boolean?` — same nullable/inheritance semantics as the document field.
+`Folder` 模型新增：
+- `watermarkEnabled Boolean?` —— 與文件欄位相同的可為 null／繼承語意。
 
-**Watermark resolution** (`resolveWatermarkEnabled`, mirroring the existing `AclService.resolveLevel` pattern from Phase 2B): start at the document; if its `watermarkEnabled` is non-null, use it. Otherwise walk up the folder chain, using the first non-null `watermarkEnabled` found. If nothing in the chain is explicitly set, default to `true` (watermark on).
+**浮水印解析**（`resolveWatermarkEnabled`，仿照 Phase 2B 既有的 `AclService.resolveLevel` 模式）：從文件本身開始；若其 `watermarkEnabled` 非 null，就使用該值。否則沿資料夾鏈向上走訪，採用第一個找到的非 null `watermarkEnabled`。若整條鏈中都沒有明確設定，則預設為 `true`（開啟浮水印）。
 
-`AuditAction` enum gains:
-- `document_expired` — written once per document when the daily sweep transitions it to `expired`. Actor is a reserved system identifier (exact representation decided at plan time), not a real user.
-- `document_expiry_updated` — written when a `manage`-permission holder sets or changes `expiresAt` via the API.
+`AuditAction` 列舉新增：
+- `document_expired` —— 當每日掃描將某文件轉為 `expired` 狀態時，針對該文件寫入一次。行為者是一個保留的系統識別碼（確切表示方式於撰寫計畫時決定），而非真實使用者。
+- `document_expiry_updated` —— 當具備 `manage` 權限的使用者透過 API 設定或變更 `expiresAt` 時寫入。
 
-## Expiration Workflow
+## 到期工作流程
 
-- **Setting/modifying**: a `manage`-permission-gated endpoint (exact route decided at plan time, e.g. `PATCH /documents/:id/expiration`) accepts `expiresAt` as an ISO timestamp or `null` (never expires). If the document's current `status` is `expired` and the new `expiresAt` is in the future (or `null`), this call also flips `status` back to `active` — this is the only way to "un-expire" a document. Writes `document_expiry_updated`.
-- **Daily sweep**: `apps/api`'s `@Cron` (e.g. 02:00 daily) queries all documents where `status = active AND expiresAt < now()`, sets `status = expired` for each, and writes one `document_expired` audit entry per document.
-- **Enforcement scope**: only content-related endpoints are blocked when `status = expired` — `download`, `getMetadata`, `listVersions`, `addVersion` all return a clear error (exact status code, 403 or 410, decided at plan time) with a message stating the document has expired. Permission management (`grant`/`revoke`) is unaffected — a `manage`-permission holder can still adjust ACLs or extend `expiresAt` on an expired document.
-- Nothing is ever deleted. ACL grants and the full audit history survive expiration unchanged — expiration is purely a status flag.
+- **設定／修改：** 一個受 `manage` 權限保護的端點（確切路由於撰寫計畫時決定，例如 `PATCH /documents/:id/expiration`）接受 `expiresAt`，可為 ISO 時間戳記或 `null`（永不到期）。如果該文件目前的 `status` 為 `expired`，且新的 `expiresAt` 是未來時間（或為 `null`），此呼叫也會將 `status` 改回 `active`——這是唯一能讓文件「復原到期狀態」的方式。會寫入 `document_expiry_updated`。
+- **每日掃描：** `apps/api` 的 `@Cron`（例如每日 02:00）查詢所有 `status = active AND expiresAt < now()` 的文件，將每一筆的 `status` 設為 `expired`，並針對每份文件寫入一筆 `document_expired` 稽核紀錄。
+- **強制範圍：** 只有與內容相關的端點會在 `status = expired` 時被封鎖——`download`、`getMetadata`、`listVersions`、`addVersion` 全部都會回傳明確的錯誤（確切狀態碼，403 或 410，於撰寫計畫時決定），並附上說明文件已到期的訊息。權限管理（`grant`/`revoke`）不受影響——具 `manage` 權限的使用者仍可調整 ACL 或延長已到期文件的 `expiresAt`。
+- 任何內容都不會被刪除。ACL 授權與完整的稽核歷史在到期後維持不變——到期純粹只是一個狀態旗標。
 
-## Watermarking Workflow
+## 浮水印工作流程
 
-Applies only at the single file-content endpoint, `GET /documents/:id/download`, after the existing ACL check and the new expiration check. Resolution order, given the requested document version:
+僅套用於單一檔案內容端點 `GET /documents/:id/download`，在既有的 ACL 檢查與新增的到期檢查之後進行。依據所請求的文件版本，解析順序如下：
 
-1. **Version's own mimetype is `application/pdf`** and `resolveWatermarkEnabled` is `true` → overlay the watermark on that PDF and return it.
-2. **Version has a Phase-4B-generated `previewObjectKey`** (an Office file that's finished converting) and `resolveWatermarkEnabled` is `true` → overlay the watermark on the preview PDF and return it (the response is the converted PDF, not the original Office file — the whole point is that the thing leaving the system is watermark-protected).
-3. **Version is an Office mimetype, `resolveWatermarkEnabled` is `true`, but `previewObjectKey` is still `null`** (Phase 4B's async conversion hasn't finished yet) → return a distinct "not ready" error (HTTP 425 Too Early) rather than silently falling back to the unprotected original. This follows the fail-closed precedent Phase 4B's final review established for the virus scanner (an ambiguous/incomplete security-relevant state must never silently degrade to "unprotected but served").
-4. **`resolveWatermarkEnabled` is `false`, or the file is a type with no PDF representation at all** (images, plain text, etc.) → return the original file unchanged, unwatermarked.
+1. **版本本身的 mimetype 為 `application/pdf`**，且 `resolveWatermarkEnabled` 為 `true` → 在該 PDF 上疊加浮水印後回傳。
+2. **版本具有 Phase 4B 產生的 `previewObjectKey`**（一份已完成轉換的 Office 檔案），且 `resolveWatermarkEnabled` 為 `true` → 在該預覽 PDF 上疊加浮水印後回傳（回應內容是轉換後的 PDF，而非原始 Office 檔案——整個重點就在於離開系統的內容必須是受浮水印保護的）。
+3. **版本為 Office mimetype，`resolveWatermarkEnabled` 為 `true`，但 `previewObjectKey` 仍為 `null`**（Phase 4B 的非同步轉換尚未完成）→ 回傳一個明確的「尚未就緒」錯誤（HTTP 425 Too Early），而不是悄悄退回未受保護的原始檔案。這遵循了 Phase 4B 最終審查針對病毒掃描器所建立的「失敗時關閉（fail-closed）」先例（一個模糊或不完整的安全相關狀態，絕不能悄悄降級為「未受保護但仍予以提供」）。
+4. **`resolveWatermarkEnabled` 為 `false`，或該檔案類型完全沒有 PDF 表示形式**（圖片、純文字等）→ 原樣回傳原始檔案，不加浮水印。
 
-Watermark content: the downloading user's email, the download timestamp, and their source IP, overlaid on every page of the PDF via `pdf-lib` (exact visual styling — e.g. diagonal semi-transparent text — decided at implementation time). The existing `document_download` audit action already covers this; no new audit action is needed for the act of watermarking itself.
+浮水印內容：下載使用者的電子郵件、下載時間戳記，以及其來源 IP，透過 `pdf-lib` 疊加於 PDF 的每一頁上（確切的視覺樣式——例如對角線半透明文字——於實作時決定）。既有的 `document_download` 稽核動作已涵蓋此情境；加浮水印這個動作本身不需要新增稽核動作。
 
-## Testing / Verification
+## 測試／驗證
 
-Consistent with this project's "verify against the real running stack, no mocked infrastructure" convention:
+依循本專案「對照真實運行中的堆疊進行驗證，不模擬基礎設施」的慣例：
 
-- **Expiration**: set a real document's `expiresAt` to the past via Prisma, invoke the sweep logic directly (not by waiting for the real cron schedule), and confirm `status` flips to `expired`, the audit entry is written, and `download`/`getMetadata`/`listVersions`/`addVersion` all reject while `permissions` endpoints still work. Also test extending `expiresAt` on an already-expired document and confirm it reactivates.
-- **Watermarking**: upload a real PDF and a real Office document through the full real pipeline (ClamAV scan → MinIO storage → Gotenberg conversion), download each, and verify the returned PDF genuinely contains the watermark text (e.g. the user's email string appears in the extracted PDF content) — not just a 200 status or a size check. Also verify that with `watermarkEnabled=false`, the downloaded bytes are byte-for-byte identical to the original (hash comparison). Cover the folder-inheritance resolution logic with dedicated unit tests, in the style of the existing `AclService` tests. Cover the 425 "not ready yet" path for an Office upload whose conversion hasn't completed.
-- Run the full existing lint/build/unit/e2e suite to confirm no regressions.
+- **到期：** 透過 Prisma 將一份真實文件的 `expiresAt` 設為過去時間，直接呼叫掃描邏輯（而非等待真實的 cron 排程觸發），確認 `status` 轉為 `expired`、稽核紀錄已寫入，且 `download`/`getMetadata`/`listVersions`/`addVersion` 全部遭拒，而 `permissions` 端點仍正常運作。也要測試在已到期的文件上延長 `expiresAt`，確認它會重新啟用。
+- **浮水印：** 透過完整的真實流程（ClamAV 掃描 → MinIO 儲存 → Gotenberg 轉換）上傳一份真實 PDF 與一份真實 Office 文件，分別下載，並驗證回傳的 PDF 確實包含浮水印文字（例如在擷取出的 PDF 內容中出現該使用者的電子郵件字串）——而不只是檢查 200 狀態碼或檔案大小。也要驗證當 `watermarkEnabled=false` 時，下載的位元組與原始檔案逐位元組完全相同（雜湊比對）。針對資料夾繼承解析邏輯撰寫專門的單元測試，風格比照既有的 `AclService` 測試。涵蓋一份轉換尚未完成的 Office 上傳所觸發的 425「尚未就緒」路徑。
+- 執行完整既有的 lint/build/unit/e2e 套件，確認沒有造成回歸問題。
 
-## Out of Scope
+## 範圍之外
 
-- Horizontal scaling of `apps/api` (the single-instance `@Cron` would double-fire the sweep across multiple replicas) — acceptable for this v1 single-VM Docker Compose deployment; revisit if/when this moves to K8s with multiple API replicas.
-- Any UI/frontend work — this phase is backend-only, matching the pattern of Phases 1-4B.
-- Folder-level or document-level expiration inheritance — expiration (`expiresAt`/`status`) is document-only; only watermarking uses folder inheritance, per the design above.
-- Notifying users before/when a document expires (e.g. email alerts) — not requested, not in the original spec.
+- `apps/api` 的水平擴展（單一實例的 `@Cron` 若跨多個副本執行會導致掃描重複觸發）——對於本 v1 單一 VM 的 Docker Compose 部署而言可以接受；等到未來遷移至 K8s、擁有多個 API 副本時再重新檢視。
+- 任何 UI／前端工作——本階段僅限後端，與 Phase 1-4B 的模式一致。
+- 資料夾層級或文件層級的到期繼承——到期（`expiresAt`/`status`）僅限文件本身；只有浮水印功能才使用資料夾繼承，如上述設計所述。
+- 在文件到期前／到期時通知使用者（例如寄送電子郵件提醒）——並未被要求，原始規格中也沒有此項目。

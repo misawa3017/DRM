@@ -1,43 +1,43 @@
-# Phase 2B: Documents, Folders & ACL Implementation Plan
+# Phase 2B：文件、資料夾與 ACL 實作計畫
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+> **給代理工作者的說明：** 必要子技能：使用 superpowers:subagent-driven-development（建議）或 superpowers:executing-plans 逐一任務地實作此計畫。步驟使用核取方塊（`- [ ]`）語法進行追蹤。
 
-**Goal:** Build the core document management business logic — folders, documents, versions, and per-resource ACL — on top of Phase 2A's encrypted storage chain and Phase 1's auth foundation, so a document can be uploaded, versioned, downloaded, and access-controlled entirely through the API.
+**目標：** 在 Phase 2A 的加密儲存鏈與 Phase 1 的驗證基礎之上，建構核心文件管理業務邏輯——資料夾、文件、版本，以及逐資源（per-resource）的 ACL——使文件能夠完全透過 API 進行上傳、版本控管、下載與存取控制。
 
-**Architecture:** Five new NestJS modules in `apps/api/src`: `storage` (thin S3-compatible client wrapper around MinIO, using the Phase 2A-provisioned scoped credential), `acl` (permission resolution — the one piece of logic every other module depends on), `folders`, `documents`, `permissions`. All sit on top of the existing `PrismaModule` (global) and `AuthModule`'s JWT guard. Uploaded files are stored in MinIO under `{documentId}/{versionId}` object keys, encrypted via the already-working SSE-KMS chain — the application code never touches encryption directly, it just writes/reads through the S3 API and MinIO/KES/OpenBao handle the rest.
+**架構：** 在 `apps/api/src` 中新增五個 NestJS 模組：`storage`（圍繞 MinIO 的輕量 S3 相容客戶端封裝，使用 Phase 2A 建置的範圍化憑證）、`acl`（權限解析——所有其他模組都依賴的核心邏輯）、`folders`、`documents`、`permissions`。全部建構在既有的 `PrismaModule`（全域）與 `AuthModule` 的 JWT 守衛之上。上傳的檔案會以 `{documentId}/{versionId}` 物件鍵值儲存在 MinIO 中，並透過已經運作中的 SSE-KMS 鏈進行加密——應用程式程式碼從不直接處理加密，只透過 S3 API 進行寫入/讀取，其餘交由 MinIO/KES/OpenBao 處理。
 
-**Tech Stack:** NestJS 10, Prisma 5, `@aws-sdk/client-s3` (S3-compatible client, works against MinIO with `forcePathStyle: true`), `multer` (multipart upload handling via `@nestjs/platform-express`), Jest + Testcontainers (ACL logic), Jest e2e against the live stack (storage + full document flows, following this project's established pattern of not mocking infrastructure it can run for real).
+**技術堆疊：** NestJS 10、Prisma 5、`@aws-sdk/client-s3`（S3 相容客戶端，搭配 `forcePathStyle: true` 對接 MinIO）、`multer`（透過 `@nestjs/platform-express` 處理多部分上傳）、Jest + Testcontainers（ACL 邏輯）、針對實際運作堆疊執行的 Jest e2e（儲存與完整文件流程，遵循本專案既有的慣例，不對可以真實執行的基礎設施進行模擬）。
 
-## Global Constraints
+## 全域限制
 
-- Continue the existing `apps/api` NestJS app — no new app, no new repo structure.
-- TypeScript strict mode (existing project-wide constraint, unchanged).
-- **Permission levels are hierarchical, not independent flags**: `view < download < edit < manage`. A grant of `edit` implies `view` and `download`. This is a deliberate interpretation of the design spec's `permission_level（view/download/edit/manage）` — the spec doesn't spell out ordering explicitly, but hierarchical is the standard ACL pattern (matches e.g. Google Drive viewer/commenter/editor) and avoids needing multiple grants for one principal.
-- **ACL resolution never merges levels across the inheritance chain.** If a resource has ANY explicit permission entry for a principal, that entry's level is used exactly as-is — inheritance from the parent folder only kicks in when the resource has NO explicit entry at all for that principal. This matches the design spec's "文件若無明確 ACL，向上查詢" wording literally.
-- **Only the `admin` Keycloak realm role bypasses ACL entirely.** `deptmanager` and `employee` are ordinary principals that need explicit ACL grants like anyone else — the design spec only names Admin as the override.
-- **`principalType` supports `user` and `group` at the schema level** (matching the design spec), but this phase only implements resolution/grant logic for `principalType: user`. Keycloak group sync doesn't exist yet (out of scope — no phase has built it). Attempting to grant a `group`-type permission through the API in this phase returns a clear `400 Bad Request` ("group principals are not yet supported"), not silent broken behavior.
-- **Root-level folder creation (`parentId: null`) requires the `admin` role** — there's no parent to inherit an edit grant from, so an explicit exception is needed. Subfolder creation requires `edit` on the parent folder.
-- **Downloads are proxied through the API, never presigned direct-to-MinIO URLs.** The design spec's key workflows assume every view/download passes through the API's ACL check and (in a later phase) audit logging and watermarking — a presigned URL would bypass all of that.
-- MinIO object keys: `{documentId}/{versionId}` (UUIDs) — no folder path embedded, so moving/renaming folders never requires rewriting storage keys.
-- Testing: ACL resolution logic gets Testcontainers-based integration tests (real Postgres, following the `user-persistence.spec.ts` pattern from Phase 1). Storage and full document-flow logic gets e2e tests against the **live running docker-compose stack** (following the `whoami.e2e-spec.ts` pattern from Phase 1) — this project does not mock MinIO, Postgres, or Keycloak in integration-level tests.
-- Multipart upload size limit: 200MB (a deliberate, generous-but-bounded default — not unlimited).
-- Docker daemon on this host is sometimes under load from unrelated processes, causing transient timeouts — retry a timed-out command once before concluding something's actually broken (a recurring, confirmed-benign pattern throughout Phases 1 and 2A).
+- 延續既有的 `apps/api` NestJS 應用程式——不建立新應用程式，也不建立新的儲存庫結構。
+- TypeScript 嚴格模式（既有的全專案限制，維持不變）。
+- **權限等級是階層式的，而非各自獨立的旗標**：`view < download < edit < manage`。授予 `edit` 隱含同時擁有 `view` 與 `download`。這是對設計規格中 `permission_level（view/download/edit/manage）` 的刻意解讀——規格本身並未明確說明順序，但階層式是標準的 ACL 模式（例如對應 Google Drive 的檢視者/評論者/編輯者），且可避免同一個主體需要多筆授權的情況。
+- **ACL 解析絕不會跨繼承鏈合併等級。** 若某資源對某主體存在任何明確的權限項目，就完全按該項目的等級使用——只有在該資源對該主體完全沒有明確項目時，才會啟用來自父資料夾的繼承。這與設計規格中「文件若無明確 ACL，向上查詢」的字面描述相符。
+- **只有 `admin` 這個 Keycloak realm 角色會完全繞過 ACL。** `deptmanager` 與 `employee` 都是一般主體，和其他人一樣需要明確的 ACL 授權——設計規格中只有 Admin 被指定為例外覆寫角色。
+- **`principalType` 在 schema 層級支援 `user` 與 `group`**（與設計規格一致），但本階段只實作 `principalType: user` 的解析/授權邏輯。Keycloak 群組同步目前尚不存在（超出範圍——目前沒有任何階段建置過）。在本階段中，透過 API 嘗試授予 `group` 類型的權限會明確回傳 `400 Bad Request`（「group principals are not yet supported」），而不是悄悄地出現錯誤行為。
+- **建立根層級資料夾（`parentId: null`）需要 `admin` 角色**——因為沒有父層可以繼承 edit 授權，所以需要一個明確的例外規則。建立子資料夾則需要對父資料夾擁有 `edit` 權限。
+- **下載一律透過 API 代理，絕不使用預先簽署（presigned）、直接指向 MinIO 的 URL。** 設計規格的關鍵工作流程假設每一次檢視/下載都會經過 API 的 ACL 檢查，以及（在後續階段）稽核記錄與浮水印——預先簽署的 URL 會繞過這一切。
+- MinIO 物件鍵值：`{documentId}/{versionId}`（UUID）——不內嵌資料夾路徑，因此搬移/重新命名資料夾時，永遠不需要重寫儲存鍵值。
+- 測試：ACL 解析邏輯採用基於 Testcontainers 的整合測試（真實 Postgres，遵循 Phase 1 的 `user-persistence.spec.ts` 模式）。儲存與完整文件流程邏輯則針對**實際執行中的 docker-compose 堆疊**進行 e2e 測試（遵循 Phase 1 的 `whoami.e2e-spec.ts` 模式）——本專案在整合層級測試中不對 MinIO、Postgres 或 Keycloak 進行模擬（mock）。
+- 多部分上傳大小限制：200MB（刻意設定的預設值，寬鬆但有上限——並非無限制）。
+- 此主機上的 Docker daemon 有時會因無關的行程而處於高負載狀態，導致暫時性逾時——在斷定真的出問題之前，先重試一次逾時的指令（這是 Phase 1 與 Phase 2A 中反覆出現、已確認無害的現象）。
 
 ---
 
-### Task 1: Prisma schema — Folder, Document, DocumentVersion, Permission
+### 任務 1：Prisma schema — Folder、Document、DocumentVersion、Permission
 
-**Files:**
+**檔案：**
 - Modify: `apps/api/prisma/schema.prisma`
-- Create: `apps/api/prisma/migrations/<timestamp>_documents_folders_acl/migration.sql` (generated)
+- Create: `apps/api/prisma/migrations/<timestamp>_documents_folders_acl/migration.sql`（自動產生）
 
-**Interfaces:**
-- Consumes: nothing new.
-- Produces: Prisma models `Folder`, `Document`, `DocumentVersion`, `Permission`, and enums `PermissionLevel` (`view`/`download`/`edit`/`manage`), `ResourceType` (`folder`/`document`), `PrincipalType` (`user`/`group`) — all importable from `@prisma/client` once generated.
+**介面：**
+- 使用：無新增項目。
+- 產出：Prisma 模型 `Folder`、`Document`、`DocumentVersion`、`Permission`，以及列舉 `PermissionLevel`（`view`/`download`/`edit`/`manage`）、`ResourceType`（`folder`/`document`）、`PrincipalType`（`user`/`group`）——產生後皆可從 `@prisma/client` 匯入。
 
-- [ ] **Step 1: Extend `apps/api/prisma/schema.prisma`**
+- [ ] **步驟 1：擴充 `apps/api/prisma/schema.prisma`**
 
-Append to the existing file (which already has `generator`, `datasource`, and `User`):
+附加到現有檔案（該檔案已經包含 `generator`、`datasource` 與 `User`）：
 
 ```prisma
 enum PermissionLevel {
@@ -122,31 +122,31 @@ model Permission {
 }
 ```
 
-- [ ] **Step 2: Start a local Postgres for migration authoring**
+- [ ] **步驟 2：啟動一個本機 Postgres 用於撰寫 migration**
 
-Run: `docker run --rm -d --name drm-dev-postgres -e POSTGRES_USER=drm -e POSTGRES_PASSWORD=drm_dev_password -e POSTGRES_DB=drm -p 5434:5432 postgres:16-alpine`
+執行：`docker run --rm -d --name drm-dev-postgres -e POSTGRES_USER=drm -e POSTGRES_PASSWORD=drm_dev_password -e POSTGRES_DB=drm -p 5434:5432 postgres:16-alpine`
 
-(Using host port 5434 here, not 5433, since the project's real Postgres from the running compose stack already occupies 5433 — check with `docker compose ps` first and adjust if 5434 is also taken.)
+（此處使用主機連接埠 5434 而非 5433，因為正在執行的 compose 堆疊中真正的 Postgres 已經佔用了 5433——先用 `docker compose ps` 檢查，若 5434 也被佔用則需另作調整。）
 
-- [ ] **Step 3: Generate the migration**
+- [ ] **步驟 3：產生 migration**
 
-Run: `cd apps/api && DATABASE_URL="postgresql://drm:drm_dev_password@localhost:5434/drm" pnpm exec prisma migrate dev --name documents_folders_acl`
-Expected: creates a new migration directory under `apps/api/prisma/migrations/`, applies cleanly, prints `Your database is now in sync with your schema.`
+執行：`cd apps/api && DATABASE_URL="postgresql://drm:drm_dev_password@localhost:5434/drm" pnpm exec prisma migrate dev --name documents_folders_acl`
+預期結果：在 `apps/api/prisma/migrations/` 下建立一個新的 migration 目錄，套用過程順利，並印出 `Your database is now in sync with your schema.`
 
-- [ ] **Step 4: Stop the temporary Postgres**
+- [ ] **步驟 4：停止暫時性的 Postgres**
 
-Run: `docker stop drm-dev-postgres`
+執行：`docker stop drm-dev-postgres`
 
-- [ ] **Step 5: Regenerate the Prisma client**
+- [ ] **步驟 5：重新產生 Prisma client**
 
-Run: `cd apps/api && pnpm exec prisma generate`
+執行：`cd apps/api && pnpm exec prisma generate`
 
-- [ ] **Step 6: Verify the project still builds**
+- [ ] **步驟 6：確認專案仍可正常建置**
 
-Run: `cd apps/api && pnpm run build`
-Expected: no TypeScript errors (nothing references the new models yet, so this just confirms the generated client is valid).
+執行：`cd apps/api && pnpm run build`
+預期結果：沒有 TypeScript 錯誤（目前還沒有任何程式碼參照新模型，所以這一步只是確認產生出來的 client 是有效的）。
 
-- [ ] **Step 7: Commit**
+- [ ] **步驟 7：提交（Commit）**
 
 ```bash
 git add apps/api/prisma
@@ -155,28 +155,28 @@ git commit -m "feat(api): add Folder/Document/DocumentVersion/Permission schema"
 
 ---
 
-### Task 2: StorageService — MinIO client wrapper
+### 任務 2：StorageService — MinIO 客戶端封裝
 
-**Files:**
+**檔案：**
 - Create: `apps/api/src/storage/storage.service.ts`
 - Create: `apps/api/src/storage/storage.module.ts`
 - Test: `apps/api/test/storage.e2e-spec.ts`
 
-**Interfaces:**
-- Consumes: `MINIO_ENDPOINT`, `MINIO_BUCKET`, `MINIO_ACCESS_KEY`, `MINIO_SECRET_KEY` env vars (already wired into the `api` service by the Phase 2B-prep task).
-- Produces: `StorageService.putObject(key: string, body: Buffer, contentType: string): Promise<void>`, `StorageService.getObjectStream(key: string): Promise<Readable>`, exported by `StorageModule`.
+**介面：**
+- 使用：`MINIO_ENDPOINT`、`MINIO_BUCKET`、`MINIO_ACCESS_KEY`、`MINIO_SECRET_KEY` 環境變數（已由 Phase 2B 前置任務接好到 `api` 服務中）。
+- 產出：`StorageService.putObject(key: string, body: Buffer, contentType: string): Promise<void>`、`StorageService.getObjectStream(key: string): Promise<Readable>`，由 `StorageModule` 匯出。
 
-- [ ] **Step 1: Add the AWS SDK S3 client dependency**
+- [ ] **步驟 1：加入 AWS SDK S3 客戶端相依套件**
 
-Add to `apps/api/package.json` `dependencies`:
+加入到 `apps/api/package.json` 的 `dependencies`：
 
 ```json
     "@aws-sdk/client-s3": "^3.658.0",
 ```
 
-Run: `cd apps/api && pnpm install`
+執行：`cd apps/api && pnpm install`
 
-- [ ] **Step 2: Create `apps/api/src/storage/storage.service.ts`**
+- [ ] **步驟 2：建立 `apps/api/src/storage/storage.service.ts`**
 
 ```ts
 import { Injectable } from '@nestjs/common';
@@ -221,7 +221,7 @@ export class StorageService {
 }
 ```
 
-- [ ] **Step 3: Create `apps/api/src/storage/storage.module.ts`**
+- [ ] **步驟 3：建立 `apps/api/src/storage/storage.module.ts`**
 
 ```ts
 import { Module } from '@nestjs/common';
@@ -234,11 +234,11 @@ import { StorageService } from './storage.service';
 export class StorageModule {}
 ```
 
-- [ ] **Step 4: Write the e2e test against the live MinIO**
+- [ ] **步驟 4：針對實際運作中的 MinIO 撰寫 e2e 測試**
 
-This test runs on the host (not inside a container), so it must reach MinIO via its host-published loopback port (`127.0.0.1:9000`, established in Phase 2A), not the internal Docker-network address the `api` container uses. It uses the real scoped `drm-api` credential from `.env`.
+此測試在主機上執行（而非在容器內），因此必須透過對外發布到主機的 loopback 連接埠（`127.0.0.1:9000`，於 Phase 2A 建立）來連接 MinIO，而不是 `api` 容器所使用的 Docker 內部網路位址。它使用的是 `.env` 中真實的範圍化 `drm-api` 憑證。
 
-`apps/api/test/storage.e2e-spec.ts`:
+`apps/api/test/storage.e2e-spec.ts`：
 
 ```ts
 import 'dotenv/config';
@@ -277,16 +277,16 @@ describe('StorageService (e2e, live MinIO)', () => {
 });
 ```
 
-If `dotenv` isn't already a dependency, add it to `apps/api/package.json` `devDependencies` (`"dotenv": "^16.4.5"`) and run `pnpm install` — the project's `.env` file (gitignored, already exists locally) holds `MINIO_API_ACCESS_KEY`/`MINIO_API_SECRET_KEY`, and this is the simplest way to load it into a test process running outside Docker. Adjust the exact env var names read by `StorageService`'s constructor if this project's `.env` uses different names than `MINIO_ACCESS_KEY`/`MINIO_SECRET_KEY` — check `docker-compose.yml`'s `api` service block for the authoritative mapping (`MINIO_ACCESS_KEY: ${MINIO_API_ACCESS_KEY}`) and set `process.env.MINIO_ACCESS_KEY = process.env.MINIO_API_ACCESS_KEY` etc. in the test's setup if `dotenv` alone doesn't produce the right variable names.
+若 `dotenv` 尚未成為相依套件，將其加入 `apps/api/package.json` 的 `devDependencies`（`"dotenv": "^16.4.5"`）並執行 `pnpm install`——本專案的 `.env` 檔案（已加入 gitignore，本機已存在）內含 `MINIO_API_ACCESS_KEY`/`MINIO_API_SECRET_KEY`，這是將其載入到在 Docker 外執行的測試流程中最簡單的方式。如果本專案的 `.env` 使用的變數名稱與 `StorageService` 建構子讀取的 `MINIO_ACCESS_KEY`/`MINIO_SECRET_KEY` 不同，請調整實際讀取的環境變數名稱——查看 `docker-compose.yml` 的 `api` 服務區塊以取得權威對應關係（`MINIO_ACCESS_KEY: ${MINIO_API_ACCESS_KEY}`），若光靠 `dotenv` 無法產生正確的變數名稱，則在測試的 setup 中加入 `process.env.MINIO_ACCESS_KEY = process.env.MINIO_API_ACCESS_KEY` 等設定。
 
-- [ ] **Step 5: Run it**
+- [ ] **步驟 5：執行測試**
 
-Precondition: the full stack must be running (`docker compose ps` shows `minio`/`kes`/`openbao` healthy).
+前置條件：完整堆疊必須正在執行中（`docker compose ps` 顯示 `minio`/`kes`/`openbao` 皆為健康狀態）。
 
-Run: `cd apps/api && pnpm test:e2e -- storage`
-Expected: PASS (2 tests)
+執行：`cd apps/api && pnpm test:e2e -- storage`
+預期結果：PASS（2 個測試）
 
-- [ ] **Step 6: Commit**
+- [ ] **步驟 6：提交（Commit）**
 
 ```bash
 git add apps/api/package.json apps/api/pnpm-lock.yaml apps/api/src/storage apps/api/test/storage.e2e-spec.ts
@@ -295,20 +295,20 @@ git commit -m "feat(api): add StorageService wrapping MinIO via S3 client"
 
 ---
 
-### Task 3: AclService — permission resolution
+### 任務 3：AclService — 權限解析
 
-**Files:**
+**檔案：**
 - Create: `apps/api/src/acl/acl.service.ts`
 - Create: `apps/api/src/acl/acl.module.ts`
 - Test: `apps/api/src/acl/acl.service.spec.ts`
 
-**Interfaces:**
-- Consumes: `PrismaService` (global).
-- Produces: `AclService.can(user: { id: string; roles: string[] }, resourceType: ResourceType, resourceId: string, required: PermissionLevel): Promise<boolean>`. This is the single function every other module in this phase calls to authorize an action.
+**介面：**
+- 使用：`PrismaService`（全域）。
+- 產出：`AclService.can(user: { id: string; roles: string[] }, resourceType: ResourceType, resourceId: string, required: PermissionLevel): Promise<boolean>`。這是本階段中其他所有模組用來授權操作的唯一函式。
 
-- [ ] **Step 1: Write the failing tests**
+- [ ] **步驟 1：撰寫會失敗的測試**
 
-`apps/api/src/acl/acl.service.spec.ts`:
+`apps/api/src/acl/acl.service.spec.ts`：
 
 ```ts
 import { PostgreSqlContainer, StartedPostgreSqlContainer } from '@testcontainers/postgresql';
@@ -441,14 +441,14 @@ describe('AclService', () => {
 });
 ```
 
-- [ ] **Step 2: Run tests to verify they fail**
+- [ ] **步驟 2：執行測試以確認它們會失敗**
 
-Run: `cd apps/api && pnpm test -- acl.service`
-Expected: FAIL — `Cannot find module './acl.service'`
+執行：`cd apps/api && pnpm test -- acl.service`
+預期結果：FAIL — `Cannot find module './acl.service'`
 
-- [ ] **Step 3: Implement `AclService`**
+- [ ] **步驟 3：實作 `AclService`**
 
-`apps/api/src/acl/acl.service.ts`:
+`apps/api/src/acl/acl.service.ts`：
 
 ```ts
 import { Injectable } from '@nestjs/common';
@@ -541,12 +541,12 @@ export class AclService {
 }
 ```
 
-- [ ] **Step 4: Run tests to verify they pass**
+- [ ] **步驟 4：執行測試以確認它們通過**
 
-Run: `cd apps/api && pnpm test -- acl.service`
-Expected: PASS (9 tests)
+執行：`cd apps/api && pnpm test -- acl.service`
+預期結果：PASS（9 個測試）
 
-- [ ] **Step 5: Create `apps/api/src/acl/acl.module.ts`**
+- [ ] **步驟 5：建立 `apps/api/src/acl/acl.module.ts`**
 
 ```ts
 import { Module } from '@nestjs/common';
@@ -559,7 +559,7 @@ import { AclService } from './acl.service';
 export class AclModule {}
 ```
 
-- [ ] **Step 6: Commit**
+- [ ] **步驟 6：提交（Commit）**
 
 ```bash
 git add apps/api/src/acl
@@ -568,20 +568,20 @@ git commit -m "feat(api): add AclService with hierarchical, non-merging permissi
 
 ---
 
-### Task 4: FoldersModule
+### 任務 4：FoldersModule
 
-**Files:**
+**檔案：**
 - Create: `apps/api/src/folders/folders.controller.ts`
 - Create: `apps/api/src/folders/folders.service.ts`
 - Create: `apps/api/src/folders/folders.module.ts`
 - Modify: `apps/api/src/app.module.ts`
 - Test: `apps/api/test/folders.e2e-spec.ts`
 
-**Interfaces:**
-- Consumes: `AclService.can`, `PrismaService`, `UsersService.upsertFromToken` (Phase 1, resolves the app-level `User.id` from the JWT payload).
-- Produces: `POST /folders` (`{ name: string; parentId?: string }` → `201 { id, name, parentId, createdBy, createdAt }`), `GET /folders/:id` (→ `200 { id, name, parentId, children: Folder[], documents: DocumentSummary[] }`).
+**介面：**
+- 使用：`AclService.can`、`PrismaService`、`UsersService.upsertFromToken`（Phase 1，從 JWT payload 解析出應用程式層級的 `User.id`）。
+- 產出：`POST /folders`（`{ name: string; parentId?: string }` → `201 { id, name, parentId, createdBy, createdAt }`）、`GET /folders/:id`（→ `200 { id, name, parentId, children: Folder[], documents: DocumentSummary[] }`）。
 
-- [ ] **Step 1: Create `apps/api/src/folders/folders.service.ts`**
+- [ ] **步驟 1：建立 `apps/api/src/folders/folders.service.ts`**
 
 ```ts
 import { ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
@@ -638,7 +638,7 @@ export class FoldersService {
 }
 ```
 
-- [ ] **Step 2: Create `apps/api/src/folders/folders.controller.ts`**
+- [ ] **步驟 2：建立 `apps/api/src/folders/folders.controller.ts`**
 
 ```ts
 import { Body, Controller, Get, Param, Post, Req, UseGuards } from '@nestjs/common';
@@ -677,7 +677,7 @@ export class FoldersController {
 }
 ```
 
-- [ ] **Step 3: Create `apps/api/src/folders/folders.module.ts`**
+- [ ] **步驟 3：建立 `apps/api/src/folders/folders.module.ts`**
 
 ```ts
 import { Module } from '@nestjs/common';
@@ -695,15 +695,15 @@ import { UsersModule } from '../users/users.module';
 export class FoldersModule {}
 ```
 
-`UsersModule` currently only declares `UsersController`/`UsersService` as providers without exporting `UsersService` — check `apps/api/src/users/users.module.ts` and add `exports: [UsersService]` if it's missing, since `FoldersModule` (and later `DocumentsModule`/`PermissionsModule`) need to inject it.
+`UsersModule` 目前僅將 `UsersController`/`UsersService` 宣告為 providers，並未匯出 `UsersService`——請檢查 `apps/api/src/users/users.module.ts`，若缺少 `exports: [UsersService]` 則補上，因為 `FoldersModule`（以及後續的 `DocumentsModule`/`PermissionsModule`）都需要注入它。
 
-- [ ] **Step 4: Wire `FoldersModule` into `AppModule`**
+- [ ] **步驟 4：將 `FoldersModule` 接入 `AppModule`**
 
-Add `FoldersModule` to the `imports` array in `apps/api/src/app.module.ts`.
+將 `FoldersModule` 加入 `apps/api/src/app.module.ts` 的 `imports` 陣列。
 
-- [ ] **Step 5: Write the e2e test**
+- [ ] **步驟 5：撰寫 e2e 測試**
 
-`apps/api/test/folders.e2e-spec.ts`:
+`apps/api/test/folders.e2e-spec.ts`：
 
 ```ts
 import axios from 'axios';
@@ -749,15 +749,15 @@ describe('Folders (e2e)', () => {
 });
 ```
 
-The second test is intentionally left as a documented placeholder here because it needs an admin identity to seed a folder the current test user can't see — Task 8 adds that fixture. Implement it for real once Task 8's `testadmin` user exists, or seed the folder directly via Prisma against the live Postgres (`postgresql://drm:drm_dev_password@localhost:5433/drm`) in a `beforeAll` if that's simpler — use your judgment; do not leave a test that doesn't actually assert anything meaningful in the final committed version of this file for Task 4. If you choose the direct-Prisma-seed approach, write the full test now rather than deferring it.
+第二個測試在此刻意留成一個有文件說明的佔位測試，因為它需要一個管理員身分來建立一個目前測試使用者看不到的資料夾——任務 8 會加入該項固定裝置（fixture）。等到任務 8 的 `testadmin` 使用者存在後就實作它，或者如果比較簡單，也可以在 `beforeAll` 中直接透過 Prisma 對正在執行的 Postgres（`postgresql://drm:drm_dev_password@localhost:5433/drm`）建立種子資料——依實際情況自行判斷；不要在任務 4 最終提交的檔案版本中留下一個實際上什麼都沒有斷言的測試。若選擇直接以 Prisma 建立種子資料的做法，請現在就寫出完整測試，而不要延後處理。
 
-- [ ] **Step 6: Rebuild the API and run the tests**
+- [ ] **步驟 6：重新建置 API 並執行測試**
 
-Run: `docker compose up -d --build api`
-Run: `cd apps/api && pnpm test:e2e -- folders`
-Expected: PASS
+執行：`docker compose up -d --build api`
+執行：`cd apps/api && pnpm test:e2e -- folders`
+預期結果：PASS
 
-- [ ] **Step 7: Commit**
+- [ ] **步驟 7：提交（Commit）**
 
 ```bash
 git add apps/api/src/folders apps/api/src/app.module.ts apps/api/src/users/users.module.ts apps/api/test/folders.e2e-spec.ts
@@ -766,26 +766,26 @@ git commit -m "feat(api): add folders module (create + view, ACL-enforced)"
 
 ---
 
-### Task 5: DocumentsModule — upload, versioning
+### 任務 5：DocumentsModule — 上傳、版本控管
 
-**Files:**
+**檔案：**
 - Create: `apps/api/src/documents/documents.controller.ts`
 - Create: `apps/api/src/documents/documents.service.ts`
 - Create: `apps/api/src/documents/documents.module.ts`
 - Modify: `apps/api/src/app.module.ts`
 - Test: `apps/api/test/documents-write.e2e-spec.ts`
 
-**Interfaces:**
-- Consumes: `AclService.can`, `StorageService.putObject`, `PrismaService`, `UsersService.upsertFromToken`.
-- Produces: `POST /documents` (multipart: `file`, body `folderId`, `name` → `201` document + version 1), `POST /documents/:id/versions` (multipart: `file` → `201` new version, updates `currentVersionId`), `GET /documents/:id/versions` (→ `200 DocumentVersion[]`, newest first).
+**介面：**
+- 使用：`AclService.can`、`StorageService.putObject`、`PrismaService`、`UsersService.upsertFromToken`。
+- 產出：`POST /documents`（multipart：`file`，主體 `folderId`、`name` → `201` 文件 + 版本 1）、`POST /documents/:id/versions`（multipart：`file` → `201` 新版本，並更新 `currentVersionId`）、`GET /documents/:id/versions`（→ `200 DocumentVersion[]`，最新的排在最前面）。
 
-- [ ] **Step 1: Add multer types**
+- [ ] **步驟 1：加入 multer 型別**
 
-Add to `apps/api/package.json` `devDependencies`: `"@types/multer": "^1.4.12"` (multer itself ships as a transitive dep of `@nestjs/platform-express`, already installed).
+加入到 `apps/api/package.json` 的 `devDependencies`：`"@types/multer": "^1.4.12"`（multer 本身作為 `@nestjs/platform-express` 的傳遞相依套件已經安裝）。
 
-Run: `cd apps/api && pnpm install`
+執行：`cd apps/api && pnpm install`
 
-- [ ] **Step 2: Create `apps/api/src/documents/documents.service.ts`**
+- [ ] **步驟 2：建立 `apps/api/src/documents/documents.service.ts`**
 
 ```ts
 import { ForbiddenException, Injectable } from '@nestjs/common';
@@ -911,9 +911,9 @@ export class DocumentsService {
 }
 ```
 
-Note the circular-looking `document.create` then `documentVersion.create` then `document.update` sequence inside `$transaction` — this is necessary because `DocumentVersion.documentId` requires the `Document` row to exist first, but `Document.currentVersionId` requires the `DocumentVersion` row to exist first. Creating the document with `currentVersionId` unset, then updating it after the version exists, resolves the circular dependency within one atomic transaction.
+請注意 `$transaction` 內看似循環的 `document.create` → `documentVersion.create` → `document.update` 順序——這是必要的，因為 `DocumentVersion.documentId` 要求 `Document` 資料列必須先存在，但 `Document.currentVersionId` 又要求 `DocumentVersion` 資料列必須先存在。先以未設定 `currentVersionId` 的狀態建立文件，等版本存在後再更新它，就能在單一原子交易內解決這個循環相依問題。
 
-- [ ] **Step 3: Create `apps/api/src/documents/documents.controller.ts`**
+- [ ] **步驟 3：建立 `apps/api/src/documents/documents.controller.ts`**
 
 ```ts
 import {
@@ -985,7 +985,7 @@ export class DocumentsController {
 }
 ```
 
-- [ ] **Step 4: Create `apps/api/src/documents/documents.module.ts`**
+- [ ] **步驟 4：建立 `apps/api/src/documents/documents.module.ts`**
 
 ```ts
 import { Module } from '@nestjs/common';
@@ -1004,13 +1004,13 @@ import { UsersModule } from '../users/users.module';
 export class DocumentsModule {}
 ```
 
-- [ ] **Step 5: Wire `DocumentsModule` into `AppModule`**
+- [ ] **步驟 5：將 `DocumentsModule` 接入 `AppModule`**
 
-Add `DocumentsModule` to the `imports` array in `apps/api/src/app.module.ts`.
+將 `DocumentsModule` 加入 `apps/api/src/app.module.ts` 的 `imports` 陣列。
 
-- [ ] **Step 6: Write the e2e test**
+- [ ] **步驟 6：撰寫 e2e 測試**
 
-`apps/api/test/documents-write.e2e-spec.ts`:
+`apps/api/test/documents-write.e2e-spec.ts`：
 
 ```ts
 import axios from 'axios';
@@ -1091,17 +1091,17 @@ describe('Documents write path (e2e)', () => {
 });
 ```
 
-This test uses `testadmin`/`testadminpass`, a Keycloak user this task assumes exists. If Task 8 hasn't run yet in your execution order, add a minimal `testadmin` user (role `admin`) to `keycloak/realm-export.json` as part of THIS task instead of waiting — check whether it already exists first (`grep testadmin keycloak/realm-export.json`); if not, add it now (same shape as the existing `testuser` entry, `realmRoles: ["admin"]`) and note in your report that you pulled this fixture forward from Task 8. Rebuild Keycloak (`docker compose up -d --build keycloak` — note Keycloak's dev-mode-without-a-fresh-volume caveat from Phase 1: if the realm was already imported once, you may need `docker compose rm -sf keycloak && docker compose up -d keycloak` to force a genuinely fresh import, per the precedent already documented in this project's Phase 1 report history).
+這個測試使用 `testadmin`/`testadminpass`，這是本任務假設已存在的 Keycloak 使用者。如果依照你的執行順序任務 8 尚未執行，請直接在本任務中把一個最小化的 `testadmin` 使用者（角色為 `admin`）加入 `keycloak/realm-export.json`，不必等待——先檢查是否已經存在（`grep testadmin keycloak/realm-export.json`）；若不存在，現在就加入（形狀與既有的 `testuser` 項目相同，`realmRoles: ["admin"]`），並在報告中註明你把這個固定裝置從任務 8 提前拉過來使用。重新建置 Keycloak（`docker compose up -d --build keycloak`——請留意 Phase 1 中提到的 Keycloak 開發模式且未使用全新資料卷時的注意事項：如果 realm 先前已經匯入過一次，可能需要執行 `docker compose rm -sf keycloak && docker compose up -d keycloak` 才能強制進行真正全新的匯入，這也是本專案 Phase 1 報告歷史中已記載過的先例）。
 
-Also add `form-data` as a dependency if not present: `apps/api/package.json` `devDependencies`: `"form-data": "^4.0.0"`.
+另外，如果尚未加入，請將 `form-data` 加為相依套件：`apps/api/package.json` 的 `devDependencies`：`"form-data": "^4.0.0"`。
 
-- [ ] **Step 7: Rebuild and run**
+- [ ] **步驟 7：重新建置並執行**
 
-Run: `docker compose up -d --build api`
-Run: `cd apps/api && pnpm test:e2e -- documents-write`
-Expected: PASS
+執行：`docker compose up -d --build api`
+執行：`cd apps/api && pnpm test:e2e -- documents-write`
+預期結果：PASS
 
-- [ ] **Step 8: Commit**
+- [ ] **步驟 8：提交（Commit）**
 
 ```bash
 git add apps/api/package.json apps/api/pnpm-lock.yaml apps/api/src/documents apps/api/src/app.module.ts apps/api/test/documents-write.e2e-spec.ts keycloak/realm-export.json
@@ -1110,20 +1110,20 @@ git commit -m "feat(api): add document upload and versioning (ACL-enforced, real
 
 ---
 
-### Task 6: Document read — metadata and download
+### 任務 6：文件讀取 — 中繼資料與下載
 
-**Files:**
+**檔案：**
 - Modify: `apps/api/src/documents/documents.controller.ts`
 - Modify: `apps/api/src/documents/documents.service.ts`
 - Test: `apps/api/test/documents-read.e2e-spec.ts`
 
-**Interfaces:**
-- Consumes: `StorageService.getObjectStream`, `AclService.can` (both already available from Task 5).
-- Produces: `GET /documents/:id` (→ `200` document metadata + current version), `GET /documents/:id/download?versionId=` (→ streams file bytes, defaults to the current version).
+**介面：**
+- 使用：`StorageService.getObjectStream`、`AclService.can`（兩者皆已在任務 5 中提供）。
+- 產出：`GET /documents/:id`（→ `200` 文件中繼資料 + 目前版本）、`GET /documents/:id/download?versionId=`（→ 串流檔案位元組，預設為目前版本）。
 
-- [ ] **Step 1: Add methods to `DocumentsService`**
+- [ ] **步驟 1：在 `DocumentsService` 中加入方法**
 
-Append to `apps/api/src/documents/documents.service.ts`:
+附加到 `apps/api/src/documents/documents.service.ts`：
 
 ```ts
   async getMetadata(user: AuthenticatedUser, documentId: string) {
@@ -1161,9 +1161,9 @@ Append to `apps/api/src/documents/documents.service.ts`:
   }
 ```
 
-- [ ] **Step 2: Add controller routes**
+- [ ] **步驟 2：加入 controller 路由**
 
-Append to `apps/api/src/documents/documents.controller.ts` (add `Query`, `Res` to the imports from `@nestjs/common`, add `Response` to the `express` import):
+附加到 `apps/api/src/documents/documents.controller.ts`（在 `@nestjs/common` 的匯入中加入 `Query`、`Res`，並在 `express` 的匯入中加入 `Response`）：
 
 ```ts
   @Get(':id')
@@ -1191,9 +1191,9 @@ Append to `apps/api/src/documents/documents.controller.ts` (add `Query`, `Res` t
   }
 ```
 
-- [ ] **Step 3: Write the e2e test**
+- [ ] **步驟 3：撰寫 e2e 測試**
 
-`apps/api/test/documents-read.e2e-spec.ts`:
+`apps/api/test/documents-read.e2e-spec.ts`：
 
 ```ts
 import axios from 'axios';
@@ -1248,13 +1248,13 @@ describe('Documents read path (e2e)', () => {
 });
 ```
 
-- [ ] **Step 4: Rebuild and run**
+- [ ] **步驟 4：重新建置並執行**
 
-Run: `docker compose up -d --build api`
-Run: `cd apps/api && pnpm test:e2e -- documents-read`
-Expected: PASS
+執行：`docker compose up -d --build api`
+執行：`cd apps/api && pnpm test:e2e -- documents-read`
+預期結果：PASS
 
-- [ ] **Step 5: Commit**
+- [ ] **步驟 5：提交（Commit）**
 
 ```bash
 git add apps/api/src/documents apps/api/test/documents-read.e2e-spec.ts
@@ -1263,20 +1263,20 @@ git commit -m "feat(api): add document metadata and download endpoints (ACL-enfo
 
 ---
 
-### Task 7: PermissionsModule — grant, list, revoke
+### 任務 7：PermissionsModule — 授予、列出、撤銷
 
-**Files:**
+**檔案：**
 - Create: `apps/api/src/permissions/permissions.controller.ts`
 - Create: `apps/api/src/permissions/permissions.service.ts`
 - Create: `apps/api/src/permissions/permissions.module.ts`
 - Modify: `apps/api/src/app.module.ts`
 - Test: `apps/api/test/permissions.e2e-spec.ts`
 
-**Interfaces:**
-- Consumes: `AclService.can`, `PrismaService`, `UsersService.upsertFromToken`.
-- Produces: `POST /folders/:id/permissions` and `POST /documents/:id/permissions` (body `{ principalType: 'user' | 'group'; principalId: string; permissionLevel: PermissionLevel }` → `201` created grant, `400` if `principalType` is `group`), `GET .../permissions` (→ `200` list), `DELETE .../permissions/:permissionId` (→ `204`) — all requiring `manage` on the target resource.
+**介面：**
+- 使用：`AclService.can`、`PrismaService`、`UsersService.upsertFromToken`。
+- 產出：`POST /folders/:id/permissions` 與 `POST /documents/:id/permissions`（主體 `{ principalType: 'user' | 'group'; principalId: string; permissionLevel: PermissionLevel }` → `201` 建立授權，若 `principalType` 為 `group` 則回傳 `400`）、`GET .../permissions`（→ `200` 清單）、`DELETE .../permissions/:permissionId`（→ `204`）——全部都要求對目標資源擁有 `manage` 權限。
 
-- [ ] **Step 1: Create `apps/api/src/permissions/permissions.service.ts`**
+- [ ] **步驟 1：建立 `apps/api/src/permissions/permissions.service.ts`**
 
 ```ts
 import { BadRequestException, ForbiddenException, Injectable } from '@nestjs/common';
@@ -1357,9 +1357,9 @@ export class PermissionsService {
 }
 ```
 
-`upsert` is used for `grant` rather than a plain `create` because the schema's `@@unique([resourceType, resourceId, principalType, principalId])` means granting a second, different level to the same principal on the same resource should update the existing row, not throw a unique-constraint error — this is the natural, expected behavior for "change someone's access level."
+`grant` 使用 `upsert` 而非單純的 `create`，因為 schema 中的 `@@unique([resourceType, resourceId, principalType, principalId])` 表示對同一資源上同一主體授予第二個、不同等級的權限時，應該更新既有資料列，而不是拋出唯一性約束錯誤——這是「變更某人存取等級」時自然且預期的行為。
 
-- [ ] **Step 2: Create `apps/api/src/permissions/permissions.controller.ts`**
+- [ ] **步驟 2：建立 `apps/api/src/permissions/permissions.controller.ts`**
 
 ```ts
 import { Body, Controller, Delete, Get, Param, Post, Req, UseGuards } from '@nestjs/common';
@@ -1449,7 +1449,7 @@ export class PermissionsController {
 }
 ```
 
-- [ ] **Step 3: Create `apps/api/src/permissions/permissions.module.ts`**
+- [ ] **步驟 3：建立 `apps/api/src/permissions/permissions.module.ts`**
 
 ```ts
 import { Module } from '@nestjs/common';
@@ -1466,13 +1466,13 @@ import { UsersModule } from '../users/users.module';
 export class PermissionsModule {}
 ```
 
-- [ ] **Step 4: Wire into `AppModule`**
+- [ ] **步驟 4：接入 `AppModule`**
 
-Add `PermissionsModule` to `apps/api/src/app.module.ts`.
+將 `PermissionsModule` 加入 `apps/api/src/app.module.ts`。
 
-- [ ] **Step 5: Write the e2e test**
+- [ ] **步驟 5：撰寫 e2e 測試**
 
-`apps/api/test/permissions.e2e-spec.ts`:
+`apps/api/test/permissions.e2e-spec.ts`：
 
 ```ts
 import axios from 'axios';
@@ -1554,13 +1554,13 @@ describe('Permissions (e2e)', () => {
 });
 ```
 
-- [ ] **Step 6: Rebuild and run**
+- [ ] **步驟 6：重新建置並執行**
 
-Run: `docker compose up -d --build api`
-Run: `cd apps/api && pnpm test:e2e -- permissions`
-Expected: PASS
+執行：`docker compose up -d --build api`
+執行：`cd apps/api && pnpm test:e2e -- permissions`
+預期結果：PASS
 
-- [ ] **Step 7: Commit**
+- [ ] **步驟 7：提交（Commit）**
 
 ```bash
 git add apps/api/src/permissions apps/api/src/app.module.ts apps/api/test/permissions.e2e-spec.ts
@@ -1569,41 +1569,41 @@ git commit -m "feat(api): add permissions module (grant/list/revoke, manage-gate
 
 ---
 
-### Task 8: Seed a second test identity and run full-suite verification
+### 任務 8：建立第二個測試身分並執行完整套件驗證
 
-**Files:**
-- Modify: `keycloak/realm-export.json` (only if Task 5 didn't already add `testadmin` — check first)
+**檔案：**
+- Modify: `keycloak/realm-export.json`（僅在任務 5 尚未加入 `testadmin` 時才需要——請先確認）
 - Create: `docs/superpowers/plans/2026-08-01-phase2b-verification.md`
 
-**Interfaces:**
-- Consumes: everything from Tasks 1-7.
-- Produces: a written, repeatable verification record for Phase 2B, plus confirmation every automated suite passes together (not just individually, task by task).
+**介面：**
+- 使用：任務 1 至任務 7 的所有內容。
+- 產出：一份書面、可重複執行的 Phase 2B 驗證紀錄，並確認所有自動化套件在一起執行時皆能通過（而非僅逐一任務個別通過）。
 
-- [ ] **Step 1: Confirm `testadmin` exists in the realm**
+- [ ] **步驟 1：確認 `testadmin` 存在於 realm 中**
 
-Run: `grep -A3 testadmin keycloak/realm-export.json`
-If it's missing (Task 5's implementer didn't need to add it because they seeded the folder differently, or you're executing tasks out of order), add it now to the `users` array in `keycloak/realm-export.json`, matching the existing `testuser` entry's shape but with `"username": "testadmin"`, `"email": "testadmin@example.com"`, a `password` credential of `testadminpass`, and `"realmRoles": ["admin"]`. Force a fresh Keycloak realm import (`docker compose rm -sf keycloak && docker compose up -d keycloak`, per the established precedent for realm-config changes in this project) and confirm via a token request that `testadmin` can log in and carries the `admin` role.
+執行：`grep -A3 testadmin keycloak/realm-export.json`
+若缺少（任務 5 的實作者因為以不同方式建立資料夾種子而不需要加入，或者你是以不同順序執行任務），現在就將其加入 `keycloak/realm-export.json` 的 `users` 陣列，形狀與既有的 `testuser` 項目相同，但使用 `"username": "testadmin"`、`"email": "testadmin@example.com"`、`password` 憑證為 `testadminpass`，以及 `"realmRoles": ["admin"]`。強制執行一次全新的 Keycloak realm 匯入（`docker compose rm -sf keycloak && docker compose up -d keycloak`，依照本專案中針對 realm 設定變更已建立的先例），並透過一次 token 請求確認 `testadmin` 能夠登入且帶有 `admin` 角色。
 
-- [ ] **Step 2: Run every automated suite together, fresh**
+- [ ] **步驟 2：全新地一起執行所有自動化套件**
 
-Run: `docker compose down -v && docker compose up -d --build`
-Wait for all services healthy (Keycloak cold start ~90-170s under host load).
-Run: `./scripts/smoke-test.sh`
-Run: `pnpm --filter api test`
-Run: `pnpm --filter api test:e2e`
-Run: `pnpm --filter web test`
+執行：`docker compose down -v && docker compose up -d --build`
+等待所有服務進入健康狀態（在主機負載下，Keycloak 冷啟動約需 90-170 秒）。
+執行：`./scripts/smoke-test.sh`
+執行：`pnpm --filter api test`
+執行：`pnpm --filter api test:e2e`
+執行：`pnpm --filter web test`
 
-All must pass. If anything that passed in isolation during its own task now fails when run alongside everything else (e.g., test data collisions between `folders.e2e-spec.ts` and `documents-write.e2e-spec.ts` both creating folders with similar names, or Testcontainers port conflicts under load), fix it — this is exactly the kind of integration issue individual task-level testing can miss.
+全部都必須通過。如果先前在各自任務中獨立執行時通過的測試，在與其他一切一起執行時卻失敗了（例如 `folders.e2e-spec.ts` 與 `documents-write.e2e-spec.ts` 都建立了名稱相近的資料夾而發生測試資料衝突，或是在高負載下 Testcontainers 發生連接埠衝突），請修正它——這正是逐任務層級測試可能會遺漏的整合性問題。
 
-- [ ] **Step 3: Manual end-to-end walkthrough**
+- [ ] **步驟 3：手動端對端走查**
 
-Using `curl` or a REST client, walk through the full flow once by hand as a sanity check beyond the automated suites: log in as `testadmin`, create a root folder, upload a document into it, download it back and confirm the bytes match, upload a second version, grant `view` to `testuser`, log in as `testuser` and confirm they can view but not edit or manage, revoke the grant, confirm `testuser` is locked out again.
+使用 `curl` 或 REST 客戶端，手動走過一次完整流程，作為自動化套件之外的健全性檢查：以 `testadmin` 登入、建立一個根資料夾、上傳一份文件進去、下載回來確認位元組相符、上傳第二個版本、將 `view` 授予 `testuser`、以 `testuser` 登入並確認能檢視但不能編輯或管理、撤銷該授權、確認 `testuser` 再次被鎖住無法存取。
 
-- [ ] **Step 4: Write `docs/superpowers/plans/2026-08-01-phase2b-verification.md`**
+- [ ] **步驟 4：撰寫 `docs/superpowers/plans/2026-08-01-phase2b-verification.md`**
 
-Record what was checked in Steps 2-3 (suite results, and a short narrative of the manual walkthrough), following the same format as `docs/superpowers/plans/2026-07-31-phase1-verification.md`.
+記錄步驟 2-3 中檢查過的內容（套件執行結果，以及手動走查的簡短敘述），格式比照 `docs/superpowers/plans/2026-07-31-phase1-verification.md`。
 
-- [ ] **Step 5: Commit**
+- [ ] **步驟 5：提交（Commit）**
 
 ```bash
 git add keycloak/realm-export.json docs/superpowers/plans/2026-08-01-phase2b-verification.md
@@ -1612,9 +1612,9 @@ git commit -m "docs: add Phase 2B verification record, confirm testadmin fixture
 
 ---
 
-## Self-Review Notes
+## 自我審查備註
 
-- **Spec coverage:** Covers the design spec's folders/documents/document_versions/permissions tables and the "上傳"/"檢視/下載"/"版本管理" workflows for the scope this phase owns. Explicitly deferred (per the design spec's own phasing, agreed earlier): audit logging (`audit_logs` table, Phase 3), watermarking, Office-to-PDF conversion, expiration/auto-invalidation, virus scanning (all Phase 4 — none of `documents.expires_at`/`documents.watermark_enabled` are added to the schema yet, since nothing in this phase reads or writes them; adding unused columns now would be speculative).
-- **Placeholder scan:** One intentional soft spot flagged explicitly rather than silently guessed: Task 4's second e2e test is written as a documented placeholder with clear instructions to either seed via Prisma directly or wait for Task 8's `testadmin` fixture — the plan requires it be resolved for real before that task is considered done, not left as dead code.
-- **Type consistency:** `AclService.can(user, resourceType, resourceId, required)` signature is defined once in Task 3 and used identically by `FoldersService`, `DocumentsService`, and `PermissionsService`. The `{ id: string; roles: string[] }` authenticated-user shape is consistent across every service. `PermissionLevel`/`ResourceType`/`PrincipalType` enum values (`view`/`download`/`edit`/`manage`, `folder`/`document`, `user`/`group`) are defined once in Task 1's schema and referenced identically everywhere.
-- **Scope:** Business logic only, built entirely on Phase 2A's already-verified storage chain and Phase 1's already-verified auth — no new infrastructure services introduced in this plan.
+- **規格涵蓋範圍：** 涵蓋設計規格中 folders/documents/document_versions/permissions 資料表，以及本階段所負責範圍內的「上傳」/「檢視/下載」/「版本管理」工作流程。明確延後處理的項目（依照先前議定的設計規格分階段規劃）：稽核記錄（`audit_logs` 資料表，Phase 3）、浮水印、Office 轉 PDF、到期/自動失效、病毒掃描（全部屬於 Phase 4——目前 schema 尚未加入 `documents.expires_at`/`documents.watermark_enabled`，因為本階段沒有任何程式碼會讀寫它們；現在就加入用不到的欄位會是一種臆測性的做法）。
+- **佔位符掃描：** 有一處刻意保留的軟性缺口，已明確標註而非悄悄略過：任務 4 的第二個 e2e 測試被寫成一個附有文件說明的佔位測試，並清楚指示要嘛直接透過 Prisma 建立種子資料，要嘛等待任務 8 的 `testadmin` 固定裝置——本計畫要求在該任務被視為完成之前必須真正解決它，而不是留下一段死程式碼。
+- **型別一致性：** `AclService.can(user, resourceType, resourceId, required)` 的簽章只在任務 3 中定義一次，並由 `FoldersService`、`DocumentsService`、`PermissionsService` 以完全相同的方式使用。`{ id: string; roles: string[] }` 這個已驗證使用者的形狀在每個服務中都一致。`PermissionLevel`/`ResourceType`/`PrincipalType` 列舉值（`view`/`download`/`edit`/`manage`、`folder`/`document`、`user`/`group`）只在任務 1 的 schema 中定義一次，並在各處以完全相同的方式參照。
+- **範圍：** 僅涉及業務邏輯，完全建構在 Phase 2A 已驗證的儲存鏈與 Phase 1 已驗證的驗證機制之上——本計畫並未引入任何新的基礎設施服務。

@@ -1,45 +1,45 @@
-# Phase 2A: Storage & Encryption Infrastructure Implementation Plan
+# Phase 2A：儲存與加密基礎設施實作計畫
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+> **給代理型工作者的提示：** 必要子技能：使用 superpowers:subagent-driven-development（建議）或 superpowers:executing-plans 來逐一實作本計畫的各項任務。步驟使用核取方塊（`- [ ]`）語法進行追蹤。
 
-**Goal:** Stand up the encrypted object storage chain (`MinIO → KES → OpenBao`) so Phase 2B's document/version logic has a real, working, encrypted place to write files — verified end-to-end by actually uploading and downloading an encrypted object, not just by services reporting "healthy".
+**目標：** 建立加密的物件儲存鏈（`MinIO → KES → OpenBao`），讓 Phase 2B 的文件/版本邏輯有一個真實可用、已加密的地方來寫入檔案——並透過實際上傳與下載一個加密物件來端對端驗證，而不僅僅是服務回報「healthy」。
 
-**Architecture:** OpenBao runs in real server mode (not dev-mode) with persistent file storage, properly initialized and unsealed, exposing a `kv-v2` secrets engine that MinIO KES uses as its keystore backend via AppRole authentication. KES authenticates MinIO itself via mutual TLS (a client certificate whose identity hash is allow-listed in KES's policy). MinIO is configured for SSE-KMS using KES as the external key service. All of this lives in the same `docker-compose.yml` Phase 1 already established, alongside Postgres/Keycloak/Traefik/api/web.
+**架構：** OpenBao 以真正的伺服器模式（而非 dev-mode）運行，具備持久化的檔案儲存，並已正確初始化與解封（unseal），對外提供一個 `kv-v2` secrets engine，供 MinIO KES 透過 AppRole 驗證作為其金鑰儲存後端。KES 透過雙向 TLS（mutual TLS）驗證 MinIO 本身（客戶端憑證的身分雜湊值已列入 KES 政策的允許清單）。MinIO 設定為使用 KES 作為外部金鑰服務的 SSE-KMS。這一切都存在於 Phase 1 已建立的同一個 `docker-compose.yml` 中，與 Postgres/Keycloak/Traefik/api/web 並列。
 
-**Tech Stack:** OpenBao (Vault-API-compatible KMS/secrets backend), MinIO KES (key encryption service), MinIO (S3-compatible object storage), `mc` (MinIO client CLI) for verification, openssl for TLS identity generation.
+**技術堆疊：** OpenBao（相容 Vault API 的 KMS/secrets 後端）、MinIO KES（金鑰加密服務）、MinIO（相容 S3 的物件儲存）、`mc`（MinIO 客戶端 CLI，用於驗證）、openssl（用於產生 TLS 身分）。
 
-## Global Constraints
+## 全域限制
 
-- Continue extending the existing root `docker-compose.yml` and `.env`/`.env.example` — do not create a second compose file.
-- **OpenBao runs in real server mode, not `-dev`.** Dev mode is in-memory and resets on every restart; for a system whose entire job is protecting encryption keys, losing the KMS's key material on every container recreation is not an acceptable simplification (Phase 1 already hit this exact class of bug with Keycloak's dev-mode identity drift — do not repeat it here with something that would be far more damaging: previously-encrypted documents becoming permanently unreadable).
-- OpenBao: `storage "file"` backend (single-node, simplest correct persistent option for one internal VM), single unseal key share (`-key-shares=1 -key-threshold=1` — a deliberate simplification appropriate for an internal single-operator VM; note in code comments that a real multi-operator deployment would use a higher threshold), TLS disabled on OpenBao's own listener (internal Docker network only, matching Keycloak's `KC_HTTP_ENABLED` precedent from Phase 1).
-- KES: authenticates MinIO via mTLS client certificate (identity = hash of the client's public key, computed via the `kes` CLI itself — do not hand-derive this hash). KES's own keystore backend is OpenBao's `kv-v2` engine, accessed via AppRole (role_id + secret_id), not a static root token.
-- **No cryptographic secrets are ever committed to git**: OpenBao's unseal key(s) and root token, KES's TLS private key, the MinIO client's TLS private key, and the AppRole `secret_id` all live either in a gitignored local directory (`secrets/`) or in a Docker-managed volume shared only between the containers that need them. Only *templates* and *scripts that generate* these are committed. Add `secrets/` to `.gitignore` before generating anything into it.
-- Image tags: `minio/minio:latest`, `minio/kes:latest`, `openbao/openbao:latest` — all three projects move fast enough that pinning a specific tag risks pinning to something already gone; `:latest` is the pragmatic choice here (unlike Postgres/Keycloak/Traefik in Phase 1, which pinned specific stable versions).
-- **KES's YAML config schema is not fully certain from memory** — the plan below gives a concrete best-effort config, but before finalizing it, run `docker run --rm minio/kes:latest --help` and `docker run --rm minio/kes:latest server --help`, and use KES's own (typically explicit) config-validation error output to correct field names if the container fails to start. This is expected, normal work for this task, not a sign something is wrong with the plan.
-- Docker daemon on this host is sometimes under load from unrelated processes, causing transient slowness; retry a timed-out command once before concluding something is actually broken (this was a recurring, confirmed-benign pattern throughout Phase 1).
+- 持續擴充既有的根目錄 `docker-compose.yml` 與 `.env`/`.env.example`——不要建立第二個 compose 檔案。
+- **OpenBao 必須以真正的伺服器模式運行，而非 `-dev`。** Dev 模式是記憶體內（in-memory）的，每次重啟都會重置；對於一個整體工作就是保護加密金鑰的系統來說，每次容器重建都遺失 KMS 的金鑰材料並不是可接受的簡化做法（Phase 1 已經在 Keycloak 的 dev-mode 身分漂移問題上踩過同一類 bug——這裡不要重蹈覆轍，因為後果會嚴重得多：先前已加密的文件會永久無法讀取）。
+- OpenBao：使用 `storage "file"` 後端（單節點，對於一台內部 VM 來說是最簡單且正確的持久化選項）、單一解封金鑰分片（`-key-shares=1 -key-threshold=1`——這是針對內部單一操作者 VM 刻意採取的簡化；請在程式碼註解中註明，真正的多操作者部署會使用更高的門檻值）、OpenBao 自身監聽埠停用 TLS（僅限內部 Docker 網路，與 Phase 1 中 Keycloak 的 `KC_HTTP_ENABLED` 先例一致）。
+- KES：透過 mTLS 客戶端憑證驗證 MinIO（身分＝客戶端公鑰的雜湊值，透過 `kes` CLI 本身計算——不要手動推導此雜湊值）。KES 自身的金鑰儲存後端是 OpenBao 的 `kv-v2` engine，透過 AppRole（role_id + secret_id）存取，而非靜態的 root token。
+- **任何加密機密都不得提交至 git**：OpenBao 的解封金鑰、root token，KES 的 TLS 私鑰，MinIO 客戶端的 TLS 私鑰，以及 AppRole 的 `secret_id`，都必須存放在已加入 gitignore 的本地目錄（`secrets/`）中，或存放在僅供需要它們的容器共享的 Docker 管理磁碟區（volume）中。只有*範本*和*用來產生這些機密的腳本*會被提交。在產生任何內容之前，先把 `secrets/` 加入 `.gitignore`。
+- 映像標籤：`minio/minio:latest`、`minio/kes:latest`、`openbao/openbao:latest`——這三個專案的發展速度都很快，釘選特定標籤反而有可能釘選到已經不存在的版本；因此這裡採用 `:latest` 作為務實的選擇（與 Phase 1 中釘選特定穩定版本的 Postgres/Keycloak/Traefik 不同）。
+- **KES 的 YAML 設定結構（schema）並非完全確定**——以下計畫提供了一份具體、盡力而為的設定草稿，但在定案前，請先執行 `docker run --rm minio/kes:latest --help` 與 `docker run --rm minio/kes:latest server --help`，並利用 KES 本身（通常相當明確）的設定驗證錯誤輸出，在容器無法啟動時修正欄位名稱。這是本任務預期且正常的工作內容，不代表計畫本身有問題。
+- 此主機上的 Docker daemon 有時會因不相關的行程而負載偏高，導致暫時性的緩慢；在斷定某個指令真的故障之前，先重試一次逾時的指令（這是 Phase 1 全程反覆出現、確認無害的模式）。
 
 ---
 
-### Task 1: OpenBao server — persistent, initialized, unsealed, with kv-v2 + AppRole
+### 任務 1：OpenBao 伺服器——持久化、已初始化、已解封，並具備 kv-v2 + AppRole
 
-**Files:**
-- Create: `openbao/config.hcl`
-- Create: `openbao/init.sh`
-- Modify: `docker-compose.yml` (add `openbao` and `openbao-init` services + `openbao_data` and `openbao_shared` volumes)
-- Modify: `.gitignore` (add `secrets/`)
+**檔案：**
+- 新增：`openbao/config.hcl`
+- 新增：`openbao/init.sh`
+- 修改：`docker-compose.yml`（新增 `openbao` 與 `openbao-init` 服務，以及 `openbao_data` 與 `openbao_shared` 磁碟區）
+- 修改：`.gitignore`（新增 `secrets/`）
 
-**Interfaces:**
-- Consumes: nothing new.
-- Produces: a running, unsealed OpenBao reachable at `http://openbao:8200` on the Docker network, with a `kv-v2` engine mounted at `kes/`, an AppRole role named `kes` bound to a policy permitting CRUD under `kes/data/*`, and that role's `role_id`/`secret_id` written to `/shared/kes-approle.json` inside the `openbao_shared` volume (format: `{"role_id": "...", "secret_id": "..."}`) for Task 3 to consume. Idempotent: safe to run `docker compose up -d` repeatedly without re-initializing or losing existing keys.
+**介面：**
+- 消費：沒有新的依賴。
+- 產出：一個運行中、已解封的 OpenBao，可透過 Docker 網路上的 `http://openbao:8200` 存取，掛載於 `kes/` 的 `kv-v2` engine，一個名為 `kes` 的 AppRole role，綁定一個允許在 `kes/data/*` 下進行 CRUD 的政策，該 role 的 `role_id`/`secret_id` 會寫入 `openbao_shared` 磁碟區內的 `/shared/kes-approle.json`（格式：`{"role_id": "...", "secret_id": "..."}`），供任務 3 使用。具冪等性：可安全地重複執行 `docker compose up -d`，不會重新初始化或遺失既有金鑰。
 
-- [ ] **Step 1: Add `secrets/` to `.gitignore`**
+- [ ] **步驟 1：將 `secrets/` 加入 `.gitignore`**
 
 ```
 secrets/
 ```
 
-- [ ] **Step 2: Create `openbao/config.hcl`**
+- [ ] **步驟 2：建立 `openbao/config.hcl`**
 
 ```hcl
 ui = true
@@ -57,9 +57,9 @@ listener "tcp" {
 api_addr = "http://openbao:8200"
 ```
 
-- [ ] **Step 3: Create `openbao/init.sh`**
+- [ ] **步驟 3：建立 `openbao/init.sh`**
 
-This script is idempotent and does three things in order: (1) initialize + unseal if not already done, persisting the unseal key and root token to the shared volume; (2) unseal using the saved key if OpenBao is initialized but currently sealed (e.g., after a container restart); (3) set up the `kv-v2` engine, AppRole auth, policy, and role if not already present, writing `role_id`/`secret_id` to the shared volume.
+此腳本具冪等性，依序完成三件事：（1）若尚未完成，則進行初始化＋解封，並將解封金鑰與 root token 持久化到共享磁碟區；（2）若 OpenBao 已初始化但目前處於封鎖（sealed）狀態（例如容器重啟後），則使用已儲存的金鑰進行解封；（3）若 `kv-v2` engine、AppRole 驗證、政策與 role 尚未存在，則進行設定，並將 `role_id`/`secret_id` 寫入共享磁碟區。
 
 ```bash
 #!/bin/sh
@@ -138,9 +138,9 @@ chmod 600 "$APPROLE_FILE"
 echo "OpenBao init complete. AppRole credentials written to $APPROLE_FILE"
 ```
 
-- [ ] **Step 4: Wire `openbao` and `openbao-init` into `docker-compose.yml`**
+- [ ] **步驟 4：將 `openbao` 與 `openbao-init` 接入 `docker-compose.yml`**
 
-Add these services (alongside the existing `postgres`/`keycloak`/`traefik`/`api`/`web`) and the two new volumes:
+新增以下服務（與既有的 `postgres`/`keycloak`/`traefik`/`api`/`web` 並列）以及兩個新的磁碟區：
 
 ```yaml
   openbao:
@@ -169,24 +169,24 @@ Add these services (alongside the existing `postgres`/`keycloak`/`traefik`/`api`
     restart: "no"
 ```
 
-Add to the top-level `volumes:` block:
+加入頂層的 `volumes:` 區塊：
 
 ```yaml
   openbao_data:
   openbao_shared:
 ```
 
-- [ ] **Step 5: Bring the two services up and verify**
+- [ ] **步驟 5：啟動這兩個服務並驗證**
 
-Run: `docker compose up -d openbao openbao-init`
-Wait for `openbao-init` to exit successfully: `docker compose ps openbao-init` should show `Exited (0)`. If it doesn't, run `docker compose logs openbao-init` and fix the script (the `bao status`/`bao operator init` JSON parsing above uses `grep`/`cut` rather than `jq` since the base image may not have `jq` installed — if `jq` IS available in the image, feel free to swap to it for more robust parsing, but verify either way against real output).
+執行：`docker compose up -d openbao openbao-init`
+等待 `openbao-init` 成功結束：`docker compose ps openbao-init` 應顯示 `Exited (0)`。若否，執行 `docker compose logs openbao-init` 並修正腳本（上述 `bao status`/`bao operator init` 的 JSON 解析使用 `grep`/`cut` 而非 `jq`，因為基礎映像可能未安裝 `jq`——若映像中確實有 `jq`，可自由改用它以獲得更穩健的解析，但無論選哪一種都要對照實際輸出進行驗證）。
 
-- [ ] **Step 6: Verify idempotency**
+- [ ] **步驟 6：驗證冪等性**
 
-Run: `docker compose up -d openbao-init` again (simulating a stack restart).
-Expected: script logs show it skips re-initialization ("already initialized" path) and still exits 0, and `/shared/kes-approle.json` still contains valid credentials (verify: `docker compose run --rm --entrypoint cat openbao-init /shared/kes-approle.json` prints a JSON object with non-empty `role_id` and `secret_id`).
+再次執行：`docker compose up -d openbao-init`（模擬堆疊重啟）。
+預期結果：腳本日誌顯示它略過了重新初始化（「already initialized」路徑），且仍以 0 結束，`/shared/kes-approle.json` 仍包含有效的憑證（驗證方式：`docker compose run --rm --entrypoint cat openbao-init /shared/kes-approle.json` 應印出一個 `role_id` 與 `secret_id` 皆非空的 JSON 物件）。
 
-- [ ] **Step 7: Commit**
+- [ ] **步驟 7：提交**
 
 ```bash
 git add openbao .gitignore docker-compose.yml
@@ -195,16 +195,16 @@ git commit -m "feat(infra): stand up persistent OpenBao with kv-v2 + AppRole for
 
 ---
 
-### Task 2: TLS identities for KES server and MinIO client
+### 任務 2：KES 伺服器與 MinIO 客戶端的 TLS 身分
 
-**Files:**
-- Create: `scripts/generate-kes-certs.sh`
+**檔案：**
+- 新增：`scripts/generate-kes-certs.sh`
 
-**Interfaces:**
-- Consumes: nothing new.
-- Produces: `secrets/kes/kes-server.key` / `.cert`, `secrets/kes/minio-client.key` / `.cert` (all gitignored, generated locally), and `secrets/kes/minio-client-identity.txt` containing the KES identity hash of the MinIO client certificate, for Task 3's policy config to consume.
+**介面：**
+- 消費：沒有新的依賴。
+- 產出：`secrets/kes/kes-server.key` / `.cert`、`secrets/kes/minio-client.key` / `.cert`（皆已加入 gitignore，於本地產生），以及包含 MinIO 客戶端憑證之 KES 身分雜湊值的 `secrets/kes/minio-client-identity.txt`，供任務 3 的政策設定使用。
 
-- [ ] **Step 1: Create `scripts/generate-kes-certs.sh`**
+- [ ] **步驟 1：建立 `scripts/generate-kes-certs.sh`**
 
 ```bash
 #!/usr/bin/env bash
@@ -235,45 +235,45 @@ docker run --rm -v "$(pwd)/$OUT_DIR":/certs minio/kes:latest identity of /certs/
 echo "Done. Identity hash saved to $OUT_DIR/minio-client-identity.txt"
 ```
 
-(The exact output format of `kes identity of` — plain hash on stdout vs. a labeled line — should be checked against the real command output; adjust the `tee`/parsing in Task 3 if it prints more than a bare hash.)
+（`kes identity of` 的確切輸出格式——是純雜湊值輸出到 stdout，還是帶標籤的一行文字——應對照實際指令輸出來確認；若印出的內容不只是純雜湊值，請調整任務 3 中的 `tee`/解析邏輯。）
 
-- [ ] **Step 2: Run it and verify**
+- [ ] **步驟 2：執行並驗證**
 
-Run: `chmod +x scripts/generate-kes-certs.sh && ./scripts/generate-kes-certs.sh`
-Expected: `secrets/kes/` now contains `kes-server.key`, `kes-server.cert`, `minio-client.key`, `minio-client.cert`, `minio-client-identity.txt`. Verify none of these are tracked by git: `git status --short` must show nothing under `secrets/`.
+執行：`chmod +x scripts/generate-kes-certs.sh && ./scripts/generate-kes-certs.sh`
+預期結果：`secrets/kes/` 現在包含 `kes-server.key`、`kes-server.cert`、`minio-client.key`、`minio-client.cert`、`minio-client-identity.txt`。確認這些檔案都未被 git 追蹤：`git status --short` 在 `secrets/` 底下必須沒有任何輸出。
 
-- [ ] **Step 3: Verify re-running is a safe no-op**
+- [ ] **步驟 3：驗證重複執行是安全的空操作**
 
-Run: `./scripts/generate-kes-certs.sh` again.
-Expected: prints "Certs already exist... skipping generation" and still re-computes/prints the identity hash (cheap, idempotent, useful if you only deleted the identity file).
+再次執行：`./scripts/generate-kes-certs.sh`。
+預期結果：印出「Certs already exist... skipping generation」，並仍會重新計算/印出身分雜湊值（成本低、具冪等性，在只刪除了身分檔案的情況下也很有用）。
 
-- [ ] **Step 4: Commit**
+- [ ] **步驟 4：提交**
 
 ```bash
 git add scripts/generate-kes-certs.sh
 git commit -m "feat(infra): add script to generate KES/MinIO TLS identities"
 ```
 
-(Nothing under `secrets/` is committed — only the script that generates it.)
+（`secrets/` 底下的任何內容都不會被提交——只有產生它們的腳本會被提交。）
 
 ---
 
-### Task 3: KES server wired to OpenBao (AppRole) and MinIO (mTLS)
+### 任務 3：將 KES 伺服器接上 OpenBao（AppRole）與 MinIO（mTLS）
 
-**Files:**
-- Create: `kes/server-config.yaml.template`
-- Create: `kes/entrypoint.sh`
-- Modify: `docker-compose.yml` (add `kes` service)
+**檔案：**
+- 新增：`kes/server-config.yaml.template`
+- 新增：`kes/entrypoint.sh`
+- 修改：`docker-compose.yml`（新增 `kes` 服務）
 
-**Interfaces:**
-- Consumes: `secrets/kes/kes-server.{key,cert}` and `secrets/kes/minio-client-identity.txt` (Task 2); `openbao_shared` volume's `/shared/kes-approle.json` (Task 1).
-- Produces: KES reachable at `https://kes:7373` on the Docker network, backed by OpenBao's `kes/` kv-v2 path, accepting requests only from the identity matching the MinIO client certificate.
+**介面：**
+- 消費：`secrets/kes/kes-server.{key,cert}` 與 `secrets/kes/minio-client-identity.txt`（任務 2）；`openbao_shared` 磁碟區中的 `/shared/kes-approle.json`（任務 1）。
+- 產出：可透過 Docker 網路上的 `https://kes:7373` 存取的 KES，以 OpenBao 的 `kes/` kv-v2 路徑為後端，僅接受與 MinIO 客戶端憑證相符身分的請求。
 
-- [ ] **Step 1: Inspect the real KES config schema before writing the template**
+- [ ] **步驟 1：在撰寫範本之前，先檢查真實的 KES 設定結構（schema）**
 
-Run: `docker run --rm minio/kes:latest --help` and `docker run --rm minio/kes:latest server --help`. If the image ships an example config (check `docker run --rm --entrypoint sh minio/kes:latest -c "find / -iname '*.yaml' -o -iname '*.yml' 2>/dev/null | grep -v proc"`), inspect it. Use this to confirm or correct the field names in Step 2 below before proceeding — this plan's YAML is a best-effort starting point, not guaranteed to be byte-exact for whatever KES version `:latest` currently resolves to.
+執行：`docker run --rm minio/kes:latest --help` 與 `docker run --rm minio/kes:latest server --help`。若映像內附有範例設定檔（可透過 `docker run --rm --entrypoint sh minio/kes:latest -c "find / -iname '*.yaml' -o -iname '*.yml' 2>/dev/null | grep -v proc"` 檢查），請一併檢視。在進行下方步驟 2 之前，先用這些資訊確認或修正欄位名稱——本計畫的 YAML 只是盡力而為的起始草稿，不保證與 `:latest` 目前所解析到的 KES 版本完全一致。
 
-- [ ] **Step 2: Create `kes/server-config.yaml.template`**
+- [ ] **步驟 2：建立 `kes/server-config.yaml.template`**
 
 ```yaml
 address: 0.0.0.0:7373
@@ -307,9 +307,9 @@ keystore:
       retry: 15s
 ```
 
-- [ ] **Step 3: Create `kes/entrypoint.sh`**
+- [ ] **步驟 3：建立 `kes/entrypoint.sh`**
 
-Renders the template by substituting the MinIO identity hash (from Task 2's output file, bind-mounted read-only) and the AppRole credentials (from the `openbao_shared` volume, written by Task 1's init script) into a scratch config file, then execs the real KES server.
+透過將 MinIO 身分雜湊值（來自任務 2 以唯讀方式掛載進來的輸出檔案）與 AppRole 憑證（來自任務 1 初始化腳本寫入的 `openbao_shared` 磁碟區）代入範本，渲染出一份暫用設定檔，接著再以 exec 執行真正的 KES 伺服器。
 
 ```bash
 #!/bin/sh
@@ -327,7 +327,7 @@ sed -e "s/__MINIO_IDENTITY__/$IDENTITY/" \
 exec kes server --config /tmp/server-config.yaml
 ```
 
-- [ ] **Step 4: Wire `kes` into `docker-compose.yml`**
+- [ ] **步驟 4：將 `kes` 接入 `docker-compose.yml`**
 
 ```yaml
   kes:
@@ -345,16 +345,16 @@ exec kes server --config /tmp/server-config.yaml
       - "127.0.0.1:7373:7373"
 ```
 
-(Loopback-only port publish for local debugging/`mc`/curl access, following the same loopback-binding discipline established for Postgres/Traefik's dashboard after Phase 1's final review.)
+（僅發布至 loopback 的埠，供本地除錯/`mc`/curl 存取使用，延續 Phase 1 最終審查後為 Postgres/Traefik 儀表板建立的相同 loopback 綁定紀律。）
 
-- [ ] **Step 5: Bring KES up and verify it's actually running against real OpenBao-backed state**
+- [ ] **步驟 5：啟動 KES 並驗證它確實運行在真實、由 OpenBao 支撐的狀態之上**
 
-Run: `docker compose up -d --build kes` (or plain `up -d kes` if no build step applies), then `docker compose logs kes`.
-Expected: no TLS or Vault-authentication errors in the log; if there are, they will name the exact problem (bad cert path, AppRole auth failure, wrong Vault engine path) — fix the template/entrypoint/OpenBao policy accordingly and retry. This is expected iterative work, not a sign of a broken plan.
+執行：`docker compose up -d --build kes`（若沒有 build 步驟則用普通的 `up -d kes`），然後執行 `docker compose logs kes`。
+預期結果：日誌中沒有 TLS 或 Vault 驗證錯誤；若有，錯誤訊息會明確指出問題所在（憑證路徑錯誤、AppRole 驗證失敗、Vault engine 路徑錯誤等）——依此修正範本/entrypoint/OpenBao 政策後重試。這是預期中的反覆調整工作，不代表計畫本身有問題。
 
-Verify KES's own status endpoint: `curl -sk https://127.0.0.1:7373/v1/status --cacert secrets/kes/kes-server.cert` (or the correct status path per whatever `kes --help` showed in Step 1) returns a successful response.
+驗證 KES 自身的狀態端點：`curl -sk https://127.0.0.1:7373/v1/status --cacert secrets/kes/kes-server.cert`（或依步驟 1 中 `kes --help` 顯示的正確狀態路徑）應回傳成功的回應。
 
-- [ ] **Step 6: Commit**
+- [ ] **步驟 6：提交**
 
 ```bash
 git add kes docker-compose.yml
@@ -363,26 +363,26 @@ git commit -m "feat(infra): wire KES to OpenBao (AppRole) and MinIO (mTLS identi
 
 ---
 
-### Task 4: MinIO configured for SSE-KMS via KES
+### 任務 4：設定 MinIO 透過 KES 使用 SSE-KMS
 
-**Files:**
-- Modify: `docker-compose.yml` (add `minio` service)
-- Modify: `.env.example` (add MinIO root credentials)
+**檔案：**
+- 修改：`docker-compose.yml`（新增 `minio` 服務）
+- 修改：`.env.example`（新增 MinIO root 憑證）
 
-**Interfaces:**
-- Consumes: KES at `https://kes:7373` (Task 3), `secrets/kes/minio-client.{key,cert}` (Task 2).
-- Produces: MinIO reachable at `http://minio:9000` (S3 API) and `http://minio:9001` (console) on the Docker network, with KMS configured and online.
+**介面：**
+- 消費：`https://kes:7373` 的 KES（任務 3）、`secrets/kes/minio-client.{key,cert}`（任務 2）。
+- 產出：可透過 Docker 網路上的 `http://minio:9000`（S3 API）與 `http://minio:9001`（主控台）存取的 MinIO，KMS 已設定完成並處於上線狀態。
 
-- [ ] **Step 1: Add MinIO root credentials to `.env.example`**
+- [ ] **步驟 1：在 `.env.example` 中新增 MinIO root 憑證**
 
 ```
 MINIO_ROOT_USER=drm-admin
 MINIO_ROOT_PASSWORD=drm_dev_minio_password
 ```
 
-Run: `cp .env.example .env` is already how this repo's `.env` gets updated (Phase 1 precedent) — since `.env` is gitignored and already exists locally, manually append the two new lines to the existing local `.env` file to match (don't blow away existing values by re-copying the whole example over it).
+執行：本專案更新 `.env` 的方式一向是 `cp .env.example .env`（Phase 1 先例）——由於 `.env` 已加入 gitignore 且本地已存在，請手動將這兩行新內容附加到既有的本地 `.env` 檔案中以保持一致（不要用整份範例檔覆蓋，以免清空既有的數值）。
 
-- [ ] **Step 2: Wire `minio` into `docker-compose.yml`**
+- [ ] **步驟 2：將 `minio` 接入 `docker-compose.yml`**
 
 ```yaml
   minio:
@@ -412,16 +412,16 @@ Run: `cp .env.example .env` is already how this repo's `.env` gets updated (Phas
       retries: 20
 ```
 
-Add `minio_data:` to the top-level `volumes:` block.
+將 `minio_data:` 加入頂層的 `volumes:` 區塊。
 
-- [ ] **Step 3: Bring MinIO up and verify KMS is actually online (not just configured)**
+- [ ] **步驟 3：啟動 MinIO 並驗證 KMS 確實已上線（而非只是已設定）**
 
-Run: `docker compose up -d minio`, wait for healthy, then `docker compose logs minio`.
-Expected: startup log includes a line confirming KMS/encryption is enabled (MinIO's startup banner typically prints an "Encryption" or "KMS" status line — check for it; if instead there's a connection error to KES, fix the cert paths/CA/endpoint and retry).
+執行：`docker compose up -d minio`，等待其健康狀態變為 healthy，然後執行 `docker compose logs minio`。
+預期結果：啟動日誌中包含確認 KMS/加密已啟用的訊息行（MinIO 的啟動橫幅通常會印出「Encryption」或「KMS」狀態行——留意此行；若反而出現連線到 KES 的錯誤，請修正憑證路徑/CA/端點後重試）。
 
-Cross-check directly: `docker compose exec minio mc admin kms status local` (or `docker run --rm --network drm_default minio/mc ...` if `mc` isn't bundled in the server image — check which is the case) should report the KMS as reachable and show the default key name.
+直接交叉驗證：`docker compose exec minio mc admin kms status local`（若伺服器映像未內建 `mc`，則改用 `docker run --rm --network drm_default minio/mc ...`——請先確認實際情況）應回報 KMS 為可連線，並顯示預設金鑰名稱。
 
-- [ ] **Step 4: Commit**
+- [ ] **步驟 4：提交**
 
 ```bash
 git add docker-compose.yml .env.example
@@ -430,17 +430,17 @@ git commit -m "feat(infra): add MinIO configured for SSE-KMS via KES"
 
 ---
 
-### Task 5: End-to-end encrypted upload/download verification
+### 任務 5：端對端加密上傳/下載驗證
 
-**Files:**
-- Create: `scripts/verify-encrypted-storage.sh`
-- Modify: `scripts/smoke-test.sh` (add MinIO/KES/OpenBao checks)
+**檔案：**
+- 新增：`scripts/verify-encrypted-storage.sh`
+- 修改：`scripts/smoke-test.sh`（新增 MinIO/KES/OpenBao 檢查）
 
-**Interfaces:**
-- Consumes: the full storage chain from Tasks 1-4.
-- Produces: a `documents` bucket in MinIO with default SSE-KMS encryption enabled, and a script proving a real object round-trips through real encryption — this is what Phase 2B's application code will write into.
+**介面：**
+- 消費：任務 1 到 4 建立的完整儲存鏈。
+- 產出：MinIO 中一個已啟用預設 SSE-KMS 加密的 `documents` bucket，以及一支證明真實物件確實能透過真實加密機制往返（round-trip）的腳本——這正是 Phase 2B 應用程式碼將會寫入的目標。
 
-- [ ] **Step 1: Create `scripts/verify-encrypted-storage.sh`**
+- [ ] **步驟 1：建立 `scripts/verify-encrypted-storage.sh`**
 
 ```bash
 #!/usr/bin/env bash
@@ -478,42 +478,42 @@ $MC mc rm local/documents/verify-test.txt
 echo "Encrypted storage verification passed."
 ```
 
-(Adjust the exact `mc` invocation — command name inside the `minio/mc` image is typically just `mc`, not `mc mc` — this plan's draft has a likely duplication; fix based on what `docker run --rm minio/mc --help` actually shows before finalizing. Also adjust the network name if `docker compose` generated a different project network name than `drm_default` — check with `docker network ls`.)
+（請調整確切的 `mc` 呼叫方式——`minio/mc` 映像內的指令名稱通常就只是 `mc`，而非 `mc mc`——本計畫的草稿很可能出現了重複；定案前請依據 `docker run --rm minio/mc --help` 的實際顯示內容修正。若 `docker compose` 產生的專案網路名稱與 `drm_default` 不同，也請一併調整——可用 `docker network ls` 確認。）
 
-- [ ] **Step 2: Run it**
+- [ ] **步驟 2：執行**
 
-Run: `chmod +x scripts/verify-encrypted-storage.sh && source .env && ./scripts/verify-encrypted-storage.sh`
-Expected: "Encrypted storage verification passed." with no errors.
+執行：`chmod +x scripts/verify-encrypted-storage.sh && source .env && ./scripts/verify-encrypted-storage.sh`
+預期結果：顯示「Encrypted storage verification passed.」且沒有任何錯誤。
 
-- [ ] **Step 3: Confirm real key material exists in OpenBao (not just that MinIO/KES claim success)**
+- [ ] **步驟 3：確認 OpenBao 中確實存在真實的金鑰材料（而非只是 MinIO/KES 自稱成功）**
 
-Run: `docker compose exec openbao sh -c "BAO_TOKEN=\$(grep -o '\"root_token\":\"[^\"]*\"' /shared/openbao-init.json | cut -d'\"' -f4) bao kv list kes/"` (adjust path to wherever the shared init file actually lives from OpenBao's own container perspective — Task 1's `openbao-init` service wrote it into the `openbao_shared` volume, which is NOT mounted into the `openbao` service itself in this plan; either temporarily mount `openbao_shared` read-only into `openbao` for this check, or run the equivalent `bao kv list` command from a one-off container that has both the volume and network access. Use your judgment on the cleanest way to prove this without permanently widening the `openbao` service's mounts.)
-Expected: at least one entry is listed, proving KES actually created and stored key material in OpenBao — the full chain is real, not just three services independently reporting "OK".
+執行：`docker compose exec openbao sh -c "BAO_TOKEN=\$(grep -o '\"root_token\":\"[^\"]*\"' /shared/openbao-init.json | cut -d'\"' -f4) bao kv list kes/"`（請依據共享初始化檔案在 OpenBao 容器自身視角下的實際位置調整路徑——任務 1 的 `openbao-init` 服務將其寫入了 `openbao_shared` 磁碟區，但本計畫中該磁碟區並未掛載進 `openbao` 服務本身；請自行判斷最乾淨的驗證方式，可暫時將 `openbao_shared` 以唯讀方式掛載進 `openbao` 進行此項檢查，或從一個同時具備該磁碟區與網路存取權的一次性容器執行等效的 `bao kv list` 指令，以避免永久擴大 `openbao` 服務的掛載範圍。）
+預期結果：至少列出一筆項目，證明 KES 確實在 OpenBao 中建立並儲存了金鑰材料——整條鏈是真實運作的，而不只是三個服務各自回報「OK」。
 
-- [ ] **Step 4: Extend `scripts/smoke-test.sh`**
+- [ ] **步驟 4：擴充 `scripts/smoke-test.sh`**
 
-Add these checks alongside the existing three:
+在既有的三項檢查旁新增以下檢查：
 
 ```bash
 check "http://storage.drm.localhost/"
 ```
 
-(MinIO console should respond even before login; a 200 or a redirect-to-login is fine — adjust the `check` function's expected status code handling if MinIO's console returns something other than a bare 200, e.g. a 200 with an HTML login page is what's expected here.)
+（MinIO 主控台即使在登入前也應該有回應；回傳 200 或轉址到登入頁都算正常——若 MinIO 主控台回傳的並非單純的 200，例如回傳帶有 HTML 登入頁面的 200，請相應調整 `check` 函式對預期狀態碼的處理邏輯，這正是此處所預期的情況。）
 
-Also add a direct MinIO health check that doesn't depend on Traefik:
+同時新增一項不依賴 Traefik 的直接 MinIO 健康檢查：
 
 ```bash
 check "http://127.0.0.1:9000/minio/health/live"
 ```
 
-(Requires exposing MinIO's API port to loopback in `docker-compose.yml` similar to Postgres/Traefik-dashboard's existing loopback-only publishing — add `"127.0.0.1:9000:9000"` to the `minio` service's `ports:` if not already reachable from the host; check whether Task 4 already did this or if it's still needed here.)
+（需要在 `docker-compose.yml` 中將 MinIO 的 API 埠對外發布至 loopback，做法與 Postgres/Traefik 儀表板既有的僅限 loopback 發布方式相同——若 `minio` 服務的 `ports:` 尚未讓主機端可存取，請加入 `"127.0.0.1:9000:9000"`；請確認任務 4 是否已完成此設定，或這裡是否仍需要新增。）
 
-- [ ] **Step 5: Run the full smoke test**
+- [ ] **步驟 5：執行完整的 smoke test**
 
-Run: `./scripts/smoke-test.sh`
-Expected: all checks pass, including the two new ones.
+執行：`./scripts/smoke-test.sh`
+預期結果：所有檢查皆通過，包含新增的兩項。
 
-- [ ] **Step 6: Commit**
+- [ ] **步驟 6：提交**
 
 ```bash
 git add scripts/verify-encrypted-storage.sh scripts/smoke-test.sh docker-compose.yml
@@ -522,9 +522,9 @@ git commit -m "test(infra): verify encrypted upload/download round-trip through 
 
 ---
 
-## Self-Review Notes
+## 自我審查備註
 
-- **Spec coverage:** This plan covers exactly the "加密上傳/下載" (encrypted upload/download) infrastructure prerequisite named in the original Phase 2 scope, split out as agreed with the user. Document/folder/version/ACL business logic is explicitly out of scope here — that's Phase 2B, which will consume the `documents` bucket this plan creates.
-- **Placeholder scan:** No TBD/TODO markers. Genuine areas of tool-specific uncertainty (KES's exact YAML schema, `mc`'s exact CLI invocation shape, the Docker Compose project's generated network name) are explicitly flagged as "verify against the real running tool" rather than silently guessed — this is a deliberate, disclosed choice given real uncertainty about fast-moving third-party tool syntax, not a placeholder in the sense the plan-writing process warns against (no vague "add appropriate config" — every step has concrete draft content to start from and iterate against real tool output).
-- **Type consistency:** The `documents` bucket name, the `drm-default-key` KMS key name, and the `openbao_shared` volume's file paths (`/shared/kes-approle.json`, `/shared/openbao-init.json`) are each defined once and referenced identically everywhere they're used across tasks.
-- **Scope:** Single cohesive deliverable — a working encrypted storage chain — with no document/ACL logic folded in.
+- **規格涵蓋範圍：** 本計畫恰好涵蓋了原始 Phase 2 範疇中所指名的「加密上傳/下載」基礎設施前置需求，並依與使用者的協議拆分出來。文件/資料夾/版本/ACL 業務邏輯明確不在此範圍內——那屬於 Phase 2B，它將使用本計畫所建立的 `documents` bucket。
+- **佔位內容掃描：** 沒有 TBD/TODO 標記。真正因工具細節而存在不確定性的地方（KES 確切的 YAML 結構、`mc` 確切的 CLI 呼叫形式、Docker Compose 專案自動產生的網路名稱）都明確標示為「需對照實際運行中的工具進行驗證」，而非默默用猜測帶過——考量到快速變動的第三方工具語法確實存在不確定性，這是刻意且已揭露的選擇，並非計畫撰寫流程所警惕的那種佔位內容（沒有含糊的「新增適當的設定」這類說法——每個步驟都有具體的草稿內容可作為起點，並依據實際工具輸出進行迭代）。
+- **型別一致性：** `documents` bucket 名稱、`drm-default-key` KMS 金鑰名稱，以及 `openbao_shared` 磁碟區的檔案路徑（`/shared/kes-approle.json`、`/shared/openbao-init.json`）都各自僅定義一次，並在跨任務引用時保持一致。
+- **範圍：** 單一且內聚的交付項目——一條可運作的加密儲存鏈——不摻雜任何文件/ACL 邏輯。
