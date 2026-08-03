@@ -1,0 +1,99 @@
+#!/usr/bin/env bash
+# Restores the full DRM stack (Postgres + MinIO + OpenBao key material) from
+# a backup produced by scripts/backup.sh. See
+# docs/superpowers/specs/2026-08-03-backup-disaster-recovery-design.md.
+#
+# DESTRUCTIVE: overwrites the current minio_data/openbao_data/openbao_init/
+# openbao_approle volumes and the current Postgres database. Only run this
+# against a host you actually intend to restore onto.
+set -euo pipefail
+
+cd "$(dirname "${BASH_SOURCE[0]}")/.."
+source .env
+
+ENCRYPTED_FILE="${1:?usage: scripts/restore.sh <path-to-drm-backup-*.tar.gpg>}"
+PASSPHRASE_FILE="secrets/backup-passphrase"
+RESTORE_ROOT=$(mktemp -d)
+trap 'rm -rf "$RESTORE_ROOT"' EXIT
+
+echo "Decrypting $ENCRYPTED_FILE..."
+gpg --batch --yes --pinentry-mode loopback --passphrase-file "$PASSPHRASE_FILE" \
+  --decrypt "$ENCRYPTED_FILE" | tar xf - -C "$RESTORE_ROOT"
+
+BACKUP_DIR=$(find "$RESTORE_ROOT" -mindepth 1 -maxdepth 1 -type d | head -1)
+if [ -z "$BACKUP_DIR" ]; then
+  echo "FAIL: decrypted archive did not contain the expected dated directory" >&2
+  exit 1
+fi
+echo "Restoring from $BACKUP_DIR"
+cat "$BACKUP_DIR/manifest.txt"
+
+echo "Verifying checksums..."
+(cd "$BACKUP_DIR" && sha256sum -c checksums.sha256) \
+  || { echo "FAIL: checksum verification failed, refusing to restore from a possibly corrupt backup" >&2; exit 1; }
+
+read -r -p "This will STOP the stack and OVERWRITE minio_data/openbao_data/openbao_init/openbao_approle and the Postgres database. Type 'yes' to continue: " CONFIRM
+[ "$CONFIRM" = "yes" ] || { echo "Aborted."; exit 1; }
+
+echo "Stopping the stack..."
+docker compose down
+
+restore_volume() {
+  local short_name="$1" tar_file="$2" full_name
+  full_name=$(docker volume ls --filter "label=com.docker.compose.volume=${short_name}" --format '{{.Name}}' | head -1)
+  if [ -z "$full_name" ]; then
+    echo "FAIL: could not find volume for ${short_name} -- run 'docker compose up -d && docker compose down' once on a fresh host first so compose creates the named volumes" >&2
+    exit 1
+  fi
+  echo "Restoring ${short_name} into volume ${full_name}..."
+  docker run --rm -v "${full_name}:/target" -v "${BACKUP_DIR}:/backup:ro" alpine \
+    sh -c "rm -rf /target/* /target/..?* /target/.[!.]* 2>/dev/null; tar xzf /backup/${tar_file} -C /target"
+}
+
+restore_volume minio_data minio_data.tar.gz
+restore_volume openbao_data openbao_data.tar.gz
+restore_volume openbao_init openbao_init.tar.gz
+restore_volume openbao_approle openbao_approle.tar.gz
+
+echo "Restoring secrets/kes/..."
+rm -rf secrets/kes
+mkdir -p secrets/kes
+tar xzf "$BACKUP_DIR/kes-secrets.tar.gz" -C secrets/kes
+
+echo "Starting Postgres only (must be restored before api/worker start against it)..."
+docker compose up -d postgres
+
+echo "Waiting for Postgres to be ready..."
+for i in $(seq 1 30); do
+  if docker compose exec -T postgres pg_isready -U "$POSTGRES_USER" >/dev/null 2>&1; then
+    break
+  fi
+  if [ "$i" = 30 ]; then
+    echo "FAIL: postgres did not become ready within 60s" >&2
+    exit 1
+  fi
+  sleep 2
+done
+
+echo "Restoring Postgres database from postgres.dump..."
+# --clean --if-exists drops conflicting objects first, making this restore
+# safe to run against a fresh (just-created, empty-schema) database.
+cat "$BACKUP_DIR/postgres.dump" | docker compose exec -T postgres \
+  pg_restore -U "$POSTGRES_USER" -d "$POSTGRES_DB" --clean --if-exists --no-owner
+
+echo "Starting the rest of the stack..."
+docker compose up -d
+
+echo "Waiting for api to respond healthy..."
+for i in $(seq 1 60); do
+  if curl -sf http://api.drm.localhost/health >/dev/null 2>&1; then
+    break
+  fi
+  if [ "$i" = 60 ]; then
+    echo "FAIL: api did not respond healthy within 120s of restart" >&2
+    exit 1
+  fi
+  sleep 2
+done
+
+echo "Restore complete. Now manually verify: log in, browse a folder, download a document, confirm audit logs and permissions are intact."
