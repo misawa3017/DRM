@@ -44,7 +44,7 @@ _send_gchat() {
   local text="$1" webhook_url payload
   webhook_url=$(cat "$GCHAT_WEBHOOK_FILE")
   payload=$(jq -n --arg text "$text" '{text: $text}')
-  curl -s -X POST -H 'Content-Type: application/json' -d "$payload" "$webhook_url" >/dev/null
+  curl -s -f -X POST -H 'Content-Type: application/json' -d "$payload" "$webhook_url" >/dev/null
 }
 
 notify_failure() {
