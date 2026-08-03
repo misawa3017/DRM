@@ -1,0 +1,9 @@
+[Unit]
+Description=DRM daily encrypted backup
+After=docker.service
+Requires=docker.service
+
+[Service]
+Type=oneshot
+WorkingDirectory=/opt/drm
+ExecStart=/opt/drm/scripts/backup.sh
