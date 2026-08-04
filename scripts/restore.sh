@@ -4,8 +4,8 @@
 # docs/superpowers/specs/2026-08-03-backup-disaster-recovery-design.md.
 #
 # DESTRUCTIVE: overwrites the current minio_data/openbao_data/openbao_init/
-# openbao_approle volumes and the current Postgres database. Only run this
-# against a host you actually intend to restore onto.
+# openbao_approle/keycloak_data volumes and the current Postgres database.
+# Only run this against a host you actually intend to restore onto.
 set -euo pipefail
 
 cd "$(dirname "${BASH_SOURCE[0]}")/.."
@@ -32,14 +32,19 @@ echo "Verifying checksums..."
 (cd "$BACKUP_DIR" && sha256sum -c checksums.sha256) \
   || { echo "FAIL: checksum verification failed, refusing to restore from a possibly corrupt backup" >&2; exit 1; }
 
-read -r -p "This will STOP the stack and OVERWRITE minio_data/openbao_data/openbao_init/openbao_approle and the Postgres database. Type 'yes' to continue: " CONFIRM
+read -r -p "This will STOP the stack and OVERWRITE minio_data/openbao_data/openbao_init/openbao_approle/keycloak_data and the Postgres database. Type 'yes' to continue: " CONFIRM
 [ "$CONFIRM" = "yes" ] || { echo "Aborted."; exit 1; }
 
 echo "Stopping the stack..."
 docker compose down
 
 restore_volume() {
-  local short_name="$1" tar_file="$2" full_name
+  # tar_flags defaults to "xzf" (gunzip); backup.sh writes minio_data and
+  # the openbao_* volumes without gzip (plain "cf", since they're already
+  # ciphertext that doesn't meaningfully compress), so those call sites
+  # below pass "xf" to match. keycloak_data keeps the default (backup.sh
+  # tars it with gzip).
+  local short_name="$1" tar_file="$2" tar_flags="${3:-xzf}" full_name
   full_name=$(docker volume ls --filter "label=com.docker.compose.volume=${short_name}" --format '{{.Name}}' | head -1)
   if [ -z "$full_name" ]; then
     echo "FAIL: could not find volume for ${short_name} -- run 'docker compose up -d && docker compose down' once on a fresh host first so compose creates the named volumes" >&2
@@ -47,13 +52,20 @@ restore_volume() {
   fi
   echo "Restoring ${short_name} into volume ${full_name}..."
   docker run --rm -v "${full_name}:/target" -v "${BACKUP_DIR}:/backup:ro" alpine \
-    sh -c "rm -rf /target/* /target/..?* /target/.[!.]* 2>/dev/null; tar xzf /backup/${tar_file} -C /target"
+    sh -c "rm -rf /target/* /target/..?* /target/.[!.]* 2>/dev/null; tar ${tar_flags} /backup/${tar_file} -C /target"
 }
 
-restore_volume minio_data minio_data.tar.gz
-restore_volume openbao_data openbao_data.tar.gz
-restore_volume openbao_init openbao_init.tar.gz
-restore_volume openbao_approle openbao_approle.tar.gz
+restore_volume minio_data minio_data.tar.gz xf
+restore_volume openbao_data openbao_data.tar.gz xf
+restore_volume openbao_init openbao_init.tar.gz xf
+restore_volume openbao_approle openbao_approle.tar.gz xf
+# keycloak_data holds Keycloak's own user/realm database -- every Postgres
+# row that references a user (User.keycloakSub, Permission.principalId,
+# Document.createdBy, AuditLog.actorId, etc.) points at a Keycloak `sub`
+# UUID minted from this data. Without restoring it, a fresh Keycloak import
+# would mint new UUIDs for every user, orphaning all ownership/permission/
+# audit data even though the documents themselves came back fine.
+restore_volume keycloak_data keycloak_data.tar.gz
 
 echo "Restoring secrets/kes/..."
 rm -rf secrets/kes
