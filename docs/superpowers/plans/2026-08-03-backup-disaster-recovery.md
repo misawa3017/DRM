@@ -2,9 +2,9 @@
 
 > **給代理型工作者的說明：** 必要子技能：使用 superpowers:subagent-driven-development（建議）或 superpowers:executing-plans 逐一任務地實作此計畫。步驟使用核取方塊（`- [ ]`）語法進行追蹤。
 
-**目標：** 建立一套每日執行、將系統完整狀態（Postgres 中繼資料＋MinIO 加密物件＋OpenBao 解密金鑰材料）備份到區網內 NAS 的機制，備份檔案本身維持加密，並在打包期間短暫停用 `api`/`worker` 以確保各元件備份彼此一致。
+**目標：** 建立一套每日執行、將系統完整狀態（Postgres 中繼資料＋MinIO 加密物件＋OpenBao 解密金鑰材料＋Keycloak 使用者身份資料）備份到區網內 NAS 的機制，備份檔案本身維持加密，並在打包期間短暫停用 `api`/`worker`/`keycloak` 以確保各元件備份彼此一致。
 
-**架構：** 兩支主機層 shell 腳本（`scripts/backup.sh`、`scripts/restore.sh`），透過 `docker compose exec`／`docker run -v <volume>` 存取既有的 Docker named volume，不修改 `docker-compose.yml`。備份期間先 `docker compose stop api worker` 再打包，打包完立刻重啟，讓 `pg_dump` 與各 volume 的 tar 內容來自同一個零寫入的時間點。備份檔整包用 `gpg --symmetric` 加密後 `rsync` 到 NAS。另外在 `apps/web` 加一個固定顯示的維護提示橫幅。
+**架構：** 兩支主機層 shell 腳本（`scripts/backup.sh`、`scripts/restore.sh`），透過 `docker compose exec`／`docker run -v <volume>` 存取既有的 Docker named volume，不修改 `docker-compose.yml`。備份期間先 `docker compose stop api worker keycloak` 再打包，打包完立刻重啟，讓 `pg_dump` 與各 volume 的 tar 內容（含 `keycloak_data`——Postgres 的擁有權／權限／稽核紀錄都指向 Keycloak 的 `sub` UUID，這是後續一次審查補上的必要範圍）來自同一個零寫入的時間點。備份檔整包用 `gpg --symmetric` 加密後 `rsync` 到 NAS。另外在 `apps/web` 加一個固定顯示的維護提示橫幅。
 
 **技術棧：** Bash（`set -euo pipefail`）、Docker CLI、`gpg`（對稱加密，非互動 `--batch --pinentry-mode loopback` 模式）、`rsync` over SSH、`curl`（SMTP 寄信、Google Chat webhook）、`jq`（既有專案依賴，用來組 JSON payload）、systemd timer、React（維護橫幅）。
 
@@ -249,7 +249,7 @@ git commit -m "feat(backup): add mail + Google Chat notification library"
 
 **介面：**
 - 使用：`scripts/lib/backup-notify.sh` 的 `notify_failure`（任務 2）；`.env` 中的 `POSTGRES_USER`／`POSTGRES_DB`（既有）。
-- 產出：`/var/backups/drm-staging/<YYYY-MM-DD>/` 底下的 `postgres.dump`、`minio_data.tar.gz`、`openbao_data.tar.gz`、`openbao_init.tar.gz`、`openbao_approle.tar.gz`、`kes-secrets.tar.gz`、`manifest.txt`、`checksums.sha256`。此任務先不做加密／上傳／通知，下個任務接續。
+- 產出：`/var/backups/drm-staging/<YYYY-MM-DD>/` 底下的 `postgres.dump`、`minio_data.tar.gz`、`openbao_data.tar.gz`、`openbao_init.tar.gz`、`openbao_approle.tar.gz`、`keycloak_data.tar.gz`（後續一次審查補上，範圍之外的說明見上方 Global Constraints）、`kes-secrets.tar.gz`、`manifest.txt`、`checksums.sha256`。此任務先不做加密／上傳／通知，下個任務接續。
 
 - [ ] **步驟 1：建立 `scripts/backup.sh`（第一版，到打包+manifest 為止）**
 
@@ -264,6 +264,10 @@ git commit -m "feat(backup): add mail + Google Chat notification library"
 # relative to the compose file here). Intended to be triggered by the
 # drm-backup.timer systemd unit (see scripts/systemd/), not run by hand
 # except for testing.
+# (Note: a later fix wave added `keycloak` to the stop/restart set and a
+# keycloak_data tar_volume call in the same pattern as the four below, plus
+# an explicit `-t 30` stop timeout -- see the real scripts/backup.sh, the
+# source of truth, for the current version.)
 set -euo pipefail
 
 cd "$(dirname "${BASH_SOURCE[0]}")/.."
