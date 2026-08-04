@@ -249,7 +249,7 @@ git commit -m "feat(backup): add mail + Google Chat notification library"
 
 **介面：**
 - 使用：`scripts/lib/backup-notify.sh` 的 `notify_failure`（任務 2）；`.env` 中的 `POSTGRES_USER`／`POSTGRES_DB`（既有）。
-- 產出：`/var/backups/drm-staging/<YYYY-MM-DD>/` 底下的 `postgres.dump`、`minio_data.tar.gz`、`openbao_data.tar.gz`、`openbao_init.tar.gz`、`openbao_approle.tar.gz`、`keycloak_data.tar.gz`（後續一次審查補上，範圍之外的說明見上方 Global Constraints）、`kes-secrets.tar.gz`、`manifest.txt`、`checksums.sha256`。此任務先不做加密／上傳／通知，下個任務接續。（`minio_data`／`openbao_*` 三者後續改為 `.tar`，不含 gzip，見實際 `scripts/backup.sh`。）
+- 產出：`/var/backups/drm-staging/<YYYY-MM-DD>/` 底下的 `postgres.dump`、`minio_data.tar.gz`、`openbao_data.tar.gz`、`openbao_init.tar.gz`、`openbao_approle.tar.gz`、`keycloak_data.tar.gz`（後續一次審查補上，範圍之外的說明見上方 Global Constraints）、`kes-secrets.tar.gz`、`manifest.txt`、`checksums.sha256`。此任務先不做加密／上傳／通知，下個任務接續。（`minio_data`／`openbao_*`（`openbao_data`、`openbao_init`、`openbao_approle`）這四個檔案後續改為 `.tar`，不含 gzip，見實際 `scripts/backup.sh`。）
 
 - [ ] **步驟 1：建立 `scripts/backup.sh`（第一版，到打包+manifest 為止）**
 
@@ -421,7 +421,7 @@ sudo ./scripts/backup.sh
 預期結果：
 - log 顯示 `stopping api/worker`，接著 `restarting api/worker`，中間沒有其他錯誤。
 - 執行期間用另一個終端機跑 `docker compose ps api worker`，應該能看到兩者短暫變成 `Exited`／消失，之後又回到 `Up`。
-- `ls /var/backups/drm-staging/$(date -u +%F)/` 應該看到 `postgres.dump`、`minio_data.tar.gz`、`openbao_data.tar.gz`、`openbao_init.tar.gz`、`openbao_approle.tar.gz`、`keycloak_data.tar.gz`（後續修正補上）、`kes-secrets.tar.gz`、`manifest.txt`、`checksums.sha256` 共 9 個檔案。（`minio_data`／`openbao_*` 三者後續改為 `.tar`，不含 gzip，見實際 `scripts/backup.sh`。）
+- `ls /var/backups/drm-staging/$(date -u +%F)/` 應該看到 `postgres.dump`、`minio_data.tar.gz`、`openbao_data.tar.gz`、`openbao_init.tar.gz`、`openbao_approle.tar.gz`、`keycloak_data.tar.gz`（後續修正補上）、`kes-secrets.tar.gz`、`manifest.txt`、`checksums.sha256` 共 9 個檔案。（`minio_data`／`openbao_*`（`openbao_data`、`openbao_init`、`openbao_approle`）這四個檔案後續改為 `.tar`，不含 gzip，見實際 `scripts/backup.sh`。）
 - `cat /var/backups/drm-staging/$(date -u +%F)/manifest.txt` 內容包含正確的日期與目前的 git commit hash。
 - `(cd /var/backups/drm-staging/$(date -u +%F) && sha256sum -c checksums.sha256)` 全部顯示 `OK`。
 
@@ -516,7 +516,7 @@ gpg --batch --yes --pinentry-mode loopback --passphrase-file secrets/backup-pass
   --decrypt "$(ls -t /var/backups/drm-staging/drm-backup-*.tar.gpg | head -1)" | tar tzf - | head
 ```
 
-預期結果：列出 `<日期>/postgres.dump`、`<日期>/minio_data.tar.gz` 等檔案清單，沒有 gpg 或 tar 錯誤。（`minio_data`／`openbao_*` 三者後續改為 `.tar`，見實際 `scripts/backup.sh`。）
+預期結果：列出 `<日期>/postgres.dump`、`<日期>/minio_data.tar.gz` 等檔案清單，沒有 gpg 或 tar 錯誤。（`minio_data`／`openbao_*`（`openbao_data`、`openbao_init`、`openbao_approle`）這四個檔案後續改為 `.tar`，見實際 `scripts/backup.sh`。）
 
 - [ ] **步驟 4：刻意模擬 rsync 失敗，驗證失敗通知與本機保留行為**
 
