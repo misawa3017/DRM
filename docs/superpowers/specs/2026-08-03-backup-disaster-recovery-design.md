@@ -55,7 +55,7 @@
 1. **上鎖**：用 `flock` 鎖住 lockfile，避免前一天的備份還沒跑完就被下一次排程觸發（這台主機在先前幾個 Phase 都出現過偶發的高負載狀況）。
 2. **建立當日暫存目錄**：`/var/backups/drm-staging/<YYYY-MM-DD>/`（主機層路徑，在 git repo 之外，避免誤 commit）。
 3. **停用寫入（進入停機視窗）**：`docker compose stop api worker keycloak`。
-4. **依序備份各元件**：`pg_dump` → `postgres.dump`；接著依「備份範圍與元件」表格順序，逐一 tar 出 `minio_data.tar.gz`、`openbao_data.tar.gz`、`openbao_init.tar.gz`、`openbao_approle.tar.gz`、`keycloak_data.tar.gz`、`kes-secrets.tar.gz`（`minio_data`／`openbao_*` 已經是密文，tar 時略過 gzip 以縮短停機視窗內的耗時；`keycloak_data`／`kes-secrets.tar.gz` 仍照常壓縮）。由於前一步已經停掉會寫入的服務，這裡拿到的 `pg_dump` 快照與各 volume 的 tar 內容，全部來自同一個「零寫入」的時間點，彼此完全一致，不會有資料落差。
+4. **依序備份各元件**：`pg_dump` → `postgres.dump`；接著依「備份範圍與元件」表格順序，逐一 tar 出 `minio_data.tar`、`openbao_data.tar`、`openbao_init.tar`、`openbao_approle.tar`、`keycloak_data.tar.gz`、`kes-secrets.tar.gz`（`minio_data`／`openbao_*` 已經是密文，tar 時略過 gzip 以縮短停機視窗內的耗時，檔名也用 `.tar` 而非 `.tar.gz` 以符合實際內容；`keycloak_data`／`kes-secrets.tar.gz` 仍照常壓縮並維持 `.tar.gz`）。由於前一步已經停掉會寫入的服務，這裡拿到的 `pg_dump` 快照與各 volume 的 tar 內容，全部來自同一個「零寫入」的時間點，彼此完全一致，不會有資料落差。
 5. **恢復服務（結束停機視窗）**：`docker compose start api worker keycloak`，等待回報健康。停機時間僅涵蓋步驟 3-5，通常是打包所需的時長（實際數字依資料量於實作時量測）。
 6. **寫入 manifest**：`manifest.txt` 記錄每個檔案的 checksum、備份時間戳、當下的 git commit hash（方便日後對照備份當時的 schema／程式碼版本）。
 7. **整包加密**：把整個當日目錄打包後用 `secrets/backup-passphrase` 加密，產生單一檔案 `drm-backup-<YYYY-MM-DD>.tar.age`（或 `.gpg`）。此步驟與之後的 rsync 都在服務已恢復後進行，不佔用停機時間。
@@ -125,3 +125,5 @@
 - **備份 SSH 金鑰目前同時擁有 NAS 端寫入與刪除權限**（`rsync` 上傳與遠端 retention 的 `find -delete` 共用同一把金鑰）——主機一旦被入侵，理論上可以連自己的離站備份一起刪掉；之後若要加強，可在 NAS 端 `authorized_keys` 用 `command=` 限制這把金鑰只能執行 `rsync`，刪除改由 NAS 端自己的排程負責，本次不處理。
 - **SMTP 密碼與 Google Chat webhook URL 目前以明文 `curl` 命令列參數帶入**，同主機的其他使用者可透過 `ps` 看到——這台主機目前是單一用途的備份主機，可接受，若之後改在共用主機上跑則需要額外處理。
 - **加密備份前沒有先檢查磁碟剩餘空間**——`/var` 空間不足時會在加密中途才失敗，而不是一開始就給出明確錯誤訊息，本次不處理。
+- **`keycloak_data.tar.gz` 的完整性仍是「盡力而為」，而非有保證**——`-t 30` 的停機超時大幅降低了（並非完全消除）Keycloak dev-mode 內嵌 H2 store 在停機時被中途強制終止而毀損的風險；根本原因是 H2 embedded store 本身就不是設計給正式環境用的，要徹底解決需要讓 Keycloak 改跑正式模式並接上真正的後端資料庫（不在本次範圍內）。
+- **加密步驟（`gpg`）本身失敗時，當天的備份會直接遺失，無法復原**——因為 staging 目錄的清除現在是無條件執行（見 `cleanup_staging`），一旦 `gpg` 失敗，明文 staging 目錄已被清掉、加密後的檔案也不完整，兩邊都救不回來；這是刻意的取捨（「絕不留下明文」優先於「一定要有後備可用」），下一次排程會產生新的一份備份。

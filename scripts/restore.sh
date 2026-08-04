@@ -55,10 +55,10 @@ restore_volume() {
     sh -c "rm -rf /target/* /target/..?* /target/.[!.]* 2>/dev/null; tar ${tar_flags} /backup/${tar_file} -C /target"
 }
 
-restore_volume minio_data minio_data.tar.gz xf
-restore_volume openbao_data openbao_data.tar.gz xf
-restore_volume openbao_init openbao_init.tar.gz xf
-restore_volume openbao_approle openbao_approle.tar.gz xf
+restore_volume minio_data minio_data.tar xf
+restore_volume openbao_data openbao_data.tar xf
+restore_volume openbao_init openbao_init.tar xf
+restore_volume openbao_approle openbao_approle.tar xf
 # keycloak_data holds Keycloak's own user/realm database -- every Postgres
 # row that references a user (User.keycloakSub, Permission.principalId,
 # Document.createdBy, AuditLog.actorId, etc.) points at a Keycloak `sub`
