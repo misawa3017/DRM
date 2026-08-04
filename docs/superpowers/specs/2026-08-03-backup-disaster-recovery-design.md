@@ -19,7 +19,7 @@
 
 兩支腳本都在主機層執行，透過 `docker compose exec`／`docker run -v <volume>` 存取現有的 Docker named volume，**不需要修改 `docker-compose.yml`**。備份邏輯刻意不放進 `apps/api`：備份需要直接操作 Docker volume、執行 shell 指令，這類權限不應該給應用程式容器，符合 Phase 4B/4C 已經建立的「api/worker 各自維持最小權限」原則。
 
-**備份期間會有一段短暫、排定好的停機視窗**：為了讓 `pg_dump` 與所有 volume 的 tar 都來自同一個「零寫入」的瞬間，避免資料庫快照與物件快照之間出現時間差，`scripts/backup.sh` 會在打包步驟開始前先 `docker compose stop api worker`（唯二會寫入 Postgres／MinIO 的服務；Postgres／MinIO／OpenBao／KES／Redis 本身照常運作），打包完成後立刻 `docker compose start api worker`，把停機時間壓縮到只涵蓋打包所需的時長——加密與 rsync 上傳留到服務恢復後才執行。這段時間內 `api` 完全無法存取（讀寫皆然，因為是整個容器停掉，並非只擋寫入），詳見下方「每日備份流程」與「使用者停機通知」。
+**備份期間會有一段短暫、排定好的停機視窗**：為了讓 `pg_dump` 與所有 volume 的 tar 都來自同一個「零寫入」的瞬間，避免資料庫快照與物件快照之間出現時間差，`scripts/backup.sh` 會在打包步驟開始前先 `docker compose stop api worker keycloak`（會寫入 Postgres／MinIO／自身資料庫的服務；Postgres／MinIO／OpenBao／KES／Redis 本身照常運作），打包完成後立刻 `docker compose start api worker keycloak`，把停機時間壓縮到只涵蓋打包所需的時長——加密與 rsync 上傳留到服務恢復後才執行。這段時間內 `api` 完全無法存取（讀寫皆然，因為是整個容器停掉，並非只擋寫入），詳見下方「每日備份流程」與「使用者停機通知」。
 
 **MinIO／OpenBao 的備份方式是原始 volume 層級複製，不透過 S3 API**：若用 `mc mirror` 或任何呼叫 MinIO GetObject 的方式備份，KES 會在傳輸前自動解密，備份出來的就是明文，等於繞過整個加密鏈。因此一律用一次性容器唯讀掛載對應 volume 後直接 tar，保留原始密文。
 
@@ -35,6 +35,7 @@
 | OpenBao unseal key／root token | `openbao_init` volume 內的 `openbao-init.json` | 同上——這是解密一切的最後一把鑰匙 |
 | KES AppRole 憑證 | `openbao_approle` volume | 同上 |
 | KES／MinIO mTLS 憑證 | 本機 `secrets/kes/`（非 Docker volume） | 直接 `tar` |
+| Keycloak 使用者／realm 資料庫 | `keycloak_data` volume | 同上——Postgres 裡每一筆牽涉到使用者的紀錄（`User.keycloakSub`、`Permission.principalId`、`Document.createdBy`、`AuditLog.actorId` 等）都指向 Keycloak 的 `sub` UUID，沒備份這個 volume，還原後 Keycloak 重新 import 會產生全新的 UUID，文件救得回來但擁有權／權限／稽核紀錄全部對不起來 |
 
 **新增設定**（`.env`）：
 - `BACKUP_SSH_TARGET`（NAS 的 `user@host:/path`）
@@ -53,9 +54,9 @@
 
 1. **上鎖**：用 `flock` 鎖住 lockfile，避免前一天的備份還沒跑完就被下一次排程觸發（這台主機在先前幾個 Phase 都出現過偶發的高負載狀況）。
 2. **建立當日暫存目錄**：`/var/backups/drm-staging/<YYYY-MM-DD>/`（主機層路徑，在 git repo 之外，避免誤 commit）。
-3. **停用寫入（進入停機視窗）**：`docker compose stop api worker`。
-4. **依序備份各元件**：`pg_dump` → `postgres.dump`；接著依「備份範圍與元件」表格順序，逐一 tar 出 `minio_data.tar.gz`、`openbao_data.tar.gz`、`openbao_init.tar.gz`、`openbao_approle.tar.gz`、`kes-secrets.tar.gz`。由於前一步已經停掉唯二會寫入的服務，這裡拿到的 `pg_dump` 快照與各 volume 的 tar 內容，全部來自同一個「零寫入」的時間點，彼此完全一致，不會有資料落差。
-5. **恢復服務（結束停機視窗）**：`docker compose start api worker`，等待兩者回報健康。停機時間僅涵蓋步驟 3-5，通常是打包所需的時長（實際數字依資料量於實作時量測）。
+3. **停用寫入（進入停機視窗）**：`docker compose stop api worker keycloak`。
+4. **依序備份各元件**：`pg_dump` → `postgres.dump`；接著依「備份範圍與元件」表格順序，逐一 tar 出 `minio_data.tar.gz`、`openbao_data.tar.gz`、`openbao_init.tar.gz`、`openbao_approle.tar.gz`、`keycloak_data.tar.gz`、`kes-secrets.tar.gz`（`minio_data`／`openbao_*` 已經是密文，tar 時略過 gzip 以縮短停機視窗內的耗時；`keycloak_data`／`kes-secrets.tar.gz` 仍照常壓縮）。由於前一步已經停掉會寫入的服務，這裡拿到的 `pg_dump` 快照與各 volume 的 tar 內容，全部來自同一個「零寫入」的時間點，彼此完全一致，不會有資料落差。
+5. **恢復服務（結束停機視窗）**：`docker compose start api worker keycloak`，等待回報健康。停機時間僅涵蓋步驟 3-5，通常是打包所需的時長（實際數字依資料量於實作時量測）。
 6. **寫入 manifest**：`manifest.txt` 記錄每個檔案的 checksum、備份時間戳、當下的 git commit hash（方便日後對照備份當時的 schema／程式碼版本）。
 7. **整包加密**：把整個當日目錄打包後用 `secrets/backup-passphrase` 加密，產生單一檔案 `drm-backup-<YYYY-MM-DD>.tar.age`（或 `.gpg`）。此步驟與之後的 rsync 都在服務已恢復後進行，不佔用停機時間。
 8. **rsync 到 NAS**：透過 `secrets/backup-ssh/` 的金鑰，將加密檔案送至 `BACKUP_SSH_TARGET`。
@@ -89,7 +90,7 @@
 
 1. 用 `secrets/backup-passphrase` 解密，展開成當日的暫存目錄。
 2. `docker compose down`（停掉整個 stack）。
-3. 清空對應的 Docker volume，將 tar 內容還原回去（`minio_data`、`openbao_data`、`openbao_init`、`openbao_approle`）。
+3. 清空對應的 Docker volume，將 tar 內容還原回去（`minio_data`、`openbao_data`、`openbao_init`、`openbao_approle`、`keycloak_data`）。
 4. 還原本機 `secrets/kes/`。
 5. `docker compose up -d`，等待 OpenBao／KES／MinIO／Postgres 全部回報健康。
 6. 對 Postgres 執行 `pg_restore` 還原 `postgres.dump`。
@@ -121,3 +122,6 @@
 - **更細緻的監控儀表板**——目前只有「成功／失敗」兩種通知，不含備份耗時趨勢、容量趨勢等進階監控。
 - **動態倒數提醒／後端協調的停機通知**——目前只做寫死時間的靜態橫幅；若未來排程改成不固定，才需要讓 `apps/api` 開端點、由 `scripts/backup.sh` 在停機前呼叫來觸發即時倒數。
 - **客製化的「維護中」錯誤頁**——停機期間使用者看到的是一般連線錯誤，不是設計過的維護頁面（例如透過 Traefik 的 `errors` middleware 導向一個靜態頁面）；目前判斷離峰時段＋短時長不值得為此加一個常駐的維護頁服務。
+- **備份 SSH 金鑰目前同時擁有 NAS 端寫入與刪除權限**（`rsync` 上傳與遠端 retention 的 `find -delete` 共用同一把金鑰）——主機一旦被入侵，理論上可以連自己的離站備份一起刪掉；之後若要加強，可在 NAS 端 `authorized_keys` 用 `command=` 限制這把金鑰只能執行 `rsync`，刪除改由 NAS 端自己的排程負責，本次不處理。
+- **SMTP 密碼與 Google Chat webhook URL 目前以明文 `curl` 命令列參數帶入**，同主機的其他使用者可透過 `ps` 看到——這台主機目前是單一用途的備份主機，可接受，若之後改在共用主機上跑則需要額外處理。
+- **加密備份前沒有先檢查磁碟剩餘空間**——`/var` 空間不足時會在加密中途才失敗，而不是一開始就給出明確錯誤訊息，本次不處理。

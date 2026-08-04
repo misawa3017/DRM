@@ -13,7 +13,7 @@
 - **MinIO／OpenBao 的備份一律走 volume 層級複製，絕不透過 S3 API**（`mc mirror` 或任何呼叫 MinIO GetObject 的方式都會讓 KES 自動解密，備份出來變成明文）。用一次性 `alpine` 容器唯讀掛載對應 volume 後直接 `tar`。
 - **加密工具選用 `gpg`，不用 `age`。** `age -p` 的密碼輸入設計為互動式（需要 `/dev/tty`），不適合 systemd timer／cron 這種無終端機的排程情境；`gpg --batch --pinentry-mode loopback --passphrase-file` 則是穩定支援的全自動化路徑，且 `gpg` 幾乎所有 Linux 主機都預裝，不需額外安裝。這是本計畫在 spec 留給實作階段決定的工具選擇上鎖定的答案。
 - **Docker volume 一律透過 `com.docker.compose.volume=<short-name>` 標籤查找實際名稱**，不要硬編碼 `drm_` 這個 project 前綴（已用 `docker volume ls --format '{{.Name}} {{.Labels}}'` confirmed 這個標籤存在；前綴本身若專案改名會跟著變動，標籤不會）。
-- **打包步驟（`pg_dump` ＋ 5 個 volume 的 tar）必須在 `docker compose stop api worker` 之後、`docker compose start api worker` 之前執行**，確保彼此來自同一個零寫入時間點。任何步驟失敗都必須先確保 `api`／`worker` 被重新啟動（用 `trap ... EXIT` 實作，不能只放在腳本正常結尾），服務復原永遠優先於備份是否成功。
+- **打包步驟（`pg_dump` ＋ 6 個 volume 的 tar，含後續補上的 `keycloak_data`）必須在 `docker compose stop api worker keycloak` 之後、`docker compose start api worker keycloak` 之前執行**，確保彼此來自同一個零寫入時間點。任何步驟失敗都必須先確保 `api`／`worker`／`keycloak` 被重新啟動（用 `trap ... EXIT` 實作，不能只放在腳本正常結尾），服務復原永遠優先於備份是否成功。（`keycloak_data` 是後續一次修正補上的——Postgres 裡的使用者相關紀錄都指向 Keycloak 的 `sub` UUID，沒備份這個 volume 會讓還原後的擁有權／權限／稽核紀錄全部對不起來，詳見設計文件。）
 - **排程時間固定為每日 03:00**，刻意避開 Phase 4C 到期掃描的 02:00。
 - **保留天數**：本機（加密後的備份檔）保留最近 **7 天**；NAS 端保留最近 **14 天**（`BACKUP_RETENTION_DAYS=14`／`BACKUP_LOCAL_RETENTION_DAYS=7`，兩者都是 `.env` 設定值，不寫死在腳本裡）。
 - **通知規則**：任何步驟失敗 → 同時寄信 ＋ 發 Google Chat；成功 → 只發 Google Chat 一則簡短訊息，不寄信。通知本身失敗絕不能讓備份腳本的 exit code 跟著失敗。
@@ -417,7 +417,7 @@ sudo ./scripts/backup.sh
 預期結果：
 - log 顯示 `stopping api/worker`，接著 `restarting api/worker`，中間沒有其他錯誤。
 - 執行期間用另一個終端機跑 `docker compose ps api worker`，應該能看到兩者短暫變成 `Exited`／消失，之後又回到 `Up`。
-- `ls /var/backups/drm-staging/$(date -u +%F)/` 應該看到 `postgres.dump`、`minio_data.tar.gz`、`openbao_data.tar.gz`、`openbao_init.tar.gz`、`openbao_approle.tar.gz`、`kes-secrets.tar.gz`、`manifest.txt`、`checksums.sha256` 共 8 個檔案。
+- `ls /var/backups/drm-staging/$(date -u +%F)/` 應該看到 `postgres.dump`、`minio_data.tar.gz`、`openbao_data.tar.gz`、`openbao_init.tar.gz`、`openbao_approle.tar.gz`、`keycloak_data.tar.gz`（後續修正補上）、`kes-secrets.tar.gz`、`manifest.txt`、`checksums.sha256` 共 9 個檔案。
 - `cat /var/backups/drm-staging/$(date -u +%F)/manifest.txt` 內容包含正確的日期與目前的 git commit hash。
 - `(cd /var/backups/drm-staging/$(date -u +%F) && sha256sum -c checksums.sha256)` 全部顯示 `OK`。
 
@@ -581,6 +581,9 @@ git commit -m "feat(backup): add encryption, rsync upload, retention pruning, an
 # DESTRUCTIVE: overwrites the current minio_data/openbao_data/openbao_init/
 # openbao_approle volumes and the current Postgres database. Only run this
 # against a host you actually intend to restore onto.
+# (Note: a later fix wave added a keycloak_data restore_volume call in the
+# same pattern as the four below -- see the real scripts/restore.sh, the
+# source of truth, for the current version.)
 set -euo pipefail
 
 cd "$(dirname "${BASH_SOURCE[0]}")/.."
