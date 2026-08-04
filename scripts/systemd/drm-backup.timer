@@ -3,7 +3,12 @@ Description=Run drm-backup.service daily at 03:00
 
 [Timer]
 OnCalendar=*-*-* 03:00:00
-Persistent=true
+# Deliberately false: if the host was down at 03:00, a missed run should
+# stay missed rather than firing at next boot (which could be mid-morning).
+# apps/web's MaintenanceNotice banner promises a static 03:00 window --
+# Persistent=true would silently break that promise by opening an
+# unannounced maintenance window whenever the host happened to come back up.
+Persistent=false
 
 [Install]
 WantedBy=timers.target

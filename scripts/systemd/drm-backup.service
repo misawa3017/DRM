@@ -7,3 +7,11 @@ Requires=docker.service
 Type=oneshot
 WorkingDirectory=/opt/drm
 ExecStart=/opt/drm/scripts/backup.sh
+# Second line of defense beyond backup.sh's own EXIT trap: a SIGKILL (e.g.
+# from an OOM kill under memory pressure, which this host has hit before)
+# bypasses shell traps entirely, so the script's own service-restoration
+# logic never gets to run. systemd's ExecStopPost runs regardless of how
+# the main process exited (including being killed), so this attempts the
+# same restart independently. Adjust the docker path if `which docker`
+# differs on the deployment host.
+ExecStopPost=/usr/bin/docker compose up -d --no-deps api worker keycloak
