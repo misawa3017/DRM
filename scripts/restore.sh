@@ -13,6 +13,20 @@ source .env
 
 : "${DRM_BASE_DOMAIN:?set DRM_BASE_DOMAIN in .env}"
 
+# api.${DRM_BASE_DOMAIN} is served over HTTPS with an mkcert-issued dev
+# cert (see traefik/dynamic.yml); point curl at the specific mkcert CA
+# rather than disabling verification outright, falling back to -k with a
+# warning only if the CA can't be located on this host. Same pattern as
+# scripts/smoke-test.sh / scripts/backup.sh.
+MKCERT_CAROOT="${MKCERT_CAROOT:-$(command -v mkcert >/dev/null 2>&1 && mkcert -CAROOT 2>/dev/null || true)}"
+MKCERT_CAROOT="${MKCERT_CAROOT:-$HOME/.local/share/mkcert}"
+if [ -f "$MKCERT_CAROOT/rootCA.pem" ]; then
+  CURL_TLS_ARGS=(--cacert "$MKCERT_CAROOT/rootCA.pem")
+else
+  echo "WARNING: mkcert root CA not found at $MKCERT_CAROOT/rootCA.pem -- falling back to curl -k (no TLS verification) for the post-restore health check" >&2
+  CURL_TLS_ARGS=(-k)
+fi
+
 ENCRYPTED_FILE="${1:?usage: scripts/restore.sh <path-to-drm-backup-*.tar.gpg>}"
 PASSPHRASE_FILE="secrets/backup-passphrase"
 RESTORE_ROOT=$(mktemp -d)
@@ -111,7 +125,7 @@ echo "Waiting for api to respond healthy..."
 # high-stakes operation, so it's fine to wait comfortably past clamav's
 # documented worst case rather than optimize for a fast failure here.
 for i in $(seq 1 500); do
-  if curl -sf "http://api.${DRM_BASE_DOMAIN}/health" >/dev/null 2>&1; then
+  if curl -sf "${CURL_TLS_ARGS[@]}" "https://api.${DRM_BASE_DOMAIN}/health" >/dev/null 2>&1; then
     break
   fi
   if [ "$i" = 500 ]; then

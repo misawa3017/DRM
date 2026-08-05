@@ -19,12 +19,27 @@ services:
       - --api.insecure=true
       - --providers.docker=true
       - --providers.docker.exposedbydefault=false
+      # File provider: supplies the TLS certificate store (traefik/dynamic.yml)
+      # for the mkcert-issued cert -- the Docker label provider above can't
+      # declare manually-supplied static certificates on its own.
+      - --providers.file.directory=/etc/traefik/dynamic
+      - --providers.file.watch=true
       - --entrypoints.web.address=:80
+      - --entrypoints.websecure.address=:443
+      # Global HTTP->HTTPS redirect: anything hitting the web (:80)
+      # entrypoint is redirected to the websecure (:443) entrypoint before
+      # it ever reaches a router, so every host (app/api/auth/storage) gets
+      # the same behavior without per-router redirect middleware.
+      - --entrypoints.web.http.redirections.entrypoint.to=websecure
+      - --entrypoints.web.http.redirections.entrypoint.scheme=https
     ports:
       - "80:80"
+      - "443:443"
       - "127.0.0.1:8080:8080"
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock:ro
+      - ./traefik/dynamic.yml:/etc/traefik/dynamic/dynamic.yml:ro
+      - ./traefik/certs:/certs:ro
 
   postgres:
     image: postgres:16-alpine
@@ -64,6 +79,17 @@ services:
   keycloak:
     image: quay.io/keycloak/keycloak:25.0
     restart: unless-stopped
+    # H2 (Keycloak's embedded dev-mode DB) can corrupt its data files if the
+    # JVM is killed mid-write rather than shut down cleanly. Docker's default
+    # stop timeout (10s) is not always enough for Keycloak's JVM to finish
+    # an in-flight H2 write before SIGKILL lands -- this happened for real
+    # during this project's history (see scripts/backup.sh's own `docker
+    # compose stop -t 30 ...` for the narrower, single-call-site version of
+    # this same fix). stop_grace_period is the service-level, always-applies
+    # version: it protects against ANY stop/recreate of this container
+    # (`docker compose stop`, `up -d` recreation, systemd, etc.), not just
+    # the specific invocations backup.sh happens to control.
+    stop_grace_period: 30s
     command: start-dev --import-realm
     entrypoint: ["/entrypoint.sh"]
     environment:
@@ -72,6 +98,19 @@ services:
       KC_HOSTNAME: auth.${DRM_BASE_DOMAIN}
       KC_HOSTNAME_STRICT: "false"
       KC_HTTP_ENABLED: "true"
+      # Traefik terminates TLS at the edge and proxies to Keycloak over
+      # plain HTTP internally (see traefik.http.services.keycloak.loadbalancer
+      # .server.port=8080 below) -- Keycloak has no way to know the original
+      # external request was HTTPS unless it's told to trust the
+      # X-Forwarded-Proto/X-Forwarded-Host headers Traefik sets. Without
+      # this, Keycloak builds its issuer/external URLs (e.g. the `iss` claim
+      # on issued tokens) as http://, which then fails apps/api's issuer
+      # check against KEYCLOAK_ISSUER (https://...) below. Verified against
+      # Keycloak 25's own config reference: `proxy-headers` / KC_PROXY_HEADERS
+      # (values: forwarded, xforwarded) "takes precedence over the
+      # deprecated proxy option" -- xforwarded matches Traefik's
+      # X-Forwarded-* headers specifically.
+      KC_PROXY_HEADERS: xforwarded
       # Consumed by keycloak/entrypoint.sh to render realm-export.json.template
       # (__APP_HOST__ placeholder) before handing off to kc.sh -- see that
       # script for why this can't just be compose-interpolated directly like
@@ -85,6 +124,8 @@ services:
     labels:
       - traefik.enable=true
       - traefik.http.routers.keycloak.rule=Host(`auth.${DRM_BASE_DOMAIN}`)
+      - traefik.http.routers.keycloak.entrypoints=websecure
+      - traefik.http.routers.keycloak.tls=true
       - traefik.http.services.keycloak.loadbalancer.server.port=8080
 
   api:
@@ -94,10 +135,10 @@ services:
     restart: unless-stopped
     environment:
       DATABASE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
-      KEYCLOAK_ISSUER: http://auth.${DRM_BASE_DOMAIN}/realms/drm
+      KEYCLOAK_ISSUER: https://auth.${DRM_BASE_DOMAIN}/realms/drm
       KEYCLOAK_JWKS_URI: http://keycloak:8080/realms/drm/protocol/openid-connect/certs
       KEYCLOAK_CLIENT_ID: drm-web
-      WEB_ORIGIN: http://app.${DRM_BASE_DOMAIN}
+      WEB_ORIGIN: https://app.${DRM_BASE_DOMAIN}
       PORT: 3000
       # Phase 2B document storage: not consumed by application code yet
       # (that's Phase 2B's job), just provisioned and wired through here so
@@ -135,6 +176,8 @@ services:
     labels:
       - traefik.enable=true
       - traefik.http.routers.api.rule=Host(`api.${DRM_BASE_DOMAIN}`)
+      - traefik.http.routers.api.entrypoints=websecure
+      - traefik.http.routers.api.tls=true
       - traefik.http.services.api.loadbalancer.server.port=3000
 
   worker:
@@ -240,13 +283,15 @@ services:
       context: .
       dockerfile: apps/web/Dockerfile
       args:
-        VITE_KEYCLOAK_ISSUER: http://auth.${DRM_BASE_DOMAIN}/realms/drm
+        VITE_KEYCLOAK_ISSUER: https://auth.${DRM_BASE_DOMAIN}/realms/drm
         VITE_KEYCLOAK_CLIENT_ID: drm-web
-        VITE_API_BASE_URL: http://api.${DRM_BASE_DOMAIN}
+        VITE_API_BASE_URL: https://api.${DRM_BASE_DOMAIN}
     restart: unless-stopped
     labels:
       - traefik.enable=true
       - traefik.http.routers.web.rule=Host(`app.${DRM_BASE_DOMAIN}`)
+      - traefik.http.routers.web.entrypoints=websecure
+      - traefik.http.routers.web.tls=true
       - traefik.http.services.web.loadbalancer.server.port=80
 
   openbao:
@@ -361,6 +406,8 @@ services:
     labels:
       - traefik.enable=true
       - traefik.http.routers.minio-console.rule=Host(`storage.${DRM_BASE_DOMAIN}`)
+      - traefik.http.routers.minio-console.entrypoints=websecure
+      - traefik.http.routers.minio-console.tls=true
       - traefik.http.services.minio-console.loadbalancer.server.port=9001
     healthcheck:
       test: ["CMD", "curl", "-f", "http://127.0.0.1:9000/minio/health/live"]

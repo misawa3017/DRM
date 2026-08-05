@@ -16,8 +16,8 @@
       "publicClient": true,
       "enabled": true,
       "protocol": "openid-connect",
-      "redirectUris": ["http://__APP_HOST__/*"],
-      "webOrigins": ["http://__APP_HOST__"],
+      "redirectUris": ["https://__APP_HOST__/*"],
+      "webOrigins": ["https://__APP_HOST__"],
       "standardFlowEnabled": true,
       "directAccessGrantsEnabled": true,
       "attributes": { "post.logout.redirect.uris": "+" }

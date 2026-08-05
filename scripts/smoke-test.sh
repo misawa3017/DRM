@@ -6,10 +6,28 @@ source .env
 
 : "${DRM_BASE_DOMAIN:?set DRM_BASE_DOMAIN in .env}"
 
+# app/api/auth/storage are served over HTTPS with an mkcert-issued dev cert
+# for the private-LAN *.drm.apower.lan domain. mkcert's root CA lives in a
+# per-user directory (only trusted automatically by an OS/browser that has
+# run `mkcert -install`), not the system CA bundle curl uses by default.
+# Rather than blanket-disabling verification (-k, which would accept ANY
+# certificate), point curl at the specific mkcert CA so these checks still
+# get genuine chain validation. Falls back to -k with a warning only if the
+# CA can't be located, so the smoke test still runs (just with weaker
+# guarantees) rather than hard-failing on a missing local dev CA.
+MKCERT_CAROOT="${MKCERT_CAROOT:-$(command -v mkcert >/dev/null 2>&1 && mkcert -CAROOT 2>/dev/null || true)}"
+MKCERT_CAROOT="${MKCERT_CAROOT:-$HOME/.local/share/mkcert}"
+if [ -f "$MKCERT_CAROOT/rootCA.pem" ]; then
+  CURL_TLS_ARGS=(--cacert "$MKCERT_CAROOT/rootCA.pem")
+else
+  echo "WARNING: mkcert root CA not found at $MKCERT_CAROOT/rootCA.pem -- falling back to curl -k (no TLS verification) for this smoke test" >&2
+  CURL_TLS_ARGS=(-k)
+fi
+
 check() {
   local url=$1
   local code
-  code=$(curl -s -o /dev/null -w '%{http_code}' "$url")
+  code=$(curl -s "${CURL_TLS_ARGS[@]}" -o /dev/null -w '%{http_code}' "$url")
   if [ "$code" != "200" ]; then
     echo "FAIL: $url returned $code"
     exit 1
@@ -42,14 +60,14 @@ check_container_state() {
   echo "OK: $service $field is $expected"
 }
 
-check "http://api.${DRM_BASE_DOMAIN}/health"
-check "http://auth.${DRM_BASE_DOMAIN}/realms/drm/.well-known/openid-configuration"
-check "http://app.${DRM_BASE_DOMAIN}/"
+check "https://api.${DRM_BASE_DOMAIN}/health"
+check "https://auth.${DRM_BASE_DOMAIN}/realms/drm/.well-known/openid-configuration"
+check "https://app.${DRM_BASE_DOMAIN}/"
 
 # MinIO console, routed through Traefik. Verified live: this returns a bare
 # 200 with the console's HTML shell even pre-login (no redirect), so the
 # existing check() function's plain 200 check applies unmodified.
-check "http://storage.${DRM_BASE_DOMAIN}/"
+check "https://storage.${DRM_BASE_DOMAIN}/"
 
 # MinIO's own health-live endpoint, hit directly on the loopback-only port
 # (127.0.0.1:9000, added to docker-compose.yml's minio service) so this

@@ -1,7 +1,7 @@
 import axios from 'axios';
 
-const KEYCLOAK_TOKEN_URL = 'http://auth.drm.apower.lan/realms/drm/protocol/openid-connect/token';
-const API_BASE_URL = 'http://api.drm.apower.lan';
+const KEYCLOAK_TOKEN_URL = 'https://auth.drm.apower.lan/realms/drm/protocol/openid-connect/token';
+const API_BASE_URL = 'https://api.drm.apower.lan';
 
 interface TokenResponse {
   access_token: string;

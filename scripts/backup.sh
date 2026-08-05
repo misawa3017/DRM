@@ -30,6 +30,22 @@ source scripts/lib/backup-notify.sh
 : "${BACKUP_LOCAL_RETENTION_DAYS:?set BACKUP_LOCAL_RETENTION_DAYS in .env}"
 : "${DRM_BASE_DOMAIN:?set DRM_BASE_DOMAIN in .env}"
 
+# api.${DRM_BASE_DOMAIN} is served over HTTPS with an mkcert-issued dev
+# cert (see traefik/dynamic.yml); point curl at the specific mkcert CA
+# rather than disabling verification outright, falling back to -k with a
+# warning only if the CA can't be located on this host. Same pattern as
+# scripts/smoke-test.sh.
+MKCERT_CAROOT="${MKCERT_CAROOT:-$(command -v mkcert >/dev/null 2>&1 && mkcert -CAROOT 2>/dev/null || true)}"
+MKCERT_CAROOT="${MKCERT_CAROOT:-$HOME/.local/share/mkcert}"
+if [ -f "$MKCERT_CAROOT/rootCA.pem" ]; then
+  CURL_TLS_ARGS=(--cacert "$MKCERT_CAROOT/rootCA.pem")
+else
+  # log() isn't defined until later in this file; this guard runs before
+  # any staging/logging setup, so a plain stderr echo is used here instead.
+  echo "WARNING: mkcert root CA not found at $MKCERT_CAROOT/rootCA.pem -- falling back to curl -k (no TLS verification) for the post-restart health check" >&2
+  CURL_TLS_ARGS=(-k)
+fi
+
 # Both retention values feed `find -mtime "+$((N - 1))"` below. A
 # non-positive-integer value (most notably 0) turns that into `-mtime +-1`,
 # which `find` rejects with a syntax error deep inside the prune step --
@@ -250,7 +266,7 @@ restore_stack
 log "waiting for api to respond healthy (best-effort, does not abort the backup)..."
 API_HEALTHY=0
 for i in $(seq 1 30); do
-  if curl -sf "http://api.${DRM_BASE_DOMAIN}/health" >/dev/null 2>&1; then
+  if curl -sf "${CURL_TLS_ARGS[@]}" "https://api.${DRM_BASE_DOMAIN}/health" >/dev/null 2>&1; then
     API_HEALTHY=1
     break
   fi

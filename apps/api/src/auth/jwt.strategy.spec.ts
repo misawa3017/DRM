@@ -7,7 +7,7 @@ describe('JwtStrategy#validate', () => {
   beforeEach(() => {
     process.env = {
       ...ORIGINAL_ENV,
-      KEYCLOAK_ISSUER: 'http://auth.drm.apower.lan/realms/drm',
+      KEYCLOAK_ISSUER: 'https://auth.drm.apower.lan/realms/drm',
       KEYCLOAK_JWKS_URI: 'http://keycloak:8080/realms/drm/protocol/openid-connect/certs',
       KEYCLOAK_CLIENT_ID: 'drm-web',
     };

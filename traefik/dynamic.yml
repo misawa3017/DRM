@@ -1,0 +1,21 @@
+# Traefik file-provider dynamic configuration.
+#
+# The Docker label provider (see docker-compose.yml's traefik service +
+# each router's labels) can declare routers/services/middlewares, but it
+# cannot declare TLS certificate stores from manually-supplied cert/key
+# files -- that's only expressible via the file provider. This file is
+# mounted read-only into the traefik container (see docker-compose.yml)
+# and watched for changes (--providers.file.watch=true).
+#
+# certFile/keyFile below are IN-CONTAINER paths -- traefik/certs on the
+# host is bind-mounted to /certs:ro in the traefik service. The cert is
+# an mkcert-issued, locally-trusted (once the mkcert root CA is imported
+# into your OS/browser trust store) leaf certificate covering all 4
+# *.drm.apower.lan hostnames. traefik/certs/ is gitignored (machine-
+# specific, regenerate with: mkcert -cert-file traefik/certs/drm-apower-lan.pem
+# -key-file traefik/certs/drm-apower-lan-key.pem app.drm.apower.lan
+# api.drm.apower.lan auth.drm.apower.lan storage.drm.apower.lan).
+tls:
+  certificates:
+    - certFile: /certs/drm-apower-lan.pem
+      keyFile: /certs/drm-apower-lan-key.pem
