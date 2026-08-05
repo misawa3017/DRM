@@ -65,18 +65,26 @@ services:
     image: quay.io/keycloak/keycloak:25.0
     restart: unless-stopped
     command: start-dev --import-realm
+    entrypoint: ["/entrypoint.sh"]
     environment:
       KEYCLOAK_ADMIN: admin
       KEYCLOAK_ADMIN_PASSWORD: ${KEYCLOAK_ADMIN_PASSWORD}
-      KC_HOSTNAME: auth.drm.localhost
+      KC_HOSTNAME: auth.${DRM_BASE_DOMAIN}
       KC_HOSTNAME_STRICT: "false"
       KC_HTTP_ENABLED: "true"
+      # Consumed by keycloak/entrypoint.sh to render realm-export.json.template
+      # (__APP_HOST__ placeholder) before handing off to kc.sh -- see that
+      # script for why this can't just be compose-interpolated directly like
+      # KC_HOSTNAME above (this file is mounted into the container, not part
+      # of this YAML).
+      DRM_APP_HOST: app.${DRM_BASE_DOMAIN}
     volumes:
       - keycloak_data:/opt/keycloak/data
-      - ./keycloak/realm-export.json:/opt/keycloak/data/import/realm-export.json:ro
+      - ./keycloak/entrypoint.sh:/entrypoint.sh:ro
+      - ./keycloak/realm-export.json.template:/template/realm-export.json.template:ro
     labels:
       - traefik.enable=true
-      - traefik.http.routers.keycloak.rule=Host(`auth.drm.localhost`)
+      - traefik.http.routers.keycloak.rule=Host(`auth.${DRM_BASE_DOMAIN}`)
       - traefik.http.services.keycloak.loadbalancer.server.port=8080
 
   api:
@@ -86,10 +94,10 @@ services:
     restart: unless-stopped
     environment:
       DATABASE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
-      KEYCLOAK_ISSUER: http://auth.drm.localhost/realms/drm
+      KEYCLOAK_ISSUER: http://auth.${DRM_BASE_DOMAIN}/realms/drm
       KEYCLOAK_JWKS_URI: http://keycloak:8080/realms/drm/protocol/openid-connect/certs
       KEYCLOAK_CLIENT_ID: drm-web
-      WEB_ORIGIN: http://app.drm.localhost
+      WEB_ORIGIN: http://app.${DRM_BASE_DOMAIN}
       PORT: 3000
       # Phase 2B document storage: not consumed by application code yet
       # (that's Phase 2B's job), just provisioned and wired through here so
@@ -126,7 +134,7 @@ services:
         condition: service_healthy
     labels:
       - traefik.enable=true
-      - traefik.http.routers.api.rule=Host(`api.drm.localhost`)
+      - traefik.http.routers.api.rule=Host(`api.${DRM_BASE_DOMAIN}`)
       - traefik.http.services.api.loadbalancer.server.port=3000
 
   worker:
@@ -232,13 +240,13 @@ services:
       context: .
       dockerfile: apps/web/Dockerfile
       args:
-        VITE_KEYCLOAK_ISSUER: http://auth.drm.localhost/realms/drm
+        VITE_KEYCLOAK_ISSUER: http://auth.${DRM_BASE_DOMAIN}/realms/drm
         VITE_KEYCLOAK_CLIENT_ID: drm-web
-        VITE_API_BASE_URL: http://api.drm.localhost
+        VITE_API_BASE_URL: http://api.${DRM_BASE_DOMAIN}
     restart: unless-stopped
     labels:
       - traefik.enable=true
-      - traefik.http.routers.web.rule=Host(`app.drm.localhost`)
+      - traefik.http.routers.web.rule=Host(`app.${DRM_BASE_DOMAIN}`)
       - traefik.http.services.web.loadbalancer.server.port=80
 
   openbao:
@@ -343,7 +351,7 @@ services:
       MINIO_KMS_KES_CAPATH: /certs/kes-server.cert
       MINIO_KMS_KES_KEY_NAME: drm-default-key
     ports:
-      - "127.0.0.1:9000:9000"  # loopback-only: direct S3 API access for smoke-test/mc, matching Postgres/Traefik-dashboard convention. Console (9001) stays reachable only via Traefik at storage.drm.localhost.
+      - "127.0.0.1:9000:9000"  # loopback-only: direct S3 API access for smoke-test/mc, matching Postgres/Traefik-dashboard convention. Console (9001) stays reachable only via Traefik at storage.${DRM_BASE_DOMAIN}.
     volumes:
       - minio_data:/data
       - ./secrets/kes:/certs:ro
@@ -352,7 +360,7 @@ services:
         condition: service_healthy
     labels:
       - traefik.enable=true
-      - traefik.http.routers.minio-console.rule=Host(`storage.drm.localhost`)
+      - traefik.http.routers.minio-console.rule=Host(`storage.${DRM_BASE_DOMAIN}`)
       - traefik.http.services.minio-console.loadbalancer.server.port=9001
     healthcheck:
       test: ["CMD", "curl", "-f", "http://127.0.0.1:9000/minio/health/live"]

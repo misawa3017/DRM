@@ -16,8 +16,8 @@
       "publicClient": true,
       "enabled": true,
       "protocol": "openid-connect",
-      "redirectUris": ["http://app.drm.localhost/*"],
-      "webOrigins": ["http://app.drm.localhost"],
+      "redirectUris": ["http://__APP_HOST__/*"],
+      "webOrigins": ["http://__APP_HOST__"],
       "standardFlowEnabled": true,
       "directAccessGrantsEnabled": true,
       "attributes": { "post.logout.redirect.uris": "+" }
