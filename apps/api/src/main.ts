@@ -10,7 +10,7 @@ async function bootstrap() {
   // SIGTERM -- matching the same fix already applied in
   // apps/worker/src/main.ts (Phase 4A) for the identical reason.
   app.enableShutdownHooks();
-  app.enableCors({ origin: process.env.WEB_ORIGIN ?? 'http://app.drm.localhost' });
+  app.enableCors({ origin: process.env.WEB_ORIGIN ?? 'http://app.drm.apower.lan' });
   app.useGlobalPipes(
     new ValidationPipe({ whitelist: true, transform: true, forbidNonWhitelisted: true }),
   );

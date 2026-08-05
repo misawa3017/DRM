@@ -20,8 +20,8 @@ import FormData from 'form-data';
 import { PrismaClient } from '@prisma/client';
 import { StorageService } from '../src/storage/storage.service';
 
-const KEYCLOAK_TOKEN_URL = 'http://auth.drm.localhost/realms/drm/protocol/openid-connect/token';
-const API_BASE_URL = 'http://api.drm.localhost';
+const KEYCLOAK_TOKEN_URL = 'http://auth.drm.apower.lan/realms/drm/protocol/openid-connect/token';
+const API_BASE_URL = 'http://api.drm.apower.lan';
 
 interface TokenResponse {
   access_token: string;

@@ -28,6 +28,7 @@ source scripts/lib/backup-notify.sh
 : "${BACKUP_SSH_KEY_PATH:?set BACKUP_SSH_KEY_PATH in .env}"
 : "${BACKUP_RETENTION_DAYS:?set BACKUP_RETENTION_DAYS in .env}"
 : "${BACKUP_LOCAL_RETENTION_DAYS:?set BACKUP_LOCAL_RETENTION_DAYS in .env}"
+: "${DRM_BASE_DOMAIN:?set DRM_BASE_DOMAIN in .env}"
 
 # Both retention values feed `find -mtime "+$((N - 1))"` below. A
 # non-positive-integer value (most notably 0) turns that into `-mtime +-1`,
@@ -249,7 +250,7 @@ restore_stack
 log "waiting for api to respond healthy (best-effort, does not abort the backup)..."
 API_HEALTHY=0
 for i in $(seq 1 30); do
-  if curl -sf http://api.drm.localhost/health >/dev/null 2>&1; then
+  if curl -sf "http://api.${DRM_BASE_DOMAIN}/health" >/dev/null 2>&1; then
     API_HEALTHY=1
     break
   fi

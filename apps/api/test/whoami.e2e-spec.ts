@@ -2,11 +2,11 @@ import axios from 'axios';
 import { PrismaClient } from '@prisma/client';
 import * as crypto from 'crypto';
 
-const KEYCLOAK_TOKEN_URL = 'http://auth.drm.localhost/realms/drm/protocol/openid-connect/token';
+const KEYCLOAK_TOKEN_URL = 'http://auth.drm.apower.lan/realms/drm/protocol/openid-connect/token';
 const KEYCLOAK_MASTER_TOKEN_URL =
-  'http://auth.drm.localhost/realms/master/protocol/openid-connect/token';
-const KEYCLOAK_REALM_ADMIN_URL = 'http://auth.drm.localhost/admin/realms/drm';
-const API_BASE_URL = 'http://api.drm.localhost';
+  'http://auth.drm.apower.lan/realms/master/protocol/openid-connect/token';
+const KEYCLOAK_REALM_ADMIN_URL = 'http://auth.drm.apower.lan/admin/realms/drm';
+const API_BASE_URL = 'http://api.drm.apower.lan';
 
 // Bounds how long any single admin/token HTTP call may hang. This matters
 // most for withAccessTokenLifespan below: it mutates shared, live Keycloak

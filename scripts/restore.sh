@@ -11,6 +11,8 @@ set -euo pipefail
 cd "$(dirname "${BASH_SOURCE[0]}")/.."
 source .env
 
+: "${DRM_BASE_DOMAIN:?set DRM_BASE_DOMAIN in .env}"
+
 ENCRYPTED_FILE="${1:?usage: scripts/restore.sh <path-to-drm-backup-*.tar.gpg>}"
 PASSPHRASE_FILE="secrets/backup-passphrase"
 RESTORE_ROOT=$(mktemp -d)
@@ -109,7 +111,7 @@ echo "Waiting for api to respond healthy..."
 # high-stakes operation, so it's fine to wait comfortably past clamav's
 # documented worst case rather than optimize for a fast failure here.
 for i in $(seq 1 500); do
-  if curl -sf http://api.drm.localhost/health >/dev/null 2>&1; then
+  if curl -sf "http://api.${DRM_BASE_DOMAIN}/health" >/dev/null 2>&1; then
     break
   fi
   if [ "$i" = 500 ]; then

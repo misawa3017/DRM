@@ -1,6 +1,11 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+cd "$(dirname "${BASH_SOURCE[0]}")/.."
+source .env
+
+: "${DRM_BASE_DOMAIN:?set DRM_BASE_DOMAIN in .env}"
+
 check() {
   local url=$1
   local code
@@ -37,14 +42,14 @@ check_container_state() {
   echo "OK: $service $field is $expected"
 }
 
-check "http://api.drm.localhost/health"
-check "http://auth.drm.localhost/realms/drm/.well-known/openid-configuration"
-check "http://app.drm.localhost/"
+check "http://api.${DRM_BASE_DOMAIN}/health"
+check "http://auth.${DRM_BASE_DOMAIN}/realms/drm/.well-known/openid-configuration"
+check "http://app.${DRM_BASE_DOMAIN}/"
 
 # MinIO console, routed through Traefik. Verified live: this returns a bare
 # 200 with the console's HTML shell even pre-login (no redirect), so the
 # existing check() function's plain 200 check applies unmodified.
-check "http://storage.drm.localhost/"
+check "http://storage.${DRM_BASE_DOMAIN}/"
 
 # MinIO's own health-live endpoint, hit directly on the loopback-only port
 # (127.0.0.1:9000, added to docker-compose.yml's minio service) so this
