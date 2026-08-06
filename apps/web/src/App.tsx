@@ -4,6 +4,7 @@ import { Home } from './Home';
 import { MaintenanceNotice } from './MaintenanceNotice';
 import { RootFolders } from './routes/RootFolders';
 import { FolderView } from './routes/FolderView';
+import { DocumentView } from './routes/DocumentView';
 
 export default function App() {
   const auth = useAuth();
@@ -43,6 +44,7 @@ export default function App() {
         <Routes>
           <Route path="/" element={<RootFolders />} />
           <Route path="/folders/:id" element={<FolderView />} />
+          <Route path="/documents/:id" element={<DocumentView />} />
         </Routes>
       </div>
     </BrowserRouter>
