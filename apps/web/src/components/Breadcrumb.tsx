@@ -41,16 +41,25 @@ export function Breadcrumb({ currentId, currentName, parentId }: BreadcrumbProps
   const ancestors = useAncestors(parentId, accessToken);
 
   return (
-    <nav aria-label="breadcrumb">
-      <Link to="/">Root</Link>
+    <nav aria-label="breadcrumb" className="flex items-center gap-1 text-primary-foreground/80">
+      <Link to="/" className="hover:text-primary-foreground hover:underline">
+        Root
+      </Link>
       {ancestors.data?.map((crumb) => (
-        <span key={crumb.id}>
-          {' / '}
-          <Link to={`/folders/${crumb.id}`}>{crumb.name}</Link>
+        <span key={crumb.id} className="flex items-center gap-1">
+          <span className="opacity-60">/</span>
+          <Link
+            to={`/folders/${crumb.id}`}
+            className="hover:text-primary-foreground hover:underline"
+          >
+            {crumb.name}
+          </Link>
         </span>
       ))}
-      {' / '}
-      <span key={currentId}>{currentName}</span>
+      <span className="opacity-60">/</span>
+      <span key={currentId} className="font-medium text-primary-foreground">
+        {currentName}
+      </span>
     </nav>
   );
 }

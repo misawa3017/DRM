@@ -14,6 +14,7 @@ import { friendlyErrorMessage } from '../api/client';
 import { Breadcrumb } from '../components/Breadcrumb';
 import { CreateFolderDialog } from '../components/CreateFolderDialog';
 import { UploadDialog } from '../components/UploadDialog';
+import { useSetNavbarCrumb } from '../lib/navbarBreadcrumb';
 
 export function FolderView() {
   const { id } = useParams<{ id: string }>();
@@ -27,14 +28,19 @@ export function FolderView() {
     enabled: !!folderId,
   });
 
+  const folder = query.data;
+  useSetNavbarCrumb(
+    folder ? (
+      <Breadcrumb currentId={folder.id} currentName={folder.name} parentId={folder.parentId} />
+    ) : null,
+  );
+
   if (query.isLoading) return <p data-testid="loading">Loading...</p>;
   if (query.isError) return <p data-testid="error">{friendlyErrorMessage(query.error)}</p>;
-
-  const folder = query.data!;
+  if (!folder) return null;
 
   return (
     <div>
-      <Breadcrumb currentId={folder.id} currentName={folder.name} parentId={folder.parentId} />
       <h1>{folder.name}</h1>
       <CreateFolderDialog parentId={folder.id} />
       <UploadDialog mode="new-document" folderId={folder.id} />
