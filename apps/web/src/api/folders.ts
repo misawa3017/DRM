@@ -27,7 +27,10 @@ export function getFolder(id: string, accessToken: string) {
   return apiFetch<FolderDetail>(`/folders/${id}`, accessToken);
 }
 
-export function createFolder(input: { name: string; parentId: string | null }, accessToken: string) {
+export function createFolder(
+  input: { name: string; parentId: string | null },
+  accessToken: string,
+) {
   return apiFetch<FolderSummary>('/folders', accessToken, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
