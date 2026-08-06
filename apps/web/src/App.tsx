@@ -3,6 +3,7 @@ import { BrowserRouter, Routes, Route } from 'react-router-dom';
 import { Home } from './Home';
 import { MaintenanceNotice } from './MaintenanceNotice';
 import { RootFolders } from './routes/RootFolders';
+import { FolderView } from './routes/FolderView';
 
 export default function App() {
   const auth = useAuth();
@@ -41,6 +42,7 @@ export default function App() {
         <Home accessToken={auth.user?.access_token ?? ''} />
         <Routes>
           <Route path="/" element={<RootFolders />} />
+          <Route path="/folders/:id" element={<FolderView />} />
         </Routes>
       </div>
     </BrowserRouter>
