@@ -1,0 +1,41 @@
+export class ApiError extends Error {
+  constructor(
+    public readonly status: number,
+    message: string,
+  ) {
+    super(message);
+    this.name = 'ApiError';
+  }
+}
+
+export async function apiFetch<T>(
+  path: string,
+  accessToken: string,
+  init: RequestInit = {},
+): Promise<T> {
+  const response = await fetch(`${import.meta.env.VITE_API_BASE_URL}${path}`, {
+    ...init,
+    headers: {
+      ...init.headers,
+      Authorization: `Bearer ${accessToken}`,
+    },
+  });
+
+  if (!response.ok) {
+    throw new ApiError(response.status, `Request to ${path} failed with status ${response.status}`);
+  }
+
+  const contentType = response.headers.get('content-type');
+  if (contentType && contentType.includes('application/json')) {
+    return response.json() as Promise<T>;
+  }
+  return undefined as T;
+}
+
+export function friendlyErrorMessage(error: unknown): string {
+  if (error instanceof ApiError) {
+    if (error.status === 403) return '你沒有存取這個項目的權限';
+    if (error.status === 404) return '找不到這個項目';
+  }
+  return '發生錯誤，請稍後再試';
+}
