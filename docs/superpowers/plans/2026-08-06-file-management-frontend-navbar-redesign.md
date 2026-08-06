@@ -862,6 +862,107 @@ docker compose -p drm up -d web
 
 ---
 
+### Task 6.1: 登入前畫面套用品牌風格（使用者驗收 Task 6 時追加的範疇）
+
+**Files:**
+- Modify: `apps/web/src/App.tsx`
+
+**Interfaces:**
+- 不新增/修改任何 exported 型別或函式簽章，純視覺調整；沿用既有 `Button`（`@/components/ui/button`，Task 2 起已是藍色品牌色）
+
+**背景：** Task 3 改造 `App.tsx` 時，只處理了已登入分支，未登入/載入中/錯誤三個分支維持原本裸 `<button>`/純文字，使用者在驗收 Task 6 時指出這幾個畫面看起來還是沒套上這次的品牌風格。這個 Task 補上。
+
+- [ ] **Step 1: 改寫 `App.tsx`，未登入三分支套用置中版面 + 品牌標記 + `Button`**
+
+Replace the full contents of `apps/web/src/App.tsx`:
+
+```tsx
+import type { ReactNode } from 'react';
+import { useAuth } from 'react-oidc-context';
+import { BrowserRouter, Routes, Route } from 'react-router-dom';
+import { Folder } from 'lucide-react';
+import { Button } from '@/components/ui/button';
+import { MaintenanceNotice } from './MaintenanceNotice';
+import { Navbar } from './components/Navbar';
+import { RootFolders } from './routes/RootFolders';
+import { FolderView } from './routes/FolderView';
+import { DocumentView } from './routes/DocumentView';
+
+function AuthScreen({ children }: { children: ReactNode }) {
+  return (
+    <>
+      <MaintenanceNotice />
+      <div className="flex min-h-[80vh] flex-col items-center justify-center gap-4 px-6 text-center">
+        <span className="flex h-12 w-12 items-center justify-center rounded-lg bg-primary text-primary-foreground">
+          <Folder className="h-6 w-6" />
+        </span>
+        <span className="text-lg font-semibold">DRM</span>
+        {children}
+      </div>
+    </>
+  );
+}
+
+export default function App() {
+  const auth = useAuth();
+
+  if (auth.isLoading) {
+    return (
+      <AuthScreen>
+        <p className="text-sm text-muted-foreground">Loading...</p>
+      </AuthScreen>
+    );
+  }
+  if (auth.error) {
+    return (
+      <AuthScreen>
+        <p className="text-sm text-destructive">Auth error: {auth.error.message}</p>
+      </AuthScreen>
+    );
+  }
+
+  if (!auth.isAuthenticated) {
+    return (
+      <AuthScreen>
+        <Button onClick={() => auth.signinRedirect()}>Log in</Button>
+      </AuthScreen>
+    );
+  }
+
+  return (
+    <BrowserRouter>
+      <MaintenanceNotice />
+      <Routes>
+        <Route element={<Navbar />}>
+          <Route path="/" element={<RootFolders />} />
+          <Route path="/folders/:id" element={<FolderView />} />
+          <Route path="/documents/:id" element={<DocumentView />} />
+        </Route>
+      </Routes>
+    </BrowserRouter>
+  );
+}
+```
+
+注意：`Button` 渲染的仍然是原生 `<button>`，accessible name 仍然是 `"Log in"`，`test/App.test.tsx` 既有斷言（`getByRole('button', { name: 'Log in' })`、`getByText(/03:00/)`、`getByText(/例行維護/)`）不受影響，不需要修改測試。
+
+- [ ] **Step 2: 執行 build 與既有測試，確認沒有回歸**
+
+Run: `pnpm --filter web build`
+Expected: 成功
+
+Run: `pnpm --filter web test -- App.test.tsx`
+Expected: PASS
+
+- [ ] **Step 3: Commit**
+
+```bash
+git add apps/web/src/App.tsx
+git commit -m "feat(web): apply brand styling to the pre-login/loading/error screens"
+```
+
+---
+
 ### Task 7: 補齊測試
 
 **Files:**
