@@ -3,6 +3,7 @@ import ReactDOM from 'react-dom/client';
 import { AuthProvider } from 'react-oidc-context';
 import App from './App';
 import { oidcConfig } from './auth/authConfig';
+import './index.css';
 
 ReactDOM.createRoot(document.getElementById('root')!).render(
   <React.StrictMode>
