@@ -1,7 +1,7 @@
 import { useAuth } from 'react-oidc-context';
 import { BrowserRouter, Routes, Route } from 'react-router-dom';
-import { Home } from './Home';
 import { MaintenanceNotice } from './MaintenanceNotice';
+import { Navbar } from './components/Navbar';
 import { RootFolders } from './routes/RootFolders';
 import { FolderView } from './routes/FolderView';
 import { DocumentView } from './routes/DocumentView';
@@ -38,15 +38,13 @@ export default function App() {
   return (
     <BrowserRouter>
       <MaintenanceNotice />
-      <div>
-        <button onClick={() => auth.signoutRedirect()}>Log out</button>
-        <Home accessToken={auth.user?.access_token ?? ''} />
-        <Routes>
+      <Routes>
+        <Route element={<Navbar />}>
           <Route path="/" element={<RootFolders />} />
           <Route path="/folders/:id" element={<FolderView />} />
           <Route path="/documents/:id" element={<DocumentView />} />
-        </Routes>
-      </div>
+        </Route>
+      </Routes>
     </BrowserRouter>
   );
 }
