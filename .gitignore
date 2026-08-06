@@ -10,3 +10,4 @@ secrets/
 # mkcert-generated local dev TLS cert/key -- machine-specific, regenerate via
 # mkcert (see tls-setup-report.md / README for instructions) rather than commit.
 traefik/certs/
+.superpowers/
