@@ -1,21 +1,36 @@
+import { useMemo, type ReactNode } from 'react';
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { MemoryRouter, Routes, Route } from 'react-router-dom';
 import { useAuth } from 'react-oidc-context';
 import { Navbar } from '../../src/components/Navbar';
+import { useSetNavbarCrumb } from '../../src/lib/navbarBreadcrumb';
 
 vi.mock('react-oidc-context', () => ({ useAuth: vi.fn() }));
 
-function renderNavbar() {
+function renderNavbar(child: ReactNode = <div>page content</div>) {
   return render(
     <MemoryRouter initialEntries={['/']}>
       <Routes>
         <Route element={<Navbar />}>
-          <Route path="/" element={<div>page content</div>} />
+          <Route path="/" element={child} />
         </Route>
       </Routes>
     </MemoryRouter>,
   );
+}
+
+/**
+ * Mirrors how FolderView really consumes the hook: the crumb element is memoized, so its
+ * identity is stable across renders. Handing the hook a freshly constructed element on every
+ * render instead re-fires its effect forever — the unbounded re-render loop this guards against.
+ */
+function CrumbSettingChild({ onRender }: { onRender?: () => void }) {
+  onRender?.();
+  const crumb = useMemo(() => <span>Test Crumb</span>, []);
+  useSetNavbarCrumb(crumb);
+
+  return <div>child content</div>;
 }
 
 describe('Navbar', () => {
@@ -51,6 +66,26 @@ describe('Navbar', () => {
       expect(screen.getByTestId('navbar-username')).toHaveTextContent('Test Admin'),
     );
     expect(screen.getByTestId('navbar-roles')).toHaveTextContent('admin');
+  });
+
+  it('renders a crumb set by a child route inside the navbar-crumb slot', async () => {
+    renderNavbar(<CrumbSettingChild />);
+
+    expect(screen.getByText('child content')).toBeInTheDocument();
+    await waitFor(() => expect(screen.getByTestId('navbar-crumb')).toHaveTextContent('Test Crumb'));
+  });
+
+  it('settles instead of re-rendering the crumb-setting route in a loop', async () => {
+    const onRender = vi.fn();
+    renderNavbar(<CrumbSettingChild onRender={onRender} />);
+
+    await waitFor(() => expect(screen.getByTestId('navbar-crumb')).toHaveTextContent('Test Crumb'));
+
+    const rendersAfterSettle = onRender.mock.calls.length;
+    await new Promise((resolve) => setTimeout(resolve, 50));
+
+    expect(onRender.mock.calls.length).toBe(rendersAfterSettle);
+    expect(rendersAfterSettle).toBeLessThanOrEqual(10);
   });
 
   it('calls signoutRedirect when the logout button is clicked', async () => {

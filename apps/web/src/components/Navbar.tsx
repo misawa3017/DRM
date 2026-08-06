@@ -1,4 +1,4 @@
-import { useEffect, useState, type ReactNode } from 'react';
+import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import { Link, Outlet } from 'react-router-dom';
 import { useAuth } from 'react-oidc-context';
 import { Folder } from 'lucide-react';
@@ -30,8 +30,10 @@ export function Navbar() {
       .catch(() => setWhoami(null));
   }, [accessToken]);
 
+  const contextValue = useMemo(() => ({ crumb, setCrumb }), [crumb, setCrumb]);
+
   return (
-    <NavbarBreadcrumbContext.Provider value={{ crumb, setCrumb }}>
+    <NavbarBreadcrumbContext.Provider value={contextValue}>
       <header className="flex items-center justify-between gap-4 bg-primary px-6 py-3 text-primary-foreground">
         <Link
           to="/"

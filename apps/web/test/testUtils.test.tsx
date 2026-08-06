@@ -8,7 +8,9 @@ function Probe() {
   const query = useQuery({ queryKey: ['probe'], queryFn: async () => 'ok' });
   return (
     <div>
-      <Link to="/somewhere" data-testid="link">go</Link>
+      <Link to="/somewhere" data-testid="link">
+        go
+      </Link>
       <span data-testid="query-status">{query.status}</span>
     </div>
   );

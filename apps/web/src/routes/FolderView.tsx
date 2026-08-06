@@ -1,3 +1,4 @@
+import { useMemo } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import { useAuth } from 'react-oidc-context';
@@ -30,11 +31,14 @@ export function FolderView() {
   });
 
   const folder = query.data;
-  useSetNavbarCrumb(
-    folder ? (
-      <Breadcrumb currentId={folder.id} currentName={folder.name} parentId={folder.parentId} />
-    ) : null,
+  const crumb = useMemo(
+    () =>
+      folder ? (
+        <Breadcrumb currentId={folder.id} currentName={folder.name} parentId={folder.parentId} />
+      ) : null,
+    [folder],
   );
+  useSetNavbarCrumb(crumb);
 
   if (query.isLoading) return <p data-testid="loading">Loading...</p>;
   if (query.isError) return <p data-testid="error">{friendlyErrorMessage(query.error)}</p>;

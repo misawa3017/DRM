@@ -47,27 +47,35 @@
 
 ## 元件結構
 
-### 新增：`components/Navbar.tsx` + `components/NavbarBreadcrumbContext.tsx`
+### 新增：`components/Navbar.tsx` + `lib/navbarBreadcrumb.tsx`
 
 `Navbar` 必須整個登入 session 只掛載一次（避免路由切換時重複打 `/whoami`），但中間的麵包屑內容要能隨頁面變化。做法是 layout route + context，而不是每個頁面各自包一層 `<Navbar>`：
 
 ```
-NavbarBreadcrumbContext.tsx
-├─ React Context，內部 state: crumbNode: ReactNode | null
-├─ export function useSetNavbarCrumb(node: ReactNode | null): void
-│     └─ useEffect(() => { setCrumbNode(node); return () => setCrumbNode(null); }, [node])
-│        （unmount 時自動清空，離開 FolderView/DocumentView 回到 RootFolders 時麵包屑自然消失）
-└─ export function useNavbarCrumb(): ReactNode | null  // 給 Navbar 內部讀取
+lib/navbarBreadcrumb.tsx
+├─ React Context（NavbarBreadcrumbContext），型別: { crumb: ReactNode; setCrumb: Dispatch<SetStateAction<ReactNode>> }
+│     └─ state 本身不放在這裡，而是由 Navbar 用 useState 持有並透過 Provider 往下傳
+└─ export function useSetNavbarCrumb(node: ReactNode): void
+      └─ useEffect(() => {
+           setCrumb(node);
+           return () => setCrumb((current) => (current === node ? null : current));
+         }, [node, setCrumb])
+         （unmount 時清空，離開 FolderView 回到 RootFolders 時麵包屑自然消失；
+           cleanup 只在目前 crumb 仍是自己設定的那個節點時才清空，避免 A→B 快速切換時
+           A 的 unmount cleanup 蓋掉 B 已經設好的麵包屑）
 
 Navbar.tsx
+├─ 自己用 useState 持有 crumb，並直接讀取自己的 state 渲染中間 slot（沒有 useNavbarCrumb 讀取用 hook）
+├─ Provider 的 value 用 useMemo(() => ({ crumb, setCrumb }), [crumb, setCrumb]) 記憶化
 ├─ 品牌標記（Link to "/"）：圖示方塊 + "DRM" 文字
-├─ 中間 slot：呼叫 useNavbarCrumb() 讀出目前頁面設定的麵包屑內容，RootFolders 沒設定時為 null（留空）
-├─ 使用者區塊：角色 pill（來自 /whoami 的 roles[0]）+ displayName + 登出按鈕
+├─ 中間 slot：`data-testid="navbar-crumb"`，RootFolders 沒設定時為 null（留空）
+├─ 使用者區塊：角色 pill（來自 /whoami 的 roles）+ displayName + 登出按鈕
 └─ 內部渲染 <Outlet />（layout route 寫法），子路由畫面顯示在 Navbar 下方
 ```
 
 - `/whoami` 呼叫（沿用 `Home.tsx` 現有的 fetch 邏輯，搬移過來，`Home.tsx` 整支刪除）與 `useAuth()`（`access_token`、`signoutRedirect`）都在 `Navbar` 內部，因為只掛載一次，不會重複請求
-- `FolderView`/`DocumentView` 內部呼叫 `useSetNavbarCrumb(<Breadcrumb .../>)`（一個 `useEffect`），把自己的麵包屑內容送進 context 讓 `Navbar` 顯示；`RootFolders` 不呼叫，維持 null
+- 只有 `FolderView` 呼叫 `useSetNavbarCrumb`，且傳入的 `<Breadcrumb .../>` 必須用 `useMemo` 記憶化。傳入每次 render 都新建的 JSX 元素會讓 effect 每次 render 都重跑 → `setCrumb` → `Navbar` re-render → 子路由 re-render → 又是新元素，形成無上限的 re-render 迴圈（分支最終審查實測 1.8 秒內 1,646 次 re-render）
+- **已知落差**：`DocumentView` 目前沒有設定麵包屑，進入文件頁時導覽列中間的 slot 是空的。`RootFolders` 也不設定，維持 null
 
 ### 修改：`App.tsx`
 
@@ -84,9 +92,10 @@ Navbar.tsx
   ```
   `MaintenanceNotice` 留在 `<Routes>` 外層最上方，不受影響
 
-### 修改：`routes/FolderView.tsx`、`routes/DocumentView.tsx`
+### 修改：`routes/FolderView.tsx`
 
-- `FolderView` 目前在頁面內容區頂部直接 render `<Breadcrumb .../>`；改為呼叫 `useSetNavbarCrumb(<Breadcrumb .../>)` 把麵包屑送進 `Navbar`，頁面內容區本身不再重複顯示麵包屑
+- `FolderView` 目前在頁面內容區頂部直接 render `<Breadcrumb .../>`；改為把該元素用 `useMemo(..., [folder])` 記憶化後傳給 `useSetNavbarCrumb(crumb)`，把麵包屑送進 `Navbar`，頁面內容區本身不再重複顯示麵包屑
+- `DocumentView` 不呼叫 `useSetNavbarCrumb`（見上方「已知落差」）
 - 三個路由元件本身的資料邏輯（`useQuery`、`useMutation`）完全不動，只動最外層的 JSX 包裝
 
 ### 修改：`components/ui/table.tsx`
@@ -104,8 +113,8 @@ Navbar.tsx
 
 這次視覺改版**先把功能實作完，測試留到最後一次補齊**，不採用第一階段的逐 Task TDD（先寫失敗測試再實作）節奏——這是使用者針對本次改版明確要求的順序，跟第一階段的規範不同。實作完成後補測試時延續專案既有的 RTL + `data-testid` 慣例：
 
-- `NavbarBreadcrumbContext` 的 `useNavbarCrumb`/`useSetNavbarCrumb` 在沒有 `Provider` 包裹時要有安全預設值（`crumbNode: null`、`setCrumbNode` 是 no-op），這樣 `FolderView.test.tsx`/`DocumentView.test.tsx` 現有的 `renderWithProviders(<FolderView />, ...)`（不含 `Navbar`）呼叫 `useSetNavbarCrumb` 時才不會噴錯，既有測試檔案不需要額外包一層 `Navbar` 就能維持原樣通過
-- 新增 `test/components/Navbar.test.tsx`：mock `useAuth`、mock `/whoami` fetch，驗證品牌連結、角色 pill、displayName、登出按鈕 `onClick` 觸發 `signoutRedirect`，以及 `useNavbarCrumb()` 回傳的內容有被渲染在導覽列中間
+- `NavbarBreadcrumbContext` 的 `useSetNavbarCrumb` 在沒有 `Provider` 包裹時要有安全預設值（`crumb: null`、`setCrumb` 是 no-op），這樣 `FolderView.test.tsx` 現有的 `renderWithProviders(<FolderView />, ...)`（不含 `Navbar`）呼叫 `useSetNavbarCrumb` 時才不會噴錯，既有測試檔案不需要額外包一層 `Navbar` 就能維持原樣通過
+- 新增 `test/components/Navbar.test.tsx`：mock `useAuth`、mock `/whoami` fetch，驗證品牌連結、角色 pill、displayName、登出按鈕 `onClick` 觸發 `signoutRedirect`；另外把 `Navbar` 當 layout route 掛起來、子路由呼叫 `useSetNavbarCrumb`，驗證麵包屑內容有出現在 `[data-testid="navbar-crumb"]` 裡，並驗證子路由的 render 次數會收斂（re-render 迴圈的回歸防護）
 - 刪除 `test/Home.test.tsx`（連同 `src/Home.tsx` 一併移除，邏輯併入 `Navbar`）
 - `test/App.test.tsx` 既有的登出前案例（維護公告 + Log in 按鈕）不受影響，維持原樣；另外補一個登入後案例，驗證 layout route 掛好後 `Navbar` 有渲染、且 `/` 對應到 `RootFolders`
 - `test/routes/FolderView.test.tsx`、`test/routes/DocumentView.test.tsx`：既有斷言（`getByRole('link', {name: 'Q1'})` 等）不需要改動，因為 `Breadcrumb` 的渲染位置從「頁面自己 render」改成「透過 context 讓 Navbar render」，但頁面測試本身不斷言 `Navbar`/麵包屑的 DOM 位置，只斷言資料夾/文件列表內容，不受影響

@@ -1,3 +1,4 @@
+import { useState } from 'react';
 import { useParams } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import { useAuth } from 'react-oidc-context';
@@ -32,14 +33,21 @@ export function DocumentView() {
     enabled: !!documentId,
   });
 
+  const [downloadError, setDownloadError] = useState<string | null>(null);
+
   const handleDownload = async (versionId?: string) => {
-    const { blob, fileName } = await downloadDocument(documentId, versionId, accessToken);
-    const url = URL.createObjectURL(blob);
-    const link = window.document.createElement('a');
-    link.href = url;
-    link.download = fileName;
-    link.click();
-    URL.revokeObjectURL(url);
+    setDownloadError(null);
+    try {
+      const { blob, fileName } = await downloadDocument(documentId, versionId, accessToken);
+      const url = URL.createObjectURL(blob);
+      const link = window.document.createElement('a');
+      link.href = url;
+      link.download = fileName;
+      link.click();
+      URL.revokeObjectURL(url);
+    } catch (error) {
+      setDownloadError(friendlyErrorMessage(error));
+    }
   };
 
   if (documentQuery.isLoading) return <p data-testid="loading">Loading...</p>;
@@ -47,7 +55,8 @@ export function DocumentView() {
     return <p data-testid="error">{friendlyErrorMessage(documentQuery.error)}</p>;
   }
 
-  const doc = documentQuery.data!;
+  const doc = documentQuery.data;
+  if (!doc) return <p data-testid="loading">Loading...</p>;
 
   return (
     <div className="mx-auto max-w-4xl px-6 py-8">
@@ -64,6 +73,11 @@ export function DocumentView() {
             <UploadDialog mode="new-version" documentId={documentId} />
           </div>
         </div>
+        {downloadError && (
+          <p className="px-5 py-3 text-sm text-destructive" data-testid="download-error">
+            {downloadError}
+          </p>
+        )}
       </div>
 
       <h2 className="mb-2 text-sm font-semibold uppercase tracking-wide text-muted-foreground">
