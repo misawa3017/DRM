@@ -16,6 +16,21 @@ export class FoldersService {
     private readonly audit: AuditService,
   ) {}
 
+  async listRootFolders(user: AuthenticatedUser) {
+    const folders = await this.prisma.folder.findMany({
+      where: { parentId: null },
+      orderBy: { name: 'asc' },
+    });
+    const allowed = await Promise.all(
+      folders.map((folder) => this.acl.can(user, 'folder', folder.id, 'view')),
+    );
+    // Not audited: this only decides which root folders are *listed*, it
+    // doesn't view any one folder's contents. Opening a folder is still
+    // audited as folder_view via getWithContents below, mirroring the
+    // listVersions/getMetadata split in documents.service.ts.
+    return folders.filter((_, index) => allowed[index]);
+  }
+
   async create(user: AuthenticatedUser, name: string, parentId: string | null, ipAddress: string | null) {
     if (parentId === null || parentId === undefined) {
       if (!user.roles.includes('admin')) {

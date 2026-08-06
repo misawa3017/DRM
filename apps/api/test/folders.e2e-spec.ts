@@ -157,4 +157,46 @@ describe('Folders (e2e)', () => {
       ),
     ).rejects.toMatchObject({ response: { status: 403 } });
   });
+
+  it('GET /folders returns only root folders the caller can view', async () => {
+    const visible = await prisma.folder.create({
+      data: { name: `visible-root-${randomUUID()}`, parentId: null, createdBy: 'seed' },
+    });
+    await prisma.permission.create({
+      data: {
+        resourceType: 'folder',
+        resourceId: visible.id,
+        principalType: 'user',
+        principalId: testUserId,
+        permissionLevel: 'view',
+        grantedBy: 'seed',
+      },
+    });
+    const hidden = await prisma.folder.create({
+      data: { name: `hidden-root-${randomUUID()}`, parentId: null, createdBy: 'seed' },
+    });
+
+    const token = await getToken('testuser', 'testpass');
+    const res = await axios.get<FolderResponse[]>(`${API_BASE_URL}/folders`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+
+    expect(res.status).toBe(200);
+    const ids = res.data.map((folder) => folder.id);
+    expect(ids).toContain(visible.id);
+    expect(ids).not.toContain(hidden.id);
+  });
+
+  it('GET /folders returns every root folder for an admin, even without an explicit grant', async () => {
+    const folder = await prisma.folder.create({
+      data: { name: `admin-visible-${randomUUID()}`, parentId: null, createdBy: 'seed' },
+    });
+
+    const token = await getToken('testadmin', 'testadminpass');
+    const res = await axios.get<FolderResponse[]>(`${API_BASE_URL}/folders`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+
+    expect(res.data.map((f) => f.id)).toContain(folder.id);
+  });
 });

@@ -17,6 +17,12 @@ export class FoldersController {
     private readonly usersService: UsersService,
   ) {}
 
+  @Get()
+  async listRoot(@Req() req: AuthenticatedRequest) {
+    const user = await this.usersService.upsertFromToken(req.user);
+    return this.foldersService.listRootFolders({ id: user.id, roles: req.user.roles });
+  }
+
   @Post()
   async create(@Req() req: AuthenticatedRequest, @Body() body: CreateFolderDto) {
     const user = await this.usersService.upsertFromToken(req.user);
