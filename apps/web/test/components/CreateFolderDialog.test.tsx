@@ -31,7 +31,10 @@ describe('CreateFolderDialog', () => {
     fireEvent.click(screen.getByTestId('submit-create-folder'));
 
     await waitFor(() =>
-      expect(createFolder).toHaveBeenCalledWith({ name: 'Docs', parentId: 'parent-1' }, 'fake-token'),
+      expect(createFolder).toHaveBeenCalledWith(
+        { name: 'Docs', parentId: 'parent-1' },
+        'fake-token',
+      ),
     );
   });
 });

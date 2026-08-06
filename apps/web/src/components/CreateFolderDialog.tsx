@@ -27,7 +27,9 @@ export function CreateFolderDialog({ parentId }: CreateFolderDialogProps) {
   const mutation = useMutation({
     mutationFn: () => createFolder({ name, parentId }, accessToken),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: parentId ? ['folder', parentId] : ['rootFolders'] });
+      queryClient.invalidateQueries({
+        queryKey: parentId ? ['folder', parentId] : ['rootFolders'],
+      });
       setOpen(false);
       setName('');
     },

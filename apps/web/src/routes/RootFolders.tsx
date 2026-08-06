@@ -1,14 +1,23 @@
 import { Link } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import { useAuth } from 'react-oidc-context';
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from '@/components/ui/table';
 import { listRootFolders } from '../api/folders';
 import { friendlyErrorMessage } from '../api/client';
 import { CreateFolderDialog } from '../components/CreateFolderDialog';
+import { getRolesFromToken } from '../lib/jwt';
 
 export function RootFolders() {
   const auth = useAuth();
   const accessToken = auth.user?.access_token ?? '';
+  const isAdmin = getRolesFromToken(accessToken).includes('admin');
 
   const query = useQuery({
     queryKey: ['rootFolders'],
@@ -24,7 +33,7 @@ export function RootFolders() {
   return (
     <div>
       <h1>資料夾</h1>
-      <CreateFolderDialog parentId={null} />
+      {isAdmin && <CreateFolderDialog parentId={null} />}
       {folders.length === 0 ? (
         <p data-testid="empty">目前沒有你可以存取的資料夾，請聯絡管理員</p>
       ) : (
