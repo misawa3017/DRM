@@ -49,12 +49,8 @@ export function Breadcrumb({ currentId, currentName, parentId }: BreadcrumbProps
           <Link to={`/folders/${crumb.id}`}>{crumb.name}</Link>
         </span>
       ))}
-      {ancestors.data !== undefined && (
-        <>
-          {' / '}
-          <span key={currentId}>{currentName}</span>
-        </>
-      )}
+      {' / '}
+      <span key={currentId}>{currentName}</span>
     </nav>
   );
 }

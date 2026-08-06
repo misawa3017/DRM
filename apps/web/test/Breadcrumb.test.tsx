@@ -44,7 +44,11 @@ describe('Breadcrumb', () => {
 
     renderWithProviders(<Breadcrumb currentId="folder-c" currentName="C" parentId="folder-b" />);
 
-    await waitFor(() => expect(screen.getByText('C')).toBeInTheDocument());
+    // Current folder C should be visible immediately
+    expect(screen.getByText('C')).toBeInTheDocument();
+
+    // Wait for ancestor chain to load and render as links
+    await waitFor(() => expect(screen.getAllByRole('link')).toHaveLength(3));
     const links = screen.getAllByRole('link').map((el) => el.textContent);
     expect(links).toEqual(['Root', 'A', 'B']);
   });
