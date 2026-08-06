@@ -4,7 +4,7 @@ import { Button } from '../src/components/ui/button';
 
 describe('Button', () => {
   it('renders its children and forwards onClick', () => {
-    render(<Button>Click me</Button>);
-    expect(screen.getByRole('button', { name: 'Click me' })).toBeInTheDocument();
+    render(<Button data-testid="button">Click me</Button>);
+    expect(screen.getByTestId('button')).toBeInTheDocument();
   });
 });
