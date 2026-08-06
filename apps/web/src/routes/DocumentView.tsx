@@ -1,6 +1,7 @@
 import { useParams } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import { useAuth } from 'react-oidc-context';
+import { FileText } from 'lucide-react';
 import {
   Table,
   TableBody,
@@ -49,46 +50,59 @@ export function DocumentView() {
   const doc = documentQuery.data!;
 
   return (
-    <div>
-      <h1>{doc.name}</h1>
-      <Button data-testid="download-current" onClick={() => handleDownload()}>
-        下載目前版本
-      </Button>
-      <UploadDialog mode="new-version" documentId={documentId} />
+    <div className="mx-auto max-w-4xl px-6 py-8">
+      <div className="mb-6 overflow-hidden rounded-lg border bg-background">
+        <div className="flex items-center justify-between gap-3 border-b px-5 py-4">
+          <h1 className="flex items-center gap-2 text-lg font-semibold">
+            <FileText className="h-5 w-5 text-muted-foreground" />
+            {doc.name}
+          </h1>
+          <div className="flex gap-2">
+            <Button data-testid="download-current" onClick={() => handleDownload()}>
+              下載目前版本
+            </Button>
+            <UploadDialog mode="new-version" documentId={documentId} />
+          </div>
+        </div>
+      </div>
 
-      <h2>版本歷史</h2>
+      <h2 className="mb-2 text-sm font-semibold uppercase tracking-wide text-muted-foreground">
+        版本歷史
+      </h2>
       {versionsQuery.isLoading && <p data-testid="versions-loading">Loading versions...</p>}
       {versionsQuery.isError && (
         <p data-testid="versions-error">{friendlyErrorMessage(versionsQuery.error)}</p>
       )}
       {versionsQuery.data && (
-        <Table>
-          <TableHeader>
-            <TableRow>
-              <TableHead>版本</TableHead>
-              <TableHead>大小（bytes）</TableHead>
-              <TableHead>上傳者</TableHead>
-              <TableHead />
-            </TableRow>
-          </TableHeader>
-          <TableBody>
-            {versionsQuery.data.map((version) => (
-              <TableRow key={version.id}>
-                <TableCell>v{version.versionNumber}</TableCell>
-                <TableCell>{version.sizeBytes}</TableCell>
-                <TableCell>{version.uploadedBy}</TableCell>
-                <TableCell>
-                  <Button
-                    data-testid={`download-version-${version.id}`}
-                    onClick={() => handleDownload(version.id)}
-                  >
-                    下載此版本
-                  </Button>
-                </TableCell>
+        <div className="overflow-hidden rounded-lg border bg-background">
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead>版本</TableHead>
+                <TableHead>大小（bytes）</TableHead>
+                <TableHead>上傳者</TableHead>
+                <TableHead />
               </TableRow>
-            ))}
-          </TableBody>
-        </Table>
+            </TableHeader>
+            <TableBody>
+              {versionsQuery.data.map((version) => (
+                <TableRow key={version.id}>
+                  <TableCell>v{version.versionNumber}</TableCell>
+                  <TableCell>{version.sizeBytes}</TableCell>
+                  <TableCell>{version.uploadedBy}</TableCell>
+                  <TableCell>
+                    <Button
+                      data-testid={`download-version-${version.id}`}
+                      onClick={() => handleDownload(version.id)}
+                    >
+                      下載此版本
+                    </Button>
+                  </TableCell>
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
+        </div>
       )}
     </div>
   );

@@ -1,6 +1,7 @@
 import { Link, useParams } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import { useAuth } from 'react-oidc-context';
+import { Folder, FileText } from 'lucide-react';
 import {
   Table,
   TableBody,
@@ -40,45 +41,63 @@ export function FolderView() {
   if (!folder) return null;
 
   return (
-    <div>
-      <h1>{folder.name}</h1>
-      <CreateFolderDialog parentId={folder.id} />
-      <UploadDialog mode="new-document" folderId={folder.id} />
+    <div className="mx-auto max-w-4xl px-6 py-8">
+      <div className="mb-6 flex items-center justify-between gap-3">
+        <h1 className="text-xl font-bold">{folder.name}</h1>
+        <div className="flex gap-2">
+          <CreateFolderDialog parentId={folder.id} />
+          <UploadDialog mode="new-document" folderId={folder.id} />
+        </div>
+      </div>
 
-      <h2>子資料夾</h2>
-      <Table>
-        <TableBody>
-          {folder.children.map((child) => (
-            <TableRow key={child.id}>
-              <TableCell>
-                <Link to={`/folders/${child.id}`}>{child.name}</Link>
-              </TableCell>
-            </TableRow>
-          ))}
-        </TableBody>
-      </Table>
+      <h2 className="mb-2 text-sm font-semibold uppercase tracking-wide text-muted-foreground">
+        子資料夾
+      </h2>
+      <div className="mb-8 overflow-hidden rounded-lg border bg-background">
+        <Table>
+          <TableBody>
+            {folder.children.map((child) => (
+              <TableRow key={child.id}>
+                <TableCell>
+                  <Link to={`/folders/${child.id}`} className="flex items-center gap-2">
+                    <Folder className="h-4 w-4 text-muted-foreground" />
+                    {child.name}
+                  </Link>
+                </TableCell>
+              </TableRow>
+            ))}
+          </TableBody>
+        </Table>
+      </div>
 
-      <h2>文件</h2>
-      <Table>
-        <TableHeader>
-          <TableRow>
-            <TableHead>名稱</TableHead>
-            <TableHead>目前版本</TableHead>
-          </TableRow>
-        </TableHeader>
-        <TableBody>
-          {folder.documents.map((document) => (
-            <TableRow key={document.id}>
-              <TableCell>
-                <Link to={`/documents/${document.id}`}>{document.name}</Link>
-              </TableCell>
-              <TableCell>
-                {document.currentVersion ? `v${document.currentVersion.versionNumber}` : '—'}
-              </TableCell>
+      <h2 className="mb-2 text-sm font-semibold uppercase tracking-wide text-muted-foreground">
+        文件
+      </h2>
+      <div className="overflow-hidden rounded-lg border bg-background">
+        <Table>
+          <TableHeader>
+            <TableRow>
+              <TableHead>名稱</TableHead>
+              <TableHead>目前版本</TableHead>
             </TableRow>
-          ))}
-        </TableBody>
-      </Table>
+          </TableHeader>
+          <TableBody>
+            {folder.documents.map((document) => (
+              <TableRow key={document.id}>
+                <TableCell>
+                  <Link to={`/documents/${document.id}`} className="flex items-center gap-2">
+                    <FileText className="h-4 w-4 text-muted-foreground" />
+                    {document.name}
+                  </Link>
+                </TableCell>
+                <TableCell>
+                  {document.currentVersion ? `v${document.currentVersion.versionNumber}` : '—'}
+                </TableCell>
+              </TableRow>
+            ))}
+          </TableBody>
+        </Table>
+      </div>
     </div>
   );
 }

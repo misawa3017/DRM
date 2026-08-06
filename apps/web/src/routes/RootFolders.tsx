@@ -1,6 +1,7 @@
 import { Link } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import { useAuth } from 'react-oidc-context';
+import { Folder } from 'lucide-react';
 import {
   Table,
   TableBody,
@@ -31,28 +32,41 @@ export function RootFolders() {
   const folders = query.data ?? [];
 
   return (
-    <div>
-      <h1>資料夾</h1>
-      {isAdmin && <CreateFolderDialog parentId={null} />}
+    <div className="mx-auto max-w-4xl px-6 py-8">
+      <div className="mb-6 flex items-center justify-between gap-3">
+        <h1 className="text-xl font-bold">資料夾</h1>
+        {isAdmin && <CreateFolderDialog parentId={null} />}
+      </div>
       {folders.length === 0 ? (
-        <p data-testid="empty">目前沒有你可以存取的資料夾，請聯絡管理員</p>
+        <div
+          className="rounded-lg border bg-background p-12 text-center text-muted-foreground"
+          data-testid="empty"
+        >
+          <Folder className="mx-auto mb-3 h-8 w-8 text-muted-foreground/40" />
+          <p>目前沒有你可以存取的資料夾，請聯絡管理員</p>
+        </div>
       ) : (
-        <Table>
-          <TableHeader>
-            <TableRow>
-              <TableHead>名稱</TableHead>
-            </TableRow>
-          </TableHeader>
-          <TableBody>
-            {folders.map((folder) => (
-              <TableRow key={folder.id}>
-                <TableCell>
-                  <Link to={`/folders/${folder.id}`}>{folder.name}</Link>
-                </TableCell>
+        <div className="overflow-hidden rounded-lg border bg-background">
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead>名稱</TableHead>
               </TableRow>
-            ))}
-          </TableBody>
-        </Table>
+            </TableHeader>
+            <TableBody>
+              {folders.map((folder) => (
+                <TableRow key={folder.id}>
+                  <TableCell>
+                    <Link to={`/folders/${folder.id}`} className="flex items-center gap-2">
+                      <Folder className="h-4 w-4 text-muted-foreground" />
+                      {folder.name}
+                    </Link>
+                  </TableCell>
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
+        </div>
       )}
     </div>
   );
