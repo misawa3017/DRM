@@ -102,7 +102,7 @@ Navbar.tsx
 
 ## 測試策略
 
-延續專案既有的 RTL + `data-testid` 慣例：
+這次視覺改版**先把功能實作完，測試留到最後一次補齊**，不採用第一階段的逐 Task TDD（先寫失敗測試再實作）節奏——這是使用者針對本次改版明確要求的順序，跟第一階段的規範不同。實作完成後補測試時延續專案既有的 RTL + `data-testid` 慣例：
 
 - `NavbarBreadcrumbContext` 的 `useNavbarCrumb`/`useSetNavbarCrumb` 在沒有 `Provider` 包裹時要有安全預設值（`crumbNode: null`、`setCrumbNode` 是 no-op），這樣 `FolderView.test.tsx`/`DocumentView.test.tsx` 現有的 `renderWithProviders(<FolderView />, ...)`（不含 `Navbar`）呼叫 `useSetNavbarCrumb` 時才不會噴錯，既有測試檔案不需要額外包一層 `Navbar` 就能維持原樣通過
 - 新增 `test/components/Navbar.test.tsx`：mock `useAuth`、mock `/whoami` fetch，驗證品牌連結、角色 pill、displayName、登出按鈕 `onClick` 觸發 `signoutRedirect`，以及 `useNavbarCrumb()` 回傳的內容有被渲染在導覽列中間
