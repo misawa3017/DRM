@@ -54,6 +54,15 @@ describe('PermissionsDashboard', () => {
     expect(listGlobalPermissions).toHaveBeenCalledWith(false, 'fake-token');
   });
 
+  it('explains that the list only shows resources the user manages, not everything granted to them', async () => {
+    vi.mocked(listGlobalPermissions).mockResolvedValue([directEntry]);
+
+    renderWithProviders(<PermissionsDashboard />, { route: '/permissions', path: '/permissions' });
+
+    await waitFor(() => expect(screen.getByText('財務部')).toBeInTheDocument());
+    expect(screen.getByText(/僅列出你可以管理的資源/)).toBeInTheDocument();
+  });
+
   it('clicking "顯示繼承項目" refetches with includeInherited=true', async () => {
     vi.mocked(listGlobalPermissions).mockResolvedValue([directEntry]);
 

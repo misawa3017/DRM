@@ -98,9 +98,12 @@ export function PermissionsDashboard() {
         </p>
       )}
 
-      <h2 className="mb-2 text-sm font-semibold uppercase tracking-wide text-muted-foreground">
+      <h2 className="mb-1 text-sm font-semibold uppercase tracking-wide text-muted-foreground">
         現有授權
       </h2>
+      <p className="mb-2 text-xs text-muted-foreground">
+        僅列出你可以管理的資源（即你擁有 manage 權限、能再授權給其他人的資源）。若某項資源只授予你檢視、下載或編輯權限，不會出現在這裡。
+      </p>
       <div className="mb-8 overflow-hidden rounded-lg border bg-background">
         <PermissionsTable
           entries={filtered}
