@@ -36,6 +36,10 @@ describe('friendlyErrorMessage', () => {
     expect(friendlyErrorMessage(new ApiError(404, 'x'))).toContain('找不到');
   });
 
+  it('maps 409 to a name-conflict message', () => {
+    expect(friendlyErrorMessage(new ApiError(409, 'x'))).toBe('這個名稱已經被使用了');
+  });
+
   it('falls back to a generic message for unknown errors', () => {
     expect(friendlyErrorMessage(new Error('boom'))).toBe('發生錯誤，請稍後再試');
   });

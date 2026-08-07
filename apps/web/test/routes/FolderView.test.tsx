@@ -26,9 +26,9 @@ describe('FolderView', () => {
       createdBy: 'u',
       createdAt: '',
       children: [
-        { id: 'child-1', name: 'Q1', parentId: 'folder-1', createdBy: 'u', createdAt: '' },
+        { id: 'child-1', name: 'Q1', parentId: 'folder-1', createdBy: 'u', createdAt: '', canManage: false },
       ],
-      documents: [{ id: 'doc-1', name: 'report.pdf', currentVersion: null }],
+      documents: [{ id: 'doc-1', name: 'report.pdf', currentVersion: null, canManage: false }],
       canManage: false,
     });
 

@@ -14,9 +14,17 @@ export interface DocumentSummary {
   currentVersion: { id: string; versionNumber: number; sizeBytes: number; mimeType: string } | null;
 }
 
+export interface FolderChildSummary extends FolderSummary {
+  canManage: boolean;
+}
+
+export interface DocumentChildSummary extends DocumentSummary {
+  canManage: boolean;
+}
+
 export interface FolderDetail extends FolderSummary {
-  children: FolderSummary[];
-  documents: DocumentSummary[];
+  children: FolderChildSummary[];
+  documents: DocumentChildSummary[];
   // Whether the caller has manage-level access — GET /folders/:id only
   // requires 'view', a lower bar, so a caller can see the folder without
   // being allowed to see or edit its ACL.
@@ -40,4 +48,24 @@ export function createFolder(
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ name: input.name, parentId: input.parentId }),
   });
+}
+
+export function renameFolder(id: string, name: string, accessToken: string) {
+  return apiFetch<FolderSummary>(`/folders/${id}`, accessToken, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ name }),
+  });
+}
+
+export function moveFolder(id: string, parentId: string, accessToken: string) {
+  return apiFetch<FolderSummary>(`/folders/${id}`, accessToken, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ parentId }),
+  });
+}
+
+export function deleteFolder(id: string, accessToken: string) {
+  return apiFetch<void>(`/folders/${id}`, accessToken, { method: 'DELETE' });
 }

@@ -40,8 +40,8 @@ describe('ResourcePicker', () => {
       parentId: null,
       createdBy: 'u',
       createdAt: '',
-      children: [{ id: 'f2', name: 'Q1', parentId: 'f1', createdBy: 'u', createdAt: '' }],
-      documents: [{ id: 'd1', name: 'report.pdf', currentVersion: null }],
+      children: [{ id: 'f2', name: 'Q1', parentId: 'f1', createdBy: 'u', createdAt: '', canManage: false }],
+      documents: [{ id: 'd1', name: 'report.pdf', currentVersion: null, canManage: false }],
       canManage: false,
     });
 
@@ -96,7 +96,7 @@ describe('ResourcePicker', () => {
       createdBy: 'u',
       createdAt: '',
       children: [],
-      documents: [{ id: 'd1', name: 'report.pdf', currentVersion: null }],
+      documents: [{ id: 'd1', name: 'report.pdf', currentVersion: null, canManage: false }],
       canManage: false,
     });
 
@@ -173,7 +173,7 @@ describe('ResourcePicker', () => {
           parentId: null,
           createdBy: 'u',
           createdAt: '',
-          children: [{ id: 'f2', name: 'Q1', parentId: 'f1', createdBy: 'u', createdAt: '' }],
+          children: [{ id: 'f2', name: 'Q1', parentId: 'f1', createdBy: 'u', createdAt: '', canManage: false }],
           documents: [],
           canManage: false,
         };
@@ -219,7 +219,7 @@ describe('ResourcePicker', () => {
           parentId: null,
           createdBy: 'u',
           createdAt: '',
-          children: [{ id: 'f2', name: 'Q1', parentId: 'f1', createdBy: 'u', createdAt: '' }],
+          children: [{ id: 'f2', name: 'Q1', parentId: 'f1', createdBy: 'u', createdAt: '', canManage: false }],
           documents: [],
           canManage: false,
         };

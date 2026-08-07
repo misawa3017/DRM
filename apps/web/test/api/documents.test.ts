@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { uploadDocument, downloadDocument } from '../../src/api/documents';
+import { uploadDocument, downloadDocument, renameDocument, moveDocument, deleteDocument } from '../../src/api/documents';
 
 describe('documents api', () => {
   beforeEach(() => {
@@ -36,5 +36,45 @@ describe('documents api', () => {
 
     expect(result.fileName).toBe('report.pdf');
     expect(result.blob).toBe(fakeBlob);
+  });
+
+  it('renameDocument PATCHes a JSON body with the new name', async () => {
+    vi.mocked(fetch).mockResolvedValue({
+      ok: true,
+      headers: new Headers({ 'content-type': 'application/json' }),
+      json: async () => ({ id: 'd1', name: 'new.txt' }),
+    } as Response);
+
+    await renameDocument('d1', 'new.txt', 'fake-token');
+
+    const [url, init] = vi.mocked(fetch).mock.calls[0];
+    expect(url).toContain('/documents/d1');
+    expect(init?.method).toBe('PATCH');
+    expect(JSON.parse(init?.body as string)).toEqual({ name: 'new.txt' });
+  });
+
+  it('moveDocument PATCHes a JSON body with the new folderId', async () => {
+    vi.mocked(fetch).mockResolvedValue({
+      ok: true,
+      headers: new Headers({ 'content-type': 'application/json' }),
+      json: async () => ({ id: 'd1', folderId: 'f2' }),
+    } as Response);
+
+    await moveDocument('d1', 'f2', 'fake-token');
+
+    const [url, init] = vi.mocked(fetch).mock.calls[0];
+    expect(url).toContain('/documents/d1');
+    expect(init?.method).toBe('PATCH');
+    expect(JSON.parse(init?.body as string)).toEqual({ folderId: 'f2' });
+  });
+
+  it('deleteDocument DELETEs the document', async () => {
+    vi.mocked(fetch).mockResolvedValue({ ok: true, headers: new Headers() } as Response);
+
+    await deleteDocument('d1', 'fake-token');
+
+    const [url, init] = vi.mocked(fetch).mock.calls[0];
+    expect(url).toContain('/documents/d1');
+    expect(init?.method).toBe('DELETE');
   });
 });

@@ -104,7 +104,7 @@ describe('GrantPermissionForm', () => {
           parentId: null,
           createdBy: 'u',
           createdAt: '',
-          children: [{ id: 'f2', name: 'Q1', parentId: 'f1', createdBy: 'u', createdAt: '' }],
+          children: [{ id: 'f2', name: 'Q1', parentId: 'f1', createdBy: 'u', createdAt: '', canManage: false }],
           documents: [],
           canManage: false,
         };

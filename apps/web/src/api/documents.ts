@@ -72,3 +72,23 @@ export async function downloadDocument(
   const blob = await response.blob();
   return { blob, fileName };
 }
+
+export function renameDocument(id: string, name: string, accessToken: string) {
+  return apiFetch<DocumentDetail>(`/documents/${id}`, accessToken, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ name }),
+  });
+}
+
+export function moveDocument(id: string, folderId: string, accessToken: string) {
+  return apiFetch<DocumentDetail>(`/documents/${id}`, accessToken, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ folderId }),
+  });
+}
+
+export function deleteDocument(id: string, accessToken: string) {
+  return apiFetch<void>(`/documents/${id}`, accessToken, { method: 'DELETE' });
+}
