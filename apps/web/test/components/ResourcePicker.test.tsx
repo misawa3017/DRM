@@ -102,4 +102,92 @@ describe('ResourcePicker', () => {
 
     expect(onSelect).toHaveBeenCalledWith({ resourceType: 'document', resourceId: 'd1', name: 'report.pdf' });
   });
+
+  it('resets back to root folders each time the dialog is reopened', async () => {
+    vi.mocked(listRootFolders).mockResolvedValue([
+      { id: 'f1', name: 'Finance', parentId: null, createdBy: 'u', createdAt: '' },
+    ]);
+    vi.mocked(getFolder).mockResolvedValue({
+      id: 'f1',
+      name: 'Finance',
+      parentId: null,
+      createdBy: 'u',
+      createdAt: '',
+      children: [],
+      documents: [],
+    });
+
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const onSelect = vi.fn();
+    const { rerender } = render(
+      <QueryClientProvider client={queryClient}>
+        <ResourcePicker open={true} onOpenChange={vi.fn()} onSelect={onSelect} />
+      </QueryClientProvider>,
+    );
+
+    await waitFor(() => expect(screen.getByText('Finance')).toBeInTheDocument());
+    fireEvent.click(screen.getByText('Finance'));
+    await waitFor(() => expect(screen.getByTestId('pick-current-folder')).toBeInTheDocument());
+
+    // Simulate the dialog closing and reopening (as GrantPermissionForm does
+    // via its pickerOpen state toggling) without the component unmounting —
+    // it previously stayed stuck showing whatever folder was last browsed.
+    rerender(
+      <QueryClientProvider client={queryClient}>
+        <ResourcePicker open={false} onOpenChange={vi.fn()} onSelect={onSelect} />
+      </QueryClientProvider>,
+    );
+    rerender(
+      <QueryClientProvider client={queryClient}>
+        <ResourcePicker open={true} onOpenChange={vi.fn()} onSelect={onSelect} />
+      </QueryClientProvider>,
+    );
+
+    await waitFor(() => expect(screen.getByText('Finance')).toBeInTheDocument());
+    expect(screen.queryByTestId('pick-current-folder')).not.toBeInTheDocument();
+  });
+
+  it('lets the user navigate back up to the parent folder via 返回上一層', async () => {
+    vi.mocked(listRootFolders).mockResolvedValue([
+      { id: 'f1', name: 'Finance', parentId: null, createdBy: 'u', createdAt: '' },
+    ]);
+    vi.mocked(getFolder).mockImplementation(async (id: string) => {
+      if (id === 'f1') {
+        return {
+          id: 'f1',
+          name: 'Finance',
+          parentId: null,
+          createdBy: 'u',
+          createdAt: '',
+          children: [{ id: 'f2', name: 'Q1', parentId: 'f1', createdBy: 'u', createdAt: '' }],
+          documents: [],
+        };
+      }
+      if (id === 'f2') {
+        return {
+          id: 'f2',
+          name: 'Q1',
+          parentId: 'f1',
+          createdBy: 'u',
+          createdAt: '',
+          children: [],
+          documents: [],
+        };
+      }
+      throw new Error(`unexpected id ${id}`);
+    });
+
+    renderPicker();
+
+    await waitFor(() => expect(screen.getByText('Finance')).toBeInTheDocument());
+    fireEvent.click(screen.getByText('Finance'));
+
+    await waitFor(() => expect(screen.getByText('Q1')).toBeInTheDocument());
+    fireEvent.click(screen.getByText('Q1'));
+
+    await waitFor(() => expect(screen.getByText(/選擇這個資料夾：Q1/)).toBeInTheDocument());
+    fireEvent.click(screen.getByTestId('resource-picker-up'));
+
+    await waitFor(() => expect(screen.getByText(/選擇這個資料夾：Finance/)).toBeInTheDocument());
+  });
 });

@@ -69,6 +69,7 @@ export function GrantPermissionForm({ fixedResource, onGranted }: GrantPermissio
       setSelectedUser(null);
       setSearchInput('');
       setSearchQuery('');
+      setPickedResource(null);
       onGranted();
     },
   });
