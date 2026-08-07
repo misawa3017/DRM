@@ -1,4 +1,15 @@
-import { Body, Controller, Delete, Get, HttpCode, Param, Post, Query, Req, UseGuards } from '@nestjs/common';
+import {
+  Body,
+  Controller,
+  Delete,
+  Get,
+  HttpCode,
+  Param,
+  Post,
+  Query,
+  Req,
+  UseGuards,
+} from '@nestjs/common';
 import { AuthGuard } from '@nestjs/passport';
 import { Request } from 'express';
 import { PermissionsService } from './permissions.service';
@@ -30,7 +41,11 @@ export class PermissionsController {
   }
 
   @Post('folders/:id/permissions')
-  async grantOnFolder(@Req() req: AuthenticatedRequest, @Param('id') id: string, @Body() body: GrantPermissionDto) {
+  async grantOnFolder(
+    @Req() req: AuthenticatedRequest,
+    @Param('id') id: string,
+    @Body() body: GrantPermissionDto,
+  ) {
     const user = await this.usersService.upsertFromToken(req.user);
     return this.permissionsService.grant(
       { id: user.id, roles: req.user.roles },
@@ -67,7 +82,11 @@ export class PermissionsController {
   }
 
   @Post('documents/:id/permissions')
-  async grantOnDocument(@Req() req: AuthenticatedRequest, @Param('id') id: string, @Body() body: GrantPermissionDto) {
+  async grantOnDocument(
+    @Req() req: AuthenticatedRequest,
+    @Param('id') id: string,
+    @Body() body: GrantPermissionDto,
+  ) {
     const user = await this.usersService.upsertFromToken(req.user);
     return this.permissionsService.grant(
       { id: user.id, roles: req.user.roles },

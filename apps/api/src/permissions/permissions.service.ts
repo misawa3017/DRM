@@ -105,6 +105,11 @@ export class PermissionsService {
           ...enriched,
           resourceName: resource?.name ?? '(已刪除)',
           resourcePath: resource?.path ?? '',
+          // The `?? 'direct'` below is unreachable given permissionWhere's OR scoping
+          // above (every row `permissions` can contain already has a matching key in
+          // sourceByResource, since that filter is built directly from the same `managed`
+          // array); defaulting to 'direct' rather than throwing keeps listGlobal resilient
+          // if that invariant is ever broken by a future refactor.
           source:
             managed === 'all'
               ? 'direct'
