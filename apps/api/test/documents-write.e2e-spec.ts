@@ -142,4 +142,94 @@ describe('Documents write path (e2e)', () => {
       }),
     ).rejects.toMatchObject({ response: { status: 409 } });
   });
+
+  it('PATCH /documents/:id renames a document the caller has edit access to, and records document_rename', async () => {
+    const adminToken = await getToken('testadmin', 'testadminpass');
+    const folderRes = await axios.post<{ id: string }>(
+      `${API_BASE_URL}/folders`,
+      { name: `doc-rename-${Date.now()}` },
+      { headers: { Authorization: `Bearer ${adminToken}` } },
+    );
+    const form = new FormData();
+    form.append('folderId', folderRes.data.id);
+    form.append('name', 'old.txt');
+    form.append('file', Buffer.from('content'), { filename: 'old.txt' });
+    const createRes = await axios.post<{ id: string }>(`${API_BASE_URL}/documents`, form, {
+      headers: { Authorization: `Bearer ${adminToken}`, ...form.getHeaders() },
+    });
+
+    const res = await axios.patch<{ name: string }>(
+      `${API_BASE_URL}/documents/${createRes.data.id}`,
+      { name: 'new.txt' },
+      { headers: { Authorization: `Bearer ${adminToken}` } },
+    );
+    expect(res.data.name).toBe('new.txt');
+  });
+
+  it('PATCH /documents/:id moves a document when the caller has edit on both the document and destination folder', async () => {
+    const adminToken = await getToken('testadmin', 'testadminpass');
+    const sourceFolderRes = await axios.post<{ id: string }>(
+      `${API_BASE_URL}/folders`,
+      { name: `doc-move-source-${Date.now()}` },
+      { headers: { Authorization: `Bearer ${adminToken}` } },
+    );
+    const destinationFolderRes = await axios.post<{ id: string }>(
+      `${API_BASE_URL}/folders`,
+      { name: `doc-move-destination-${Date.now()}` },
+      { headers: { Authorization: `Bearer ${adminToken}` } },
+    );
+    const form = new FormData();
+    form.append('folderId', sourceFolderRes.data.id);
+    form.append('name', 'movable.txt');
+    form.append('file', Buffer.from('content'), { filename: 'movable.txt' });
+    const createRes = await axios.post<{ id: string }>(`${API_BASE_URL}/documents`, form, {
+      headers: { Authorization: `Bearer ${adminToken}`, ...form.getHeaders() },
+    });
+
+    const res = await axios.patch<{ folderId: string }>(
+      `${API_BASE_URL}/documents/${createRes.data.id}`,
+      { folderId: destinationFolderRes.data.id },
+      { headers: { Authorization: `Bearer ${adminToken}` } },
+    );
+    expect(res.data.folderId).toBe(destinationFolderRes.data.id);
+  });
+
+  it('PATCH /documents/:id rejects moving without edit access to the destination folder', async () => {
+    const adminToken = await getToken('testadmin', 'testadminpass');
+    const employeeToken = await getToken('testuser', 'testpass');
+    const sourceFolderRes = await axios.post<{ id: string }>(
+      `${API_BASE_URL}/folders`,
+      { name: `doc-move-noedit-source-${Date.now()}` },
+      { headers: { Authorization: `Bearer ${adminToken}` } },
+    );
+    const destinationFolderRes = await axios.post<{ id: string }>(
+      `${API_BASE_URL}/folders`,
+      { name: `doc-move-noedit-destination-${Date.now()}` },
+      { headers: { Authorization: `Bearer ${adminToken}` } },
+    );
+    const form = new FormData();
+    form.append('folderId', sourceFolderRes.data.id);
+    form.append('name', 'movable2.txt');
+    form.append('file', Buffer.from('content'), { filename: 'movable2.txt' });
+    const createRes = await axios.post<{ id: string }>(`${API_BASE_URL}/documents`, form, {
+      headers: { Authorization: `Bearer ${adminToken}`, ...form.getHeaders() },
+    });
+
+    const whoamiRes = await axios.get<{ id: string }>(`${API_BASE_URL}/whoami`, {
+      headers: { Authorization: `Bearer ${employeeToken}` },
+    });
+    await axios.post(
+      `${API_BASE_URL}/documents/${createRes.data.id}/permissions`,
+      { principalType: 'user', principalId: whoamiRes.data.id, permissionLevel: 'edit' },
+      { headers: { Authorization: `Bearer ${adminToken}` } },
+    );
+
+    await expect(
+      axios.patch(
+        `${API_BASE_URL}/documents/${createRes.data.id}`,
+        { folderId: destinationFolderRes.data.id },
+        { headers: { Authorization: `Bearer ${employeeToken}` } },
+      ),
+    ).rejects.toMatchObject({ response: { status: 403 } });
+  });
 });

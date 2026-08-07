@@ -2,8 +2,11 @@ import {
   BadRequestException,
   Body,
   Controller,
+  Delete,
   Get,
+  HttpCode,
   Param,
+  Patch,
   Post,
   Query,
   Req,
@@ -18,6 +21,7 @@ import { Request, Response } from 'express';
 import { DocumentsService } from './documents.service';
 import { UsersService } from '../users/users.service';
 import { CreateDocumentDto } from './dto/create-document.dto';
+import { UpdateDocumentDto } from './dto/update-document.dto';
 
 interface AuthenticatedRequest extends Request {
   user: { sub: string; email: string; name: string; roles: string[] };
@@ -68,6 +72,21 @@ export class DocumentsController {
       { id: user.id, roles: req.user.roles },
       id,
       { buffer: file.buffer, mimetype: file.mimetype },
+      req.ip ?? null,
+    );
+  }
+
+  @Patch(':id')
+  async update(
+    @Req() req: AuthenticatedRequest,
+    @Param('id') id: string,
+    @Body() body: UpdateDocumentDto,
+  ) {
+    const user = await this.usersService.upsertFromToken(req.user);
+    return this.documentsService.update(
+      { id: user.id, roles: req.user.roles },
+      id,
+      { name: body.name, folderId: body.folderId },
       req.ip ?? null,
     );
   }

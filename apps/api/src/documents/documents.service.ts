@@ -257,6 +257,72 @@ export class DocumentsService {
     return created;
   }
 
+  async update(
+    user: AuthenticatedUser,
+    documentId: string,
+    changes: { name?: string; folderId?: string },
+    ipAddress: string | null,
+  ) {
+    const allowed = await this.acl.can(user, 'document', documentId, 'edit');
+    if (!allowed) {
+      throw new ForbiddenException('You do not have edit access to this document');
+    }
+
+    const document = await this.prisma.document.findUnique({ where: { id: documentId } });
+    if (!document || document.deletedAt) {
+      throw new NotFoundException('Document not found');
+    }
+
+    let newFolderId = document.folderId;
+    if (changes.folderId !== undefined) {
+      if (changes.folderId === document.folderId) {
+        throw new BadRequestException('Document is already in this folder');
+      }
+      const destinationAllowed = await this.acl.can(user, 'folder', changes.folderId, 'edit');
+      if (!destinationAllowed) {
+        throw new ForbiddenException('You do not have edit access to the destination folder');
+      }
+      const destination = await this.prisma.folder.findUnique({ where: { id: changes.folderId } });
+      if (!destination || destination.deletedAt) {
+        throw new NotFoundException('Destination folder not found');
+      }
+      newFolderId = changes.folderId;
+    }
+
+    const newName = changes.name ?? document.name;
+    if (changes.name !== undefined || changes.folderId !== undefined) {
+      await this.assertNoDocumentNameConflict(newFolderId, newName, document.id);
+    }
+
+    const updated = await this.prisma.document.update({
+      where: { id: documentId },
+      data: { name: newName, folderId: newFolderId },
+    });
+
+    if (changes.name !== undefined && changes.name !== document.name) {
+      await this.audit.recordSafely({
+        actorId: user.id,
+        action: 'document_rename',
+        resourceType: 'document',
+        resourceId: documentId,
+        ipAddress,
+        details: { oldName: document.name, newName: changes.name },
+      });
+    }
+    if (changes.folderId !== undefined && changes.folderId !== document.folderId) {
+      await this.audit.recordSafely({
+        actorId: user.id,
+        action: 'document_move',
+        resourceType: 'document',
+        resourceId: documentId,
+        ipAddress,
+        details: { oldFolderId: document.folderId, newFolderId: changes.folderId },
+      });
+    }
+
+    return updated;
+  }
+
   async addVersion(
     user: AuthenticatedUser,
     documentId: string,
