@@ -103,6 +103,12 @@ export class AclService {
     }
 
     const expanded: ManagedResourceRef[] = [...direct];
+    // Shared across all seeds: if a folder has its own direct `manage` grant, it's both a
+    // seed here AND potentially a descendant reached while walking a different (ancestor)
+    // seed. Once a folder's children have been enumerated once, re-entering it from another
+    // path would only reproduce identical entries — see the visited-set note on
+    // walkFolderForManagedDescendants for why that's always safe to skip, not just faster.
+    const visitedFolders = new Set<string>();
     for (const seed of directGrants) {
       if (seed.resourceType !== 'folder') continue;
       const seedFolder = await this.prisma.folder.findUnique({
@@ -116,6 +122,7 @@ export class AclService {
         'manage',
         { resourceId: seed.resourceId, resourceName: seedFolder.name },
         expanded,
+        visitedFolders,
       );
     }
     return expanded;
@@ -146,13 +153,39 @@ export class AclService {
   //    grants, an intervening lower-level grant (like `middle`'s `view` in the "does not stop
   //    recursing" test) does not shift it, which is what lets a `manage`-reachable grandchild
   //    past that branch still be attributed to the original `manage` ancestor above `middle`.
+  //
+  // A node with its own `manage` grant is skipped for pushing (see `ownLevel !== 'manage'`
+  // below): findManagedResources's top-level `directGrants` query already finds ALL of the
+  // user's `manage` grants anywhere in the tree (not just at roots/seeds), so that node
+  // already has a `'direct'` entry in `results`. Pushing a second `inheritedFrom` entry here
+  // would be a contradictory duplicate of the same resourceId — and since Task 4 collapses
+  // this array into a `Map` keyed by resourceType:resourceId (last entry wins), that
+  // duplicate would silently overwrite the correct `'direct'` tag with a wrong
+  // `inheritedFrom` one. Its own `manage` grant still updates `nearestManageOrigin` for ITS
+  // descendants below (see `nextManageOrigin`), just not for its own entry.
+  //
+  // `visitedFolders` (shared across the whole findManagedResources call, not just one seed)
+  // short-circuits re-enumerating a folder's children once already done. This is more than
+  // an optimization: a folder only appears as an entry point twice (as a seed, and as a
+  // descendant reached from another seed) when it has its own explicit grant — and in that
+  // case `effectiveLevel`/`nextManageOrigin` for its children are fully determined by that
+  // grant, independent of which path reached it (`ownLevel ?? nearestLevel` and the
+  // manage-only origin update both ignore the incoming values whenever `ownLevel` is set).
+  // So re-walking would reproduce byte-identical entries — skipping it is always safe, not
+  // just faster.
   private async walkFolderForManagedDescendants(
     userId: string,
     folderId: string,
     nearestLevel: PermissionLevel,
     nearestManageOrigin: ManageOrigin,
     results: ManagedResourceRef[],
+    visitedFolders: Set<string>,
   ): Promise<void> {
+    if (visitedFolders.has(folderId)) {
+      return;
+    }
+    visitedFolders.add(folderId);
+
     const [childFolders, documents] = await Promise.all([
       this.prisma.folder.findMany({ where: { parentId: folderId } }),
       this.prisma.document.findMany({ where: { folderId } }),
@@ -161,7 +194,7 @@ export class AclService {
     for (const child of childFolders) {
       const ownLevel = await this.findGrant('folder', child.id, userId);
       const effectiveLevel = ownLevel ?? nearestLevel;
-      if (effectiveLevel === 'manage') {
+      if (effectiveLevel === 'manage' && ownLevel !== 'manage') {
         results.push({
           resourceType: 'folder',
           resourceId: child.id,
@@ -178,13 +211,14 @@ export class AclService {
         effectiveLevel,
         nextManageOrigin,
         results,
+        visitedFolders,
       );
     }
 
     for (const doc of documents) {
       const ownLevel = await this.findGrant('document', doc.id, userId);
       const effectiveLevel = ownLevel ?? nearestLevel;
-      if (effectiveLevel === 'manage') {
+      if (effectiveLevel === 'manage' && ownLevel !== 'manage') {
         results.push({
           resourceType: 'document',
           resourceId: doc.id,

@@ -222,7 +222,7 @@ describe('AclService', () => {
 
     it(
       'does not stop recursing past a lower-override branch: a grandchild with its own manage ' +
-        'grant is still included, tagged as inherited from itself via direct grant',
+        'grant is still included exactly once, tagged direct (not duplicated as inherited)',
       async () => {
         const parent = await makeFolder('fmr-parent-6');
         const middle = await makeFolder('fmr-middle-6', parent.id);
@@ -239,12 +239,15 @@ describe('AclService', () => {
         const refs = result as { resourceType: string; resourceId: string; source: unknown }[];
         // middle itself is not manage-level, so it's excluded
         expect(refs.some((r) => r.resourceId === middle.id)).toBe(false);
-        // grandchild has its own direct manage grant
-        expect(refs).toContainEqual({
-          resourceType: 'folder',
-          resourceId: grandchild.id,
-          source: { inheritedFrom: { resourceId: parent.id, resourceName: 'fmr-parent-6' } },
-        });
+        // grandchild's own direct manage grant means recursion must not have stopped at
+        // `middle` — but it must appear exactly once, tagged 'direct' (its own grant), not a
+        // second time as inheritedFrom some ancestor: that would be a contradictory duplicate
+        // of the same resourceId, which Task 4's Map-collapse (last entry wins) would resolve
+        // to the wrong tag.
+        const grandchildRefs = refs.filter((r) => r.resourceId === grandchild.id);
+        expect(grandchildRefs).toEqual([
+          { resourceType: 'folder', resourceId: grandchild.id, source: 'direct' },
+        ]);
       },
     );
 
@@ -263,6 +266,22 @@ describe('AclService', () => {
         resourceId: grandchild.id,
         source: { inheritedFrom: { resourceId: child.id, resourceName: 'fmr-child-7' } },
       });
+    });
+
+    it('does not duplicate a resource that has both an ancestor manage grant and its own direct manage grant', async () => {
+      const parent = await makeFolder('fmr-parent-8');
+      const child = await makeFolder('fmr-child-8', parent.id);
+      await grant('folder', parent.id, 'user-fmr8', 'manage');
+      await grant('folder', child.id, 'user-fmr8', 'manage');
+
+      const result = await acl.findManagedResources({ id: 'user-fmr8', roles: ['employee'] }, true);
+
+      expect(result).not.toBe('all');
+      const refs = result as { resourceType: string; resourceId: string; source: unknown }[];
+      const childRefs = refs.filter((r) => r.resourceId === child.id);
+      expect(childRefs).toEqual([
+        { resourceType: 'folder', resourceId: child.id, source: 'direct' },
+      ]);
     });
   });
 });
