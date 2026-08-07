@@ -54,7 +54,7 @@ describe('GrantPermissionForm', () => {
     await waitFor(() => expect(screen.getByText('Alice')).toBeInTheDocument());
     fireEvent.click(screen.getByText('Alice'));
 
-    fireEvent.change(screen.getByTestId('permission-level-select'), { target: { value: 'edit' } });
+    fireEvent.click(screen.getByTestId('permission-level-edit'));
     fireEvent.click(screen.getByTestId('grant-submit'));
 
     await waitFor(() =>

@@ -32,13 +32,19 @@ export function DocumentPermissions() {
   return (
     <div className="mx-auto max-w-4xl px-6 py-8">
       <h1 className="mb-6 text-xl font-bold">權限管理</h1>
-      <PermissionsTable entries={query.data ?? []} showResourceColumn={false} onRevoke={handleRevoke} />
-      <div className="mt-6">
-        <GrantPermissionForm
-          fixedResource={{ resourceType: 'document', resourceId: documentId }}
-          onGranted={invalidate}
-        />
+      <h2 className="mb-2 text-sm font-semibold uppercase tracking-wide text-muted-foreground">
+        現有授權
+      </h2>
+      <div className="mb-8 overflow-hidden rounded-lg border bg-background">
+        <PermissionsTable entries={query.data ?? []} showResourceColumn={false} onRevoke={handleRevoke} />
       </div>
+      <h2 className="mb-2 text-sm font-semibold uppercase tracking-wide text-muted-foreground">
+        新增授權
+      </h2>
+      <GrantPermissionForm
+        fixedResource={{ resourceType: 'document', resourceId: documentId }}
+        onGranted={invalidate}
+      />
     </div>
   );
 }

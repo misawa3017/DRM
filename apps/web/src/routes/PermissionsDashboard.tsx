@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useAuth } from 'react-oidc-context';
+import { Search } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { listGlobalPermissions, revokePermission } from '../api/permissions';
 import { friendlyErrorMessage } from '../api/client';
@@ -56,12 +57,16 @@ export function PermissionsDashboard() {
       <h1 className="mb-6 text-xl font-bold">權限管理</h1>
 
       <div className="mb-4 flex items-center gap-2">
-        <input
-          data-testid="permissions-filter-input"
-          value={filter}
-          onChange={(e) => setFilter(e.target.value)}
-          placeholder="搜尋資源名稱或使用者..."
-        />
+        <div className="relative flex-1">
+          <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+          <input
+            data-testid="permissions-filter-input"
+            value={filter}
+            onChange={(e) => setFilter(e.target.value)}
+            placeholder="搜尋資源名稱或使用者..."
+            className="w-full rounded-md border bg-background py-2 pl-9 pr-3 text-sm"
+          />
+        </div>
         <Button
           variant="outline"
           size="sm"
@@ -79,18 +84,24 @@ export function PermissionsDashboard() {
         </p>
       )}
 
-      <PermissionsTable
-        entries={filtered}
-        showResourceColumn={true}
-        onRevoke={(permissionId) => {
-          const entry = entries.find((e) => e.id === permissionId);
-          if (entry) handleRevoke(permissionId, entry.resourceType, entry.resourceId);
-        }}
-      />
-
-      <div className="mt-6">
-        <GrantPermissionForm onGranted={invalidate} />
+      <h2 className="mb-2 text-sm font-semibold uppercase tracking-wide text-muted-foreground">
+        現有授權
+      </h2>
+      <div className="mb-8 overflow-hidden rounded-lg border bg-background">
+        <PermissionsTable
+          entries={filtered}
+          showResourceColumn={true}
+          onRevoke={(permissionId) => {
+            const entry = entries.find((e) => e.id === permissionId);
+            if (entry) handleRevoke(permissionId, entry.resourceType, entry.resourceId);
+          }}
+        />
       </div>
+
+      <h2 className="mb-2 text-sm font-semibold uppercase tracking-wide text-muted-foreground">
+        新增授權
+      </h2>
+      <GrantPermissionForm onGranted={invalidate} />
     </div>
   );
 }
