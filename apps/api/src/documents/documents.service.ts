@@ -323,6 +323,31 @@ export class DocumentsService {
     return updated;
   }
 
+  async delete(user: AuthenticatedUser, documentId: string, ipAddress: string | null): Promise<void> {
+    const allowed = await this.acl.can(user, 'document', documentId, 'edit');
+    if (!allowed) {
+      throw new ForbiddenException('You do not have edit access to this document');
+    }
+
+    const document = await this.prisma.document.findUnique({ where: { id: documentId } });
+    if (!document || document.deletedAt) {
+      throw new NotFoundException('Document not found');
+    }
+
+    await this.prisma.document.update({
+      where: { id: documentId },
+      data: { deletedAt: new Date() },
+    });
+
+    await this.audit.recordSafely({
+      actorId: user.id,
+      action: 'document_delete',
+      resourceType: 'document',
+      resourceId: documentId,
+      ipAddress,
+    });
+  }
+
   async addVersion(
     user: AuthenticatedUser,
     documentId: string,

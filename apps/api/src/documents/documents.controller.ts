@@ -91,6 +91,13 @@ export class DocumentsController {
     );
   }
 
+  @Delete(':id')
+  @HttpCode(204)
+  async remove(@Req() req: AuthenticatedRequest, @Param('id') id: string) {
+    const user = await this.usersService.upsertFromToken(req.user);
+    await this.documentsService.delete({ id: user.id, roles: req.user.roles }, id, req.ip ?? null);
+  }
+
   @Get(':id/versions')
   async listVersions(@Req() req: AuthenticatedRequest, @Param('id') id: string) {
     const user = await this.usersService.upsertFromToken(req.user);

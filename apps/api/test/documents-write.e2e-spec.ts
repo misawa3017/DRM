@@ -296,4 +296,62 @@ describe('Documents write path (e2e)', () => {
     expect(renameEntries.length).toBeGreaterThan(0);
     expect(moveEntries.length).toBe(0);
   });
+
+  it('DELETE /documents/:id soft-deletes the document and records document_delete', async () => {
+    const adminToken = await getToken('testadmin', 'testadminpass');
+    const folderRes = await axios.post<{ id: string }>(
+      `${API_BASE_URL}/folders`,
+      { name: `doc-delete-${Date.now()}` },
+      { headers: { Authorization: `Bearer ${adminToken}` } },
+    );
+    const form = new FormData();
+    form.append('folderId', folderRes.data.id);
+    form.append('name', 'deleteme.txt');
+    form.append('file', Buffer.from('content'), { filename: 'deleteme.txt' });
+    const createRes = await axios.post<{ id: string }>(`${API_BASE_URL}/documents`, form, {
+      headers: { Authorization: `Bearer ${adminToken}`, ...form.getHeaders() },
+    });
+
+    const res = await axios.delete(`${API_BASE_URL}/documents/${createRes.data.id}`, {
+      headers: { Authorization: `Bearer ${adminToken}` },
+    });
+    expect(res.status).toBe(204);
+
+    await expect(
+      axios.get(`${API_BASE_URL}/documents/${createRes.data.id}`, {
+        headers: { Authorization: `Bearer ${adminToken}` },
+      }),
+    ).rejects.toMatchObject({ response: { status: 404 } });
+  });
+
+  it('DELETE /documents/:id rejects deletion without edit access', async () => {
+    const adminToken = await getToken('testadmin', 'testadminpass');
+    const employeeToken = await getToken('testuser', 'testpass');
+    const folderRes = await axios.post<{ id: string }>(
+      `${API_BASE_URL}/folders`,
+      { name: `doc-delete-noedit-${Date.now()}` },
+      { headers: { Authorization: `Bearer ${adminToken}` } },
+    );
+    const form = new FormData();
+    form.append('folderId', folderRes.data.id);
+    form.append('name', 'nodelete.txt');
+    form.append('file', Buffer.from('content'), { filename: 'nodelete.txt' });
+    const createRes = await axios.post<{ id: string }>(`${API_BASE_URL}/documents`, form, {
+      headers: { Authorization: `Bearer ${adminToken}`, ...form.getHeaders() },
+    });
+    const whoamiRes = await axios.get<{ id: string }>(`${API_BASE_URL}/whoami`, {
+      headers: { Authorization: `Bearer ${employeeToken}` },
+    });
+    await axios.post(
+      `${API_BASE_URL}/documents/${createRes.data.id}/permissions`,
+      { principalType: 'user', principalId: whoamiRes.data.id, permissionLevel: 'view' },
+      { headers: { Authorization: `Bearer ${adminToken}` } },
+    );
+
+    await expect(
+      axios.delete(`${API_BASE_URL}/documents/${createRes.data.id}`, {
+        headers: { Authorization: `Bearer ${employeeToken}` },
+      }),
+    ).rejects.toMatchObject({ response: { status: 403 } });
+  });
 });
