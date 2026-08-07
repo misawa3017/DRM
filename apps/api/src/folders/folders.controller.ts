@@ -1,9 +1,10 @@
-import { Body, Controller, Get, Param, Post, Req, UseGuards } from '@nestjs/common';
+import { Body, Controller, Get, Param, Patch, Post, Req, UseGuards } from '@nestjs/common';
 import { AuthGuard } from '@nestjs/passport';
 import { Request } from 'express';
 import { FoldersService } from './folders.service';
 import { UsersService } from '../users/users.service';
 import { CreateFolderDto } from './dto/create-folder.dto';
+import { UpdateFolderDto } from './dto/update-folder.dto';
 
 interface AuthenticatedRequest extends Request {
   user: { sub: string; email: string; name: string; roles: string[] };
@@ -30,6 +31,21 @@ export class FoldersController {
       { id: user.id, roles: req.user.roles },
       body.name,
       body.parentId ?? null,
+      req.ip ?? null,
+    );
+  }
+
+  @Patch(':id')
+  async update(
+    @Req() req: AuthenticatedRequest,
+    @Param('id') id: string,
+    @Body() body: UpdateFolderDto,
+  ) {
+    const user = await this.usersService.upsertFromToken(req.user);
+    return this.foldersService.update(
+      { id: user.id, roles: req.user.roles },
+      id,
+      { name: body.name, parentId: body.parentId },
       req.ip ?? null,
     );
   }

@@ -1,4 +1,4 @@
-import { ConflictException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, ConflictException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { AclService } from '../acl/acl.service';
 import { AuditService } from '../audit/audit.service';
@@ -134,5 +134,96 @@ export class FoldersService {
       children: folder.children.map((c, i) => ({ ...c, canManage: childrenCanManage[i] })),
       documents: folder.documents.map((d, i) => ({ ...d, canManage: documentsCanManage[i] })),
     };
+  }
+
+  // Descendants only (excludes folderId itself) — used to block moving a
+  // folder into itself or into its own subtree.
+  private async collectDescendantFolderIds(folderId: string): Promise<string[]> {
+    const result: string[] = [];
+    const queue: string[] = [folderId];
+    while (queue.length > 0) {
+      const current = queue.shift() as string;
+      const children = await this.prisma.folder.findMany({
+        where: { parentId: current },
+        select: { id: true },
+      });
+      for (const child of children) {
+        result.push(child.id);
+        queue.push(child.id);
+      }
+    }
+    return result;
+  }
+
+  async update(
+    user: AuthenticatedUser,
+    id: string,
+    changes: { name?: string; parentId?: string },
+    ipAddress: string | null,
+  ) {
+    const allowed = await this.acl.can(user, 'folder', id, 'edit');
+    if (!allowed) {
+      throw new ForbiddenException('You do not have edit access to this folder');
+    }
+
+    const folder = await this.prisma.folder.findUnique({ where: { id } });
+    if (!folder || folder.deletedAt) {
+      throw new NotFoundException('Folder not found');
+    }
+
+    let newParentId = folder.parentId;
+    if (changes.parentId !== undefined) {
+      if (folder.parentId === null) {
+        throw new BadRequestException('Cannot move a top-level folder');
+      }
+      const destinationAllowed = await this.acl.can(user, 'folder', changes.parentId, 'edit');
+      if (!destinationAllowed) {
+        throw new ForbiddenException('You do not have edit access to the destination folder');
+      }
+      const destination = await this.prisma.folder.findUnique({ where: { id: changes.parentId } });
+      if (!destination || destination.deletedAt) {
+        throw new NotFoundException('Destination folder not found');
+      }
+      const descendantIds = await this.collectDescendantFolderIds(id);
+      if (changes.parentId === id || descendantIds.includes(changes.parentId)) {
+        throw new BadRequestException(
+          'Cannot move a folder into itself or one of its own descendants',
+        );
+      }
+      newParentId = changes.parentId;
+    }
+
+    const newName = changes.name ?? folder.name;
+    if (changes.name !== undefined || changes.parentId !== undefined) {
+      await this.assertNoFolderNameConflict(newParentId, newName, folder.id);
+    }
+
+    const updated = await this.prisma.folder.update({
+      where: { id },
+      data: { name: newName, parentId: newParentId },
+    });
+
+    if (changes.name !== undefined && changes.name !== folder.name) {
+      await this.audit.recordSafely({
+        actorId: user.id,
+        action: 'folder_rename',
+        resourceType: 'folder',
+        resourceId: id,
+        ipAddress,
+        details: { oldName: folder.name, newName: changes.name },
+      });
+    }
+    if (changes.parentId !== undefined && changes.parentId !== folder.parentId) {
+      await this.audit.recordSafely({
+        actorId: user.id,
+        action: 'folder_move',
+        resourceType: 'folder',
+        resourceId: id,
+        ipAddress,
+        details: { oldParentId: folder.parentId ?? '', newParentId: changes.parentId },
+      });
+    }
+
+    return updated;
   }
 }

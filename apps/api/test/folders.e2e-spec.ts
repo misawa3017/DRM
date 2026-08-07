@@ -391,4 +391,248 @@ describe('Folders (e2e)', () => {
     expect((res.data.children as (FolderResponse & { canManage: boolean })[]).find((c) => c.id === manageableChild.id)?.canManage).toBe(true);
     expect((res.data.children as (FolderResponse & { canManage: boolean })[]).find((c) => c.id === viewOnlyChild.id)?.canManage).toBe(false);
   });
+
+  it('PATCH /folders/:id renames a folder the caller has edit access to, and records folder_rename', async () => {
+    const parent = await prisma.folder.create({
+      data: { name: `rename-parent-${randomUUID()}`, parentId: null, createdBy: 'seed' },
+    });
+    const folder = await prisma.folder.create({
+      data: { name: 'old-name', parentId: parent.id, createdBy: 'seed' },
+    });
+    await prisma.permission.create({
+      data: {
+        resourceType: 'folder',
+        resourceId: folder.id,
+        principalType: 'user',
+        principalId: testUserId,
+        permissionLevel: 'edit',
+        grantedBy: 'seed',
+      },
+    });
+
+    const token = await getToken('testuser', 'testpass');
+    const res = await axios.patch<FolderResponse>(
+      `${API_BASE_URL}/folders/${folder.id}`,
+      { name: 'new-name' },
+      { headers: { Authorization: `Bearer ${token}` } },
+    );
+    expect(res.data.name).toBe('new-name');
+
+    const logs = await prisma.auditLog.findMany({
+      where: { resourceType: 'folder', resourceId: folder.id, action: 'folder_rename' },
+    });
+    expect(logs).toHaveLength(1);
+  });
+
+  it('PATCH /folders/:id rejects renaming without edit access', async () => {
+    const folder = await prisma.folder.create({
+      data: { name: 'no-edit-rename', parentId: null, createdBy: 'seed' },
+    });
+    await prisma.permission.create({
+      data: {
+        resourceType: 'folder',
+        resourceId: folder.id,
+        principalType: 'user',
+        principalId: testUserId,
+        permissionLevel: 'view',
+        grantedBy: 'seed',
+      },
+    });
+
+    const token = await getToken('testuser', 'testpass');
+    await expect(
+      axios.patch(
+        `${API_BASE_URL}/folders/${folder.id}`,
+        { name: 'should-fail' },
+        { headers: { Authorization: `Bearer ${token}` } },
+      ),
+    ).rejects.toMatchObject({ response: { status: 403 } });
+  });
+
+  it('PATCH /folders/:id rejects a rename that collides with an existing sibling', async () => {
+    const parent = await prisma.folder.create({
+      data: { name: `rename-conflict-parent-${randomUUID()}`, parentId: null, createdBy: 'seed' },
+    });
+    const target = await prisma.folder.create({
+      data: { name: 'target', parentId: parent.id, createdBy: 'seed' },
+    });
+    await prisma.folder.create({
+      data: { name: 'taken', parentId: parent.id, createdBy: 'seed' },
+    });
+    await prisma.permission.create({
+      data: {
+        resourceType: 'folder',
+        resourceId: target.id,
+        principalType: 'user',
+        principalId: testUserId,
+        permissionLevel: 'edit',
+        grantedBy: 'seed',
+      },
+    });
+
+    const token = await getToken('testuser', 'testpass');
+    await expect(
+      axios.patch(
+        `${API_BASE_URL}/folders/${target.id}`,
+        { name: 'taken' },
+        { headers: { Authorization: `Bearer ${token}` } },
+      ),
+    ).rejects.toMatchObject({ response: { status: 409 } });
+  });
+
+  it('PATCH /folders/:id moves a folder when the caller has edit on both source and destination', async () => {
+    const source = await prisma.folder.create({
+      data: { name: `move-source-${randomUUID()}`, parentId: null, createdBy: 'seed' },
+    });
+    const destination = await prisma.folder.create({
+      data: { name: `move-destination-${randomUUID()}`, parentId: null, createdBy: 'seed' },
+    });
+    const moved = await prisma.folder.create({
+      data: { name: 'moved-folder', parentId: source.id, createdBy: 'seed' },
+    });
+    await prisma.permission.createMany({
+      data: [
+        {
+          resourceType: 'folder',
+          resourceId: moved.id,
+          principalType: 'user',
+          principalId: testUserId,
+          permissionLevel: 'edit',
+          grantedBy: 'seed',
+        },
+        {
+          resourceType: 'folder',
+          resourceId: destination.id,
+          principalType: 'user',
+          principalId: testUserId,
+          permissionLevel: 'edit',
+          grantedBy: 'seed',
+        },
+      ],
+    });
+
+    const token = await getToken('testuser', 'testpass');
+    const res = await axios.patch<FolderResponse>(
+      `${API_BASE_URL}/folders/${moved.id}`,
+      { parentId: destination.id },
+      { headers: { Authorization: `Bearer ${token}` } },
+    );
+    expect(res.data.parentId).toBe(destination.id);
+
+    const logs = await prisma.auditLog.findMany({
+      where: { resourceType: 'folder', resourceId: moved.id, action: 'folder_move' },
+    });
+    expect(logs).toHaveLength(1);
+  });
+
+  it('PATCH /folders/:id rejects moving without edit access to the destination', async () => {
+    const source = await prisma.folder.create({
+      data: { name: `move-noedit-source-${randomUUID()}`, parentId: null, createdBy: 'seed' },
+    });
+    const destination = await prisma.folder.create({
+      data: { name: `move-noedit-destination-${randomUUID()}`, parentId: null, createdBy: 'seed' },
+    });
+    const moved = await prisma.folder.create({
+      data: { name: 'moved-folder-2', parentId: source.id, createdBy: 'seed' },
+    });
+    await prisma.permission.create({
+      data: {
+        resourceType: 'folder',
+        resourceId: moved.id,
+        principalType: 'user',
+        principalId: testUserId,
+        permissionLevel: 'edit',
+        grantedBy: 'seed',
+      },
+    });
+
+    const token = await getToken('testuser', 'testpass');
+    await expect(
+      axios.patch(
+        `${API_BASE_URL}/folders/${moved.id}`,
+        { parentId: destination.id },
+        { headers: { Authorization: `Bearer ${token}` } },
+      ),
+    ).rejects.toMatchObject({ response: { status: 403 } });
+  });
+
+  it('PATCH /folders/:id rejects moving a folder into its own descendant', async () => {
+    const grandparent = await prisma.folder.create({
+      data: { name: `cycle-gp-${randomUUID()}`, parentId: null, createdBy: 'seed' },
+    });
+    const parent = await prisma.folder.create({
+      data: { name: 'cycle-parent', parentId: grandparent.id, createdBy: 'seed' },
+    });
+    const child = await prisma.folder.create({
+      data: { name: 'cycle-child', parentId: parent.id, createdBy: 'seed' },
+    });
+    await prisma.permission.createMany({
+      data: [
+        {
+          resourceType: 'folder',
+          resourceId: grandparent.id,
+          principalType: 'user',
+          principalId: testUserId,
+          permissionLevel: 'edit',
+          grantedBy: 'seed',
+        },
+        {
+          resourceType: 'folder',
+          resourceId: child.id,
+          principalType: 'user',
+          principalId: testUserId,
+          permissionLevel: 'edit',
+          grantedBy: 'seed',
+        },
+      ],
+    });
+
+    const token = await getToken('testuser', 'testpass');
+    // Move grandparent into its own grandchild — a cycle two levels down.
+    await expect(
+      axios.patch(
+        `${API_BASE_URL}/folders/${grandparent.id}`,
+        { parentId: child.id },
+        { headers: { Authorization: `Bearer ${token}` } },
+      ),
+    ).rejects.toMatchObject({ response: { status: 400 } });
+  });
+
+  it('PATCH /folders/:id rejects moving a top-level (root) folder', async () => {
+    const root = await prisma.folder.create({
+      data: { name: `root-move-attempt-${randomUUID()}`, parentId: null, createdBy: 'seed' },
+    });
+    const destination = await prisma.folder.create({
+      data: { name: `root-move-destination-${randomUUID()}`, parentId: null, createdBy: 'seed' },
+    });
+    await prisma.permission.createMany({
+      data: [
+        {
+          resourceType: 'folder',
+          resourceId: root.id,
+          principalType: 'user',
+          principalId: testUserId,
+          permissionLevel: 'edit',
+          grantedBy: 'seed',
+        },
+        {
+          resourceType: 'folder',
+          resourceId: destination.id,
+          principalType: 'user',
+          principalId: testUserId,
+          permissionLevel: 'edit',
+          grantedBy: 'seed',
+        },
+      ],
+    });
+
+    const token = await getToken('testuser', 'testpass');
+    await expect(
+      axios.patch(
+        `${API_BASE_URL}/folders/${root.id}`,
+        { parentId: destination.id },
+        { headers: { Authorization: `Bearer ${token}` } },
+      ),
+    ).rejects.toMatchObject({ response: { status: 400 } });
+  });
 });
