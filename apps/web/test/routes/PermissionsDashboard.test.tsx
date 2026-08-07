@@ -2,7 +2,7 @@ import { fireEvent, screen, waitFor } from '@testing-library/react';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { useAuth } from 'react-oidc-context';
 import { PermissionsDashboard } from '../../src/routes/PermissionsDashboard';
-import { listGlobalPermissions } from '../../src/api/permissions';
+import { listGlobalPermissions, revokePermission } from '../../src/api/permissions';
 import { renderWithProviders } from '../testUtils';
 
 vi.mock('react-oidc-context', () => ({ useAuth: vi.fn() }));
@@ -74,5 +74,42 @@ describe('PermissionsDashboard', () => {
 
     expect(screen.getByText('財務部')).toBeInTheDocument();
     expect(screen.queryByText('人事資料')).not.toBeInTheDocument();
+  });
+
+  it("revokes the clicked row using that row's own resourceType/resourceId, not another row's", async () => {
+    const documentEntry = {
+      ...directEntry,
+      id: 'p2',
+      resourceType: 'document' as const,
+      resourceId: 'd9',
+      resourceName: '人事資料',
+      principal: { email: 'z@example.com', displayName: 'Zoe' },
+    };
+    vi.mocked(listGlobalPermissions).mockResolvedValue([directEntry, documentEntry]);
+    vi.mocked(revokePermission).mockResolvedValue(undefined);
+
+    renderWithProviders(<PermissionsDashboard />, { route: '/permissions', path: '/permissions' });
+
+    await waitFor(() => expect(screen.getByText('人事資料')).toBeInTheDocument());
+
+    fireEvent.click(screen.getByTestId('revoke-p2'));
+
+    await waitFor(() =>
+      expect(revokePermission).toHaveBeenCalledWith('document', 'd9', 'p2', 'fake-token'),
+    );
+    expect(revokePermission).not.toHaveBeenCalledWith('folder', 'f1', 'p1', 'fake-token');
+  });
+
+  it('shows a friendly error message and does not silently swallow a failed revoke', async () => {
+    vi.mocked(listGlobalPermissions).mockResolvedValue([directEntry]);
+    vi.mocked(revokePermission).mockRejectedValue(new Error('boom'));
+
+    renderWithProviders(<PermissionsDashboard />, { route: '/permissions', path: '/permissions' });
+
+    await waitFor(() => expect(screen.getByText('財務部')).toBeInTheDocument());
+
+    fireEvent.click(screen.getByTestId('revoke-p1'));
+
+    await waitFor(() => expect(screen.getByTestId('revoke-error')).toBeInTheDocument());
   });
 });

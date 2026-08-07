@@ -14,6 +14,7 @@ export function PermissionsDashboard() {
 
   const [includeInherited, setIncludeInherited] = useState(false);
   const [filter, setFilter] = useState('');
+  const [revokeError, setRevokeError] = useState<string | null>(null);
 
   const query = useQuery({
     queryKey: ['globalPermissions', includeInherited],
@@ -23,12 +24,18 @@ export function PermissionsDashboard() {
 
   const invalidate = () => queryClient.invalidateQueries({ queryKey: ['globalPermissions'] });
 
-  const handleRevoke = (
+  const handleRevoke = async (
     permissionId: string,
     resourceType: 'folder' | 'document',
     resourceId: string,
   ) => {
-    revokePermission(resourceType, resourceId, permissionId, accessToken).then(invalidate);
+    setRevokeError(null);
+    try {
+      await revokePermission(resourceType, resourceId, permissionId, accessToken);
+      invalidate();
+    } catch (error) {
+      setRevokeError(friendlyErrorMessage(error));
+    }
   };
 
   if (query.isLoading) return <p data-testid="loading">Loading...</p>;
@@ -65,6 +72,12 @@ export function PermissionsDashboard() {
           {includeInherited ? '已包含繼承項目' : '顯示繼承項目'}
         </Button>
       </div>
+
+      {revokeError && (
+        <p className="mb-4 text-sm text-destructive" data-testid="revoke-error">
+          {revokeError}
+        </p>
+      )}
 
       <PermissionsTable
         entries={filtered}
