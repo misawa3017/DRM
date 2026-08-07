@@ -85,4 +85,34 @@ describe('GrantPermissionForm', () => {
     expect(screen.getByTestId('grant-submit')).toBeDisabled();
     expect(screen.getByTestId('open-resource-picker')).toBeInTheDocument();
   });
+
+  it('shows a friendly error message when the user search fails', async () => {
+    vi.mocked(searchUsers).mockRejectedValue(new Error('network down'));
+
+    renderForm({ fixedResource: { resourceType: 'folder', resourceId: 'f1' }, onGranted: vi.fn() });
+
+    fireEvent.change(screen.getByTestId('user-search-input'), { target: { value: 'Alice' } });
+    fireEvent.click(screen.getByTestId('user-search-submit'));
+
+    await waitFor(() => expect(screen.getByText('發生錯誤，請稍後再試')).toBeInTheDocument());
+  });
+
+  it('shows a friendly error message when granting the permission fails', async () => {
+    vi.mocked(searchUsers).mockResolvedValue([
+      { id: 'u1', email: 'alice@example.com', displayName: 'Alice', department: null },
+    ]);
+    vi.mocked(grantPermission).mockRejectedValue(new Error('server exploded'));
+
+    renderForm({ fixedResource: { resourceType: 'folder', resourceId: 'f1' }, onGranted: vi.fn() });
+
+    fireEvent.change(screen.getByTestId('user-search-input'), { target: { value: 'Alice' } });
+    fireEvent.click(screen.getByTestId('user-search-submit'));
+
+    await waitFor(() => expect(screen.getByText('Alice')).toBeInTheDocument());
+    fireEvent.click(screen.getByText('Alice'));
+
+    fireEvent.click(screen.getByTestId('grant-submit'));
+
+    await waitFor(() => expect(screen.getByText('發生錯誤，請稍後再試')).toBeInTheDocument());
+  });
 });
