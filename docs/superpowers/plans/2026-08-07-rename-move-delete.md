@@ -3548,6 +3548,8 @@ export function DocumentView() {
                 <MoveButton resourceType="document" resourceId={documentId} onMoved={invalidate} />
                 <Button
                   variant="outline"
+                  size="sm"
+                  aria-label="刪除"
                   data-testid={`delete-document-${documentId}`}
                   onClick={() => {
                     setHeaderError(null);
