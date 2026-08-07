@@ -229,4 +229,71 @@ export class FoldersService {
 
     return updated;
   }
+
+  // Folder itself plus every descendant folder, and every document anywhere
+  // in that subtree. Used by delete() to cascade the soft-delete in one
+  // pass; each returned id gets its own audit entry (see Global
+  // Constraints — one entry per resource, not one aggregated entry).
+  private async collectFolderSubtreeIds(
+    rootFolderId: string,
+  ): Promise<{ folderIds: string[]; documentIds: string[] }> {
+    const folderIds: string[] = [rootFolderId];
+    const documentIds: string[] = [];
+    const queue: string[] = [rootFolderId];
+    while (queue.length > 0) {
+      const current = queue.shift() as string;
+      const [children, documents] = await Promise.all([
+        this.prisma.folder.findMany({ where: { parentId: current }, select: { id: true } }),
+        this.prisma.document.findMany({ where: { folderId: current }, select: { id: true } }),
+      ]);
+      for (const child of children) {
+        folderIds.push(child.id);
+        queue.push(child.id);
+      }
+      documentIds.push(...documents.map((d) => d.id));
+    }
+    return { folderIds, documentIds };
+  }
+
+  async delete(user: AuthenticatedUser, id: string, ipAddress: string | null): Promise<void> {
+    const allowed = await this.acl.can(user, 'folder', id, 'edit');
+    if (!allowed) {
+      throw new ForbiddenException('You do not have edit access to this folder');
+    }
+
+    const folder = await this.prisma.folder.findUnique({ where: { id } });
+    if (!folder || folder.deletedAt) {
+      throw new NotFoundException('Folder not found');
+    }
+
+    const { folderIds, documentIds } = await this.collectFolderSubtreeIds(id);
+    const now = new Date();
+
+    await this.prisma.$transaction([
+      this.prisma.folder.updateMany({ where: { id: { in: folderIds } }, data: { deletedAt: now } }),
+      this.prisma.document.updateMany({
+        where: { id: { in: documentIds } },
+        data: { deletedAt: now },
+      }),
+    ]);
+
+    for (const folderId of folderIds) {
+      await this.audit.recordSafely({
+        actorId: user.id,
+        action: 'folder_delete',
+        resourceType: 'folder',
+        resourceId: folderId,
+        ipAddress,
+      });
+    }
+    for (const documentId of documentIds) {
+      await this.audit.recordSafely({
+        actorId: user.id,
+        action: 'document_delete',
+        resourceType: 'document',
+        resourceId: documentId,
+        ipAddress,
+      });
+    }
+  }
 }

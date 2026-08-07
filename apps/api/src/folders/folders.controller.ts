@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Param, Patch, Post, Req, UseGuards } from '@nestjs/common';
+import { Body, Controller, Delete, Get, HttpCode, Param, Patch, Post, Req, UseGuards } from '@nestjs/common';
 import { AuthGuard } from '@nestjs/passport';
 import { Request } from 'express';
 import { FoldersService } from './folders.service';
@@ -54,5 +54,12 @@ export class FoldersController {
   async get(@Req() req: AuthenticatedRequest, @Param('id') id: string) {
     const user = await this.usersService.upsertFromToken(req.user);
     return this.foldersService.getWithContents({ id: user.id, roles: req.user.roles }, id, req.ip ?? null);
+  }
+
+  @Delete(':id')
+  @HttpCode(204)
+  async remove(@Req() req: AuthenticatedRequest, @Param('id') id: string) {
+    const user = await this.usersService.upsertFromToken(req.user);
+    await this.foldersService.delete({ id: user.id, roles: req.user.roles }, id, req.ip ?? null);
   }
 }

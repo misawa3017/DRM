@@ -666,4 +666,109 @@ describe('Folders (e2e)', () => {
       ),
     ).rejects.toMatchObject({ response: { status: 400 } });
   });
+
+  it('DELETE /folders/:id soft-deletes the folder and all descendant folders/documents, each with its own audit entry', async () => {
+    const root = await prisma.folder.create({
+      data: { name: `delete-root-${randomUUID()}`, parentId: null, createdBy: 'seed' },
+    });
+    const child = await prisma.folder.create({
+      data: { name: 'delete-child', parentId: root.id, createdBy: 'seed' },
+    });
+    const doc = await prisma.document.create({
+      data: { name: 'delete-doc.txt', folderId: child.id, createdBy: 'seed' },
+    });
+    await prisma.permission.create({
+      data: {
+        resourceType: 'folder',
+        resourceId: root.id,
+        principalType: 'user',
+        principalId: testUserId,
+        permissionLevel: 'edit',
+        grantedBy: 'seed',
+      },
+    });
+
+    const token = await getToken('testuser', 'testpass');
+    const res = await axios.delete(`${API_BASE_URL}/folders/${root.id}`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    expect(res.status).toBe(204);
+
+    const [rootRow, childRow, docRow] = await Promise.all([
+      prisma.folder.findUniqueOrThrow({ where: { id: root.id } }),
+      prisma.folder.findUniqueOrThrow({ where: { id: child.id } }),
+      prisma.document.findUniqueOrThrow({ where: { id: doc.id } }),
+    ]);
+    expect(rootRow.deletedAt).not.toBeNull();
+    expect(childRow.deletedAt).not.toBeNull();
+    expect(docRow.deletedAt).not.toBeNull();
+
+    const [rootLogs, childLogs, docLogs] = await Promise.all([
+      prisma.auditLog.findMany({
+        where: { resourceType: 'folder', resourceId: root.id, action: 'folder_delete' },
+      }),
+      prisma.auditLog.findMany({
+        where: { resourceType: 'folder', resourceId: child.id, action: 'folder_delete' },
+      }),
+      prisma.auditLog.findMany({
+        where: { resourceType: 'document', resourceId: doc.id, action: 'document_delete' },
+      }),
+    ]);
+    expect(rootLogs).toHaveLength(1);
+    expect(childLogs).toHaveLength(1);
+    expect(docLogs).toHaveLength(1);
+  });
+
+  it('DELETE /folders/:id rejects deletion without edit access', async () => {
+    const folder = await prisma.folder.create({
+      data: { name: `no-edit-delete-${randomUUID()}`, parentId: null, createdBy: 'seed' },
+    });
+    await prisma.permission.create({
+      data: {
+        resourceType: 'folder',
+        resourceId: folder.id,
+        principalType: 'user',
+        principalId: testUserId,
+        permissionLevel: 'view',
+        grantedBy: 'seed',
+      },
+    });
+
+    const token = await getToken('testuser', 'testpass');
+    await expect(
+      axios.delete(`${API_BASE_URL}/folders/${folder.id}`, {
+        headers: { Authorization: `Bearer ${token}` },
+      }),
+    ).rejects.toMatchObject({ response: { status: 403 } });
+  });
+
+  it('creating inside a soft-deleted parent folder is rejected as not found', async () => {
+    const parent = await prisma.folder.create({
+      data: {
+        name: `deleted-parent-${randomUUID()}`,
+        parentId: null,
+        createdBy: 'seed',
+        deletedAt: new Date(),
+      },
+    });
+    await prisma.permission.create({
+      data: {
+        resourceType: 'folder',
+        resourceId: parent.id,
+        principalType: 'user',
+        principalId: testUserId,
+        permissionLevel: 'edit',
+        grantedBy: 'seed',
+      },
+    });
+
+    const token = await getToken('testuser', 'testpass');
+    await expect(
+      axios.post(
+        `${API_BASE_URL}/folders`,
+        { name: 'child-of-deleted', parentId: parent.id },
+        { headers: { Authorization: `Bearer ${token}` } },
+      ),
+    ).rejects.toMatchObject({ response: { status: 404 } });
+  });
 });
