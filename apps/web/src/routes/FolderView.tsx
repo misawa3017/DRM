@@ -267,6 +267,8 @@ export function FolderView() {
               <MoveButton resourceType="folder" resourceId={folder.id} onMoved={invalidate} />
               <Button
                 variant="outline"
+                size="sm"
+                aria-label="刪除"
                 data-testid={`delete-folder-${folder.id}`}
                 onClick={() => {
                   setHeaderError(null);
