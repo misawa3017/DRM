@@ -17,6 +17,7 @@ interface FolderResponse {
   createdAt: string;
   children?: unknown[];
   documents?: unknown[];
+  canManage?: boolean;
 }
 
 async function getToken(username: string, password: string): Promise<string> {
@@ -185,6 +186,52 @@ describe('Folders (e2e)', () => {
     const ids = res.data.map((folder) => folder.id);
     expect(ids).toContain(visible.id);
     expect(ids).not.toContain(hidden.id);
+  });
+
+  it('GET /folders/:id reports canManage=false for a caller who only has view access', async () => {
+    const folder = await prisma.folder.create({
+      data: { name: `view-only-${randomUUID()}`, parentId: null, createdBy: 'seed' },
+    });
+    await prisma.permission.create({
+      data: {
+        resourceType: 'folder',
+        resourceId: folder.id,
+        principalType: 'user',
+        principalId: testUserId,
+        permissionLevel: 'view',
+        grantedBy: 'seed',
+      },
+    });
+
+    const token = await getToken('testuser', 'testpass');
+    const res = await axios.get<FolderResponse>(`${API_BASE_URL}/folders/${folder.id}`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+
+    expect(res.data.canManage).toBe(false);
+  });
+
+  it('GET /folders/:id reports canManage=true for a caller with manage access', async () => {
+    const folder = await prisma.folder.create({
+      data: { name: `manage-granted-${randomUUID()}`, parentId: null, createdBy: 'seed' },
+    });
+    await prisma.permission.create({
+      data: {
+        resourceType: 'folder',
+        resourceId: folder.id,
+        principalType: 'user',
+        principalId: testUserId,
+        permissionLevel: 'manage',
+        grantedBy: 'seed',
+      },
+    });
+
+    const token = await getToken('testuser', 'testpass');
+    const res = await axios.get<FolderResponse>(`${API_BASE_URL}/folders/${folder.id}`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+
+    expect(res.data.canManage).toBe(true);
   });
 
   it('GET /folders returns every root folder for an admin, even without an explicit grant', async () => {

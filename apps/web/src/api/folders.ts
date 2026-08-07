@@ -17,6 +17,10 @@ export interface DocumentSummary {
 export interface FolderDetail extends FolderSummary {
   children: FolderSummary[];
   documents: DocumentSummary[];
+  // Whether the caller has manage-level access — GET /folders/:id only
+  // requires 'view', a lower bar, so a caller can see the folder without
+  // being allowed to see or edit its ACL.
+  canManage: boolean;
 }
 
 export function listRootFolders(accessToken: string) {

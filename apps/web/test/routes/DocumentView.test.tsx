@@ -33,6 +33,7 @@ describe('DocumentView', () => {
       currentVersion: null,
       createdBy: 'u',
       createdAt: '',
+      canManage: false,
     });
     vi.mocked(listVersions).mockResolvedValue([
       {
@@ -61,7 +62,7 @@ describe('DocumentView', () => {
     );
   });
 
-  it('renders a link to the document\'s permissions page', async () => {
+  it('renders a link to the document\'s permissions page when the caller can manage it', async () => {
     vi.mocked(getDocument).mockResolvedValue({
       id: 'doc-1',
       folderId: 'folder-1',
@@ -70,6 +71,7 @@ describe('DocumentView', () => {
       currentVersion: null,
       createdBy: 'u',
       createdAt: '',
+      canManage: true,
     });
     vi.mocked(listVersions).mockResolvedValue([]);
 
@@ -81,5 +83,24 @@ describe('DocumentView', () => {
         '/documents/doc-1/permissions',
       ),
     );
+  });
+
+  it("hides the permissions link when the caller can view but not manage the document", async () => {
+    vi.mocked(getDocument).mockResolvedValue({
+      id: 'doc-1',
+      folderId: 'folder-1',
+      name: 'report.pdf',
+      currentVersionId: 'v2',
+      currentVersion: null,
+      createdBy: 'u',
+      createdAt: '',
+      canManage: false,
+    });
+    vi.mocked(listVersions).mockResolvedValue([]);
+
+    renderWithProviders(<DocumentView />, { route: '/documents/doc-1', path: '/documents/:id' });
+
+    await waitFor(() => expect(screen.getByText('report.pdf')).toBeInTheDocument());
+    expect(screen.queryByRole('link', { name: '權限' })).not.toBeInTheDocument();
   });
 });

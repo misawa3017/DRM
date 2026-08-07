@@ -42,6 +42,7 @@ describe('ResourcePicker', () => {
       createdAt: '',
       children: [{ id: 'f2', name: 'Q1', parentId: 'f1', createdBy: 'u', createdAt: '' }],
       documents: [{ id: 'd1', name: 'report.pdf', currentVersion: null }],
+      canManage: false,
     });
 
     renderPicker();
@@ -65,6 +66,7 @@ describe('ResourcePicker', () => {
       createdAt: '',
       children: [],
       documents: [],
+      canManage: false,
     });
 
     const { onSelect } = renderPicker();
@@ -95,6 +97,7 @@ describe('ResourcePicker', () => {
       createdAt: '',
       children: [],
       documents: [{ id: 'd1', name: 'report.pdf', currentVersion: null }],
+      canManage: false,
     });
 
     const { onSelect } = renderPicker();
@@ -125,6 +128,7 @@ describe('ResourcePicker', () => {
       createdAt: '',
       children: [],
       documents: [],
+      canManage: false,
     });
 
     const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
@@ -171,6 +175,7 @@ describe('ResourcePicker', () => {
           createdAt: '',
           children: [{ id: 'f2', name: 'Q1', parentId: 'f1', createdBy: 'u', createdAt: '' }],
           documents: [],
+          canManage: false,
         };
       }
       if (id === 'f2') {
@@ -182,6 +187,7 @@ describe('ResourcePicker', () => {
           createdAt: '',
           children: [],
           documents: [],
+          canManage: false,
         };
       }
       throw new Error(`unexpected id ${id}`);
@@ -215,6 +221,7 @@ describe('ResourcePicker', () => {
           createdAt: '',
           children: [{ id: 'f2', name: 'Q1', parentId: 'f1', createdBy: 'u', createdAt: '' }],
           documents: [],
+          canManage: false,
         };
       }
       if (id === 'f2') {
@@ -226,6 +233,7 @@ describe('ResourcePicker', () => {
           createdAt: '',
           children: [],
           documents: [],
+          canManage: false,
         };
       }
       throw new Error(`unexpected id ${id}`);

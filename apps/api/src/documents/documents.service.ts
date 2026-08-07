@@ -324,7 +324,14 @@ export class DocumentsService {
       ipAddress,
     });
 
-    return document;
+    // The UI uses this to decide whether to offer a "manage permissions"
+    // link at all — GET /documents/:id/permissions requires 'manage', a
+    // higher bar than the 'view' access that gets a caller into this
+    // method, so a caller can legitimately see the document yet not be
+    // allowed to see or edit its ACL.
+    const canManage = await this.acl.can(user, 'document', documentId, 'manage');
+
+    return { ...document, canManage };
   }
 
   async getDownloadStream(

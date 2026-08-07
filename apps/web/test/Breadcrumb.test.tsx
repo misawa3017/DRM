@@ -26,6 +26,7 @@ describe('Breadcrumb', () => {
           createdAt: '',
           children: [],
           documents: [],
+          canManage: false,
         };
       }
       if (id === 'folder-a') {
@@ -37,6 +38,7 @@ describe('Breadcrumb', () => {
           createdAt: '',
           children: [],
           documents: [],
+          canManage: false,
         };
       }
       throw new Error(`unexpected id ${id}`);

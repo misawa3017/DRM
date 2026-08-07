@@ -71,12 +71,14 @@ export function DocumentView() {
               下載目前版本
             </Button>
             <UploadDialog mode="new-version" documentId={documentId} />
-            <Link
-              to={`/documents/${documentId}/permissions`}
-              className="inline-flex items-center rounded-md border px-3 py-2 text-sm font-medium hover:bg-accent"
-            >
-              權限
-            </Link>
+            {doc.canManage && (
+              <Link
+                to={`/documents/${documentId}/permissions`}
+                className="inline-flex items-center rounded-md border px-3 py-2 text-sm font-medium hover:bg-accent"
+              >
+                權限
+              </Link>
+            )}
           </div>
         </div>
         {downloadError && (

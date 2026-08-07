@@ -19,6 +19,10 @@ export interface DocumentDetail {
   currentVersion: DocumentVersion | null;
   createdBy: string;
   createdAt: string;
+  // Whether the caller has manage-level access — GET /documents/:id only
+  // requires 'view', a lower bar, so a caller can see the document without
+  // being allowed to see or edit its ACL.
+  canManage: boolean;
 }
 
 export function getDocument(id: string, accessToken: string) {

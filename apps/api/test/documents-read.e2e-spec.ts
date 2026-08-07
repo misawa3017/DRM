@@ -1,5 +1,7 @@
 import axios from 'axios';
 import FormData from 'form-data';
+import { PrismaClient } from '@prisma/client';
+import { randomUUID } from 'crypto';
 
 const KEYCLOAK_TOKEN_URL = 'https://auth.drm.apower.lan/realms/drm/protocol/openid-connect/token';
 const API_BASE_URL = 'https://api.drm.apower.lan';
@@ -14,6 +16,7 @@ interface FolderResponse {
 
 interface DocumentResponse {
   id: string;
+  canManage?: boolean;
 }
 
 async function getToken(username: string, password: string): Promise<string> {
@@ -26,6 +29,76 @@ async function getToken(username: string, password: string): Promise<string> {
 }
 
 describe('Documents read path (e2e)', () => {
+  const prisma = new PrismaClient({
+    datasources: { db: { url: 'postgresql://drm:drm_dev_password@localhost:5433/drm' } },
+  });
+
+  let testUserId: string;
+
+  beforeAll(async () => {
+    const token = await getToken('testuser', 'testpass');
+    const res = await axios.get<{ id: string }>(`${API_BASE_URL}/whoami`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    testUserId = res.data.id;
+  });
+
+  afterAll(async () => {
+    await prisma.$disconnect();
+  });
+
+  it('GET /documents/:id reports canManage=false for a caller who only has download access', async () => {
+    const folder = await prisma.folder.create({
+      data: { name: `doc-canmanage-${randomUUID()}`, parentId: null, createdBy: 'seed' },
+    });
+    const document = await prisma.document.create({
+      data: { name: 'readme.txt', folderId: folder.id, createdBy: 'seed' },
+    });
+    await prisma.permission.create({
+      data: {
+        resourceType: 'document',
+        resourceId: document.id,
+        principalType: 'user',
+        principalId: testUserId,
+        permissionLevel: 'download',
+        grantedBy: 'seed',
+      },
+    });
+
+    const token = await getToken('testuser', 'testpass');
+    const res = await axios.get<DocumentResponse>(`${API_BASE_URL}/documents/${document.id}`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+
+    expect(res.data.canManage).toBe(false);
+  });
+
+  it('GET /documents/:id reports canManage=true for a caller with manage access', async () => {
+    const folder = await prisma.folder.create({
+      data: { name: `doc-canmanage-${randomUUID()}`, parentId: null, createdBy: 'seed' },
+    });
+    const document = await prisma.document.create({
+      data: { name: 'readme.txt', folderId: folder.id, createdBy: 'seed' },
+    });
+    await prisma.permission.create({
+      data: {
+        resourceType: 'document',
+        resourceId: document.id,
+        principalType: 'user',
+        principalId: testUserId,
+        permissionLevel: 'manage',
+        grantedBy: 'seed',
+      },
+    });
+
+    const token = await getToken('testuser', 'testpass');
+    const res = await axios.get<DocumentResponse>(`${API_BASE_URL}/documents/${document.id}`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+
+    expect(res.data.canManage).toBe(true);
+  });
+
   it('downloads the current version content correctly, and is blocked without a grant', async () => {
     const adminToken = await getToken('testadmin', 'testadminpass');
     const adminHeader = { Authorization: `Bearer ${adminToken}` };

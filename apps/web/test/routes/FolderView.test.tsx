@@ -29,6 +29,7 @@ describe('FolderView', () => {
         { id: 'child-1', name: 'Q1', parentId: 'folder-1', createdBy: 'u', createdAt: '' },
       ],
       documents: [{ id: 'doc-1', name: 'report.pdf', currentVersion: null }],
+      canManage: false,
     });
 
     renderWithProviders(<FolderView />, { route: '/folders/folder-1', path: '/folders/:id' });
@@ -38,7 +39,7 @@ describe('FolderView', () => {
     expect(getFolder).toHaveBeenCalledWith('folder-1', 'fake-token');
   });
 
-  it('renders a link to the folder\'s permissions page', async () => {
+  it('renders a link to the folder\'s permissions page when the caller can manage it', async () => {
     vi.mocked(getFolder).mockResolvedValue({
       id: 'folder-1',
       name: 'Finance',
@@ -47,6 +48,7 @@ describe('FolderView', () => {
       createdAt: '',
       children: [],
       documents: [],
+      canManage: true,
     });
 
     renderWithProviders(<FolderView />, { route: '/folders/folder-1', path: '/folders/:id' });
@@ -57,5 +59,23 @@ describe('FolderView', () => {
         '/folders/folder-1/permissions',
       ),
     );
+  });
+
+  it('hides the permissions link when the caller can view but not manage the folder', async () => {
+    vi.mocked(getFolder).mockResolvedValue({
+      id: 'folder-1',
+      name: 'Finance',
+      parentId: null,
+      createdBy: 'u',
+      createdAt: '',
+      children: [],
+      documents: [],
+      canManage: false,
+    });
+
+    renderWithProviders(<FolderView />, { route: '/folders/folder-1', path: '/folders/:id' });
+
+    await waitFor(() => expect(screen.getByText('Finance')).toBeInTheDocument());
+    expect(screen.queryByRole('link', { name: '權限' })).not.toBeInTheDocument();
   });
 });

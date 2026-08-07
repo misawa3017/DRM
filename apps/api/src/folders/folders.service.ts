@@ -83,6 +83,13 @@ export class FoldersService {
       ipAddress,
     });
 
-    return folder;
+    // The UI uses this to decide whether to offer a "manage permissions"
+    // link at all — GET /folders/:id/permissions requires 'manage', a
+    // higher bar than the 'view' access that gets a caller into this
+    // method, so a caller can legitimately see the folder yet not be
+    // allowed to see or edit its ACL.
+    const canManage = await this.acl.can(user, 'folder', id, 'manage');
+
+    return { ...folder, canManage };
   }
 }
