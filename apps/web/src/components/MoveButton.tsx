@@ -3,8 +3,8 @@ import { useMutation } from '@tanstack/react-query';
 import { useAuth } from 'react-oidc-context';
 import { FolderInput } from 'lucide-react';
 import { Button } from '@/components/ui/button';
-import { moveFolder } from '../api/folders';
-import { moveDocument } from '../api/documents';
+import { moveFolder, type FolderSummary } from '../api/folders';
+import { moveDocument, type DocumentDetail } from '../api/documents';
 import { friendlyErrorMessage } from '../api/client';
 import { ResourcePicker } from './ResourcePicker';
 
@@ -20,7 +20,7 @@ export function MoveButton({ resourceType, resourceId, onMoved }: MoveButtonProp
   const [pickerOpen, setPickerOpen] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const mutation = useMutation({
+  const mutation = useMutation<FolderSummary | DocumentDetail, unknown, string>({
     mutationFn: (destinationId: string) =>
       resourceType === 'folder'
         ? moveFolder(resourceId, destinationId, accessToken)

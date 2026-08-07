@@ -1,8 +1,8 @@
-import { useMemo } from 'react';
-import { Link, useParams } from 'react-router-dom';
-import { useQuery } from '@tanstack/react-query';
+import { useMemo, useState } from 'react';
+import { Link, useNavigate, useParams } from 'react-router-dom';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useAuth } from 'react-oidc-context';
-import { Folder, FileText } from 'lucide-react';
+import { Folder, FileText, Trash2 } from 'lucide-react';
 import {
   Table,
   TableBody,
@@ -11,24 +11,211 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table';
-import { getFolder } from '../api/folders';
+import { Button } from '@/components/ui/button';
+import {
+  getFolder,
+  renameFolder,
+  deleteFolder,
+  type FolderChildSummary,
+  type DocumentChildSummary,
+} from '../api/folders';
+import { renameDocument, deleteDocument } from '../api/documents';
 import { friendlyErrorMessage } from '../api/client';
 import { Breadcrumb } from '../components/Breadcrumb';
 import { CreateFolderDialog } from '../components/CreateFolderDialog';
 import { UploadDialog } from '../components/UploadDialog';
+import { InlineEditableName } from '../components/InlineEditableName';
+import { DeleteConfirmDialog } from '../components/DeleteConfirmDialog';
+import { MoveButton } from '../components/MoveButton';
 import { useSetNavbarCrumb } from '../lib/navbarBreadcrumb';
+
+function FolderRow({
+  folder,
+  onChanged,
+}: {
+  folder: FolderChildSummary;
+  onChanged: () => void;
+}) {
+  const auth = useAuth();
+  const accessToken = auth.user?.access_token ?? '';
+  const [confirmOpen, setConfirmOpen] = useState(false);
+  const [rowError, setRowError] = useState<string | null>(null);
+
+  const renameMutation = useMutation({
+    mutationFn: (name: string) => renameFolder(folder.id, name, accessToken),
+    onSuccess: onChanged,
+    onError: (err) => setRowError(friendlyErrorMessage(err)),
+  });
+  const deleteMutation = useMutation({
+    mutationFn: () => deleteFolder(folder.id, accessToken),
+    onSuccess: () => {
+      setConfirmOpen(false);
+      onChanged();
+    },
+    onError: (err) => setRowError(friendlyErrorMessage(err)),
+  });
+
+  return (
+    <TableRow>
+      <TableCell>
+        <div className="flex items-center gap-2">
+          <Link to={`/folders/${folder.id}`} className="flex items-center gap-2">
+            <Folder className="h-4 w-4 text-muted-foreground" />
+          </Link>
+          {folder.canManage ? (
+            <InlineEditableName
+              value={folder.name}
+              onSave={(name) => renameMutation.mutate(name)}
+              ariaLabel="編輯資料夾名稱"
+              testId={`folder-row-name-${folder.id}`}
+            />
+          ) : (
+            <Link to={`/folders/${folder.id}`}>{folder.name}</Link>
+          )}
+        </div>
+        {rowError && (
+          <p className="mt-1 text-xs text-destructive" data-testid={`folder-row-error-${folder.id}`}>
+            {rowError}
+          </p>
+        )}
+      </TableCell>
+      <TableCell className="w-0 whitespace-nowrap">
+        {folder.canManage && (
+          <div className="flex items-center gap-1">
+            <MoveButton resourceType="folder" resourceId={folder.id} onMoved={onChanged} />
+            <Button
+              variant="outline"
+              size="sm"
+              aria-label="刪除"
+              data-testid={`delete-folder-${folder.id}`}
+              onClick={() => {
+                setRowError(null);
+                setConfirmOpen(true);
+              }}
+            >
+              <Trash2 className="h-4 w-4" />
+            </Button>
+            <DeleteConfirmDialog
+              open={confirmOpen}
+              onOpenChange={setConfirmOpen}
+              resourceName={folder.name}
+              isDeleting={deleteMutation.isPending}
+              onConfirm={() => deleteMutation.mutate()}
+            />
+          </div>
+        )}
+      </TableCell>
+    </TableRow>
+  );
+}
+
+function DocumentRow({
+  document,
+  onChanged,
+}: {
+  document: DocumentChildSummary;
+  onChanged: () => void;
+}) {
+  const auth = useAuth();
+  const accessToken = auth.user?.access_token ?? '';
+  const [confirmOpen, setConfirmOpen] = useState(false);
+  const [rowError, setRowError] = useState<string | null>(null);
+
+  const renameMutation = useMutation({
+    mutationFn: (name: string) => renameDocument(document.id, name, accessToken),
+    onSuccess: onChanged,
+    onError: (err) => setRowError(friendlyErrorMessage(err)),
+  });
+  const deleteMutation = useMutation({
+    mutationFn: () => deleteDocument(document.id, accessToken),
+    onSuccess: () => {
+      setConfirmOpen(false);
+      onChanged();
+    },
+    onError: (err) => setRowError(friendlyErrorMessage(err)),
+  });
+
+  return (
+    <TableRow>
+      <TableCell>
+        <div className="flex items-center gap-2">
+          <Link to={`/documents/${document.id}`} className="flex items-center gap-2">
+            <FileText className="h-4 w-4 text-muted-foreground" />
+          </Link>
+          {document.canManage ? (
+            <InlineEditableName
+              value={document.name}
+              onSave={(name) => renameMutation.mutate(name)}
+              ariaLabel="編輯文件名稱"
+              testId={`document-row-name-${document.id}`}
+            />
+          ) : (
+            <Link to={`/documents/${document.id}`}>{document.name}</Link>
+          )}
+        </div>
+        {rowError && (
+          <p
+            className="mt-1 text-xs text-destructive"
+            data-testid={`document-row-error-${document.id}`}
+          >
+            {rowError}
+          </p>
+        )}
+      </TableCell>
+      <TableCell>
+        {document.currentVersion ? `v${document.currentVersion.versionNumber}` : '—'}
+      </TableCell>
+      <TableCell className="w-0 whitespace-nowrap">
+        {document.canManage && (
+          <div className="flex items-center gap-1">
+            <MoveButton resourceType="document" resourceId={document.id} onMoved={onChanged} />
+            <Button
+              variant="outline"
+              size="sm"
+              aria-label="刪除"
+              data-testid={`delete-document-${document.id}`}
+              onClick={() => {
+                setRowError(null);
+                setConfirmOpen(true);
+              }}
+            >
+              <Trash2 className="h-4 w-4" />
+            </Button>
+            <DeleteConfirmDialog
+              open={confirmOpen}
+              onOpenChange={setConfirmOpen}
+              resourceName={document.name}
+              isDeleting={deleteMutation.isPending}
+              onConfirm={() => deleteMutation.mutate()}
+            />
+          </div>
+        )}
+      </TableCell>
+    </TableRow>
+  );
+}
 
 export function FolderView() {
   const { id } = useParams<{ id: string }>();
   const auth = useAuth();
   const accessToken = auth.user?.access_token ?? '';
   const folderId = id ?? '';
+  const queryClient = useQueryClient();
+  const navigate = useNavigate();
 
   const query = useQuery({
     queryKey: ['folder', folderId],
     queryFn: () => getFolder(folderId, accessToken),
     enabled: !!folderId,
   });
+
+  const invalidate = () => {
+    queryClient.invalidateQueries({ queryKey: ['folder'] });
+    queryClient.invalidateQueries({ queryKey: ['rootFolders'] });
+  };
+
+  const [headerError, setHeaderError] = useState<string | null>(null);
+  const [headerDeleteOpen, setHeaderDeleteOpen] = useState(false);
 
   const folder = query.data;
   const crumb = useMemo(
@@ -40,6 +227,20 @@ export function FolderView() {
   );
   useSetNavbarCrumb(crumb);
 
+  const renameMutation = useMutation({
+    mutationFn: (name: string) => renameFolder(folderId, name, accessToken),
+    onSuccess: invalidate,
+    onError: (err) => setHeaderError(friendlyErrorMessage(err)),
+  });
+  const deleteMutation = useMutation({
+    mutationFn: () => deleteFolder(folderId, accessToken),
+    onSuccess: () => {
+      invalidate();
+      navigate(folder?.parentId ? `/folders/${folder.parentId}` : '/');
+    },
+    onError: (err) => setHeaderError(friendlyErrorMessage(err)),
+  });
+
   if (query.isLoading) return <p data-testid="loading">Loading...</p>;
   if (query.isError) return <p data-testid="error">{friendlyErrorMessage(query.error)}</p>;
   if (!folder) return null;
@@ -47,20 +248,55 @@ export function FolderView() {
   return (
     <div className="mx-auto max-w-4xl px-6 py-8">
       <div className="mb-6 flex items-center justify-between gap-3">
-        <h1 className="text-xl font-bold">{folder.name}</h1>
+        {folder.canManage ? (
+          <InlineEditableName
+            value={folder.name}
+            onSave={(name) => renameMutation.mutate(name)}
+            className="text-xl font-bold"
+            ariaLabel="編輯資料夾名稱"
+            testId="folder-name"
+          />
+        ) : (
+          <h1 className="text-xl font-bold">{folder.name}</h1>
+        )}
         <div className="flex gap-2">
           <CreateFolderDialog parentId={folder.id} />
           <UploadDialog mode="new-document" folderId={folder.id} />
           {folder.canManage && (
-            <Link
-              to={`/folders/${folder.id}/permissions`}
-              className="inline-flex items-center rounded-md border px-3 py-2 text-sm font-medium hover:bg-accent"
-            >
-              權限
-            </Link>
+            <>
+              <MoveButton resourceType="folder" resourceId={folder.id} onMoved={invalidate} />
+              <Button
+                variant="outline"
+                data-testid={`delete-folder-${folder.id}`}
+                onClick={() => {
+                  setHeaderError(null);
+                  setHeaderDeleteOpen(true);
+                }}
+              >
+                <Trash2 className="h-4 w-4" />
+              </Button>
+              <DeleteConfirmDialog
+                open={headerDeleteOpen}
+                onOpenChange={setHeaderDeleteOpen}
+                resourceName={folder.name}
+                isDeleting={deleteMutation.isPending}
+                onConfirm={() => deleteMutation.mutate()}
+              />
+              <Link
+                to={`/folders/${folder.id}/permissions`}
+                className="inline-flex items-center rounded-md border px-3 py-2 text-sm font-medium hover:bg-accent"
+              >
+                權限
+              </Link>
+            </>
           )}
         </div>
       </div>
+      {headerError && (
+        <p className="mb-4 text-sm text-destructive" data-testid="folder-header-error">
+          {headerError}
+        </p>
+      )}
 
       <h2 className="mb-2 text-sm font-semibold uppercase tracking-wide text-muted-foreground">
         子資料夾
@@ -69,14 +305,7 @@ export function FolderView() {
         <Table>
           <TableBody>
             {folder.children.map((child) => (
-              <TableRow key={child.id}>
-                <TableCell>
-                  <Link to={`/folders/${child.id}`} className="flex items-center gap-2">
-                    <Folder className="h-4 w-4 text-muted-foreground" />
-                    {child.name}
-                  </Link>
-                </TableCell>
-              </TableRow>
+              <FolderRow key={child.id} folder={child} onChanged={invalidate} />
             ))}
           </TableBody>
         </Table>
@@ -91,21 +320,12 @@ export function FolderView() {
             <TableRow>
               <TableHead>名稱</TableHead>
               <TableHead>目前版本</TableHead>
+              <TableHead />
             </TableRow>
           </TableHeader>
           <TableBody>
             {folder.documents.map((document) => (
-              <TableRow key={document.id}>
-                <TableCell>
-                  <Link to={`/documents/${document.id}`} className="flex items-center gap-2">
-                    <FileText className="h-4 w-4 text-muted-foreground" />
-                    {document.name}
-                  </Link>
-                </TableCell>
-                <TableCell>
-                  {document.currentVersion ? `v${document.currentVersion.versionNumber}` : '—'}
-                </TableCell>
-              </TableRow>
+              <DocumentRow key={document.id} document={document} onChanged={invalidate} />
             ))}
           </TableBody>
         </Table>
