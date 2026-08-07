@@ -5,10 +5,12 @@ import { useAuth } from 'react-oidc-context';
 import { GrantPermissionForm } from '../../src/components/GrantPermissionForm';
 import { searchUsers } from '../../src/api/users';
 import { grantPermission } from '../../src/api/permissions';
+import { listRootFolders, getFolder } from '../../src/api/folders';
 
 vi.mock('react-oidc-context', () => ({ useAuth: vi.fn() }));
 vi.mock('../../src/api/users', () => ({ searchUsers: vi.fn() }));
 vi.mock('../../src/api/permissions', () => ({ grantPermission: vi.fn() }));
+vi.mock('../../src/api/folders', () => ({ listRootFolders: vi.fn(), getFolder: vi.fn() }));
 
 function renderForm(props: Parameters<typeof GrantPermissionForm>[0]) {
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
@@ -88,6 +90,51 @@ describe('GrantPermissionForm', () => {
 
     expect(screen.getByTestId('grant-submit')).toBeDisabled();
     expect(screen.getByTestId('open-resource-picker')).toBeInTheDocument();
+  });
+
+  it('shows the full ancestor path (not just the leaf name) once a nested folder is picked', async () => {
+    vi.mocked(listRootFolders).mockResolvedValue([
+      { id: 'f1', name: 'Finance', parentId: null, createdBy: 'u', createdAt: '' },
+    ]);
+    vi.mocked(getFolder).mockImplementation(async (id: string) => {
+      if (id === 'f1') {
+        return {
+          id: 'f1',
+          name: 'Finance',
+          parentId: null,
+          createdBy: 'u',
+          createdAt: '',
+          children: [{ id: 'f2', name: 'Q1', parentId: 'f1', createdBy: 'u', createdAt: '' }],
+          documents: [],
+        };
+      }
+      if (id === 'f2') {
+        return {
+          id: 'f2',
+          name: 'Q1',
+          parentId: 'f1',
+          createdBy: 'u',
+          createdAt: '',
+          children: [],
+          documents: [],
+        };
+      }
+      throw new Error(`unexpected id ${id}`);
+    });
+
+    renderForm({ onGranted: vi.fn() });
+
+    fireEvent.click(screen.getByTestId('open-resource-picker'));
+    await waitFor(() => expect(screen.getByText('Finance')).toBeInTheDocument());
+    fireEvent.click(screen.getByText('Finance'));
+
+    await waitFor(() => expect(screen.getByText('Q1')).toBeInTheDocument());
+    fireEvent.click(screen.getByText('Q1'));
+
+    await waitFor(() => expect(screen.getByTestId('pick-current-folder')).toBeInTheDocument());
+    fireEvent.click(screen.getByTestId('pick-current-folder'));
+
+    await waitFor(() => expect(screen.getByText('Root / Finance / Q1')).toBeInTheDocument());
   });
 
   it('shows a friendly error message when the user search fails', async () => {

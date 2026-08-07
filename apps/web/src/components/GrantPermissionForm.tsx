@@ -89,7 +89,7 @@ export function GrantPermissionForm({ fixedResource, onGranted }: GrantPermissio
           >
             <Folder className="h-4 w-4 shrink-0 text-muted-foreground" />
             <span className={`text-sm ${pickedResource ? 'font-medium' : 'text-muted-foreground'}`}>
-              {pickedResource ? pickedResource.name : '尚未選擇資源'}
+              {pickedResource ? `${pickedResource.path} / ${pickedResource.name}` : '尚未選擇資源'}
             </span>
             <Button
               variant="outline"

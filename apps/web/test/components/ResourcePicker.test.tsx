@@ -75,7 +75,12 @@ describe('ResourcePicker', () => {
     await waitFor(() => expect(screen.getByTestId('pick-current-folder')).toBeInTheDocument());
     fireEvent.click(screen.getByTestId('pick-current-folder'));
 
-    expect(onSelect).toHaveBeenCalledWith({ resourceType: 'folder', resourceId: 'f1', name: 'Finance' });
+    expect(onSelect).toHaveBeenCalledWith({
+      resourceType: 'folder',
+      resourceId: 'f1',
+      name: 'Finance',
+      path: 'Root',
+    });
   });
 
   it('calls onSelect with resourceType document when a document is clicked', async () => {
@@ -100,7 +105,12 @@ describe('ResourcePicker', () => {
     await waitFor(() => expect(screen.getByText('report.pdf')).toBeInTheDocument());
     fireEvent.click(screen.getByText('report.pdf'));
 
-    expect(onSelect).toHaveBeenCalledWith({ resourceType: 'document', resourceId: 'd1', name: 'report.pdf' });
+    expect(onSelect).toHaveBeenCalledWith({
+      resourceType: 'document',
+      resourceId: 'd1',
+      name: 'report.pdf',
+      path: 'Root / Finance',
+    });
   });
 
   it('resets back to root folders each time the dialog is reopened', async () => {
@@ -185,9 +195,58 @@ describe('ResourcePicker', () => {
     await waitFor(() => expect(screen.getByText('Q1')).toBeInTheDocument());
     fireEvent.click(screen.getByText('Q1'));
 
-    await waitFor(() => expect(screen.getByText(/選擇這個資料夾：Q1/)).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByText(/選擇這個資料夾：Root \/ Finance \/ Q1/)).toBeInTheDocument());
     fireEvent.click(screen.getByTestId('resource-picker-up'));
 
-    await waitFor(() => expect(screen.getByText(/選擇這個資料夾：Finance/)).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByText(/選擇這個資料夾：Root \/ Finance/)).toBeInTheDocument());
+  });
+
+  it('reports the full ancestor path (not just the leaf name) when picking a nested folder', async () => {
+    vi.mocked(listRootFolders).mockResolvedValue([
+      { id: 'f1', name: 'Finance', parentId: null, createdBy: 'u', createdAt: '' },
+    ]);
+    vi.mocked(getFolder).mockImplementation(async (id: string) => {
+      if (id === 'f1') {
+        return {
+          id: 'f1',
+          name: 'Finance',
+          parentId: null,
+          createdBy: 'u',
+          createdAt: '',
+          children: [{ id: 'f2', name: 'Q1', parentId: 'f1', createdBy: 'u', createdAt: '' }],
+          documents: [],
+        };
+      }
+      if (id === 'f2') {
+        return {
+          id: 'f2',
+          name: 'Q1',
+          parentId: 'f1',
+          createdBy: 'u',
+          createdAt: '',
+          children: [],
+          documents: [],
+        };
+      }
+      throw new Error(`unexpected id ${id}`);
+    });
+
+    const { onSelect } = renderPicker();
+
+    await waitFor(() => expect(screen.getByText('Finance')).toBeInTheDocument());
+    fireEvent.click(screen.getByText('Finance'));
+
+    await waitFor(() => expect(screen.getByText('Q1')).toBeInTheDocument());
+    fireEvent.click(screen.getByText('Q1'));
+
+    await waitFor(() => expect(screen.getByTestId('pick-current-folder')).toBeInTheDocument());
+    fireEvent.click(screen.getByTestId('pick-current-folder'));
+
+    expect(onSelect).toHaveBeenCalledWith({
+      resourceType: 'folder',
+      resourceId: 'f2',
+      name: 'Q1',
+      path: 'Root / Finance',
+    });
   });
 });
