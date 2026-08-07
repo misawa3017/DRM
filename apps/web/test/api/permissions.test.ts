@@ -37,7 +37,7 @@ describe('permissions api', () => {
     expect(url).toContain('/documents/doc-1/permissions');
   });
 
-  it('listGlobalPermissions calls GET /permissions with includeInherited', async () => {
+  it('listGlobalPermissions calls GET /permissions with includeInherited=true', async () => {
     vi.mocked(fetch).mockResolvedValue({
       ok: true,
       headers: new Headers({ 'content-type': 'application/json' }),
@@ -48,6 +48,19 @@ describe('permissions api', () => {
 
     const [url] = vi.mocked(fetch).mock.calls[0];
     expect(url).toContain('/permissions?includeInherited=true');
+  });
+
+  it('listGlobalPermissions calls GET /permissions with includeInherited=false', async () => {
+    vi.mocked(fetch).mockResolvedValue({
+      ok: true,
+      headers: new Headers({ 'content-type': 'application/json' }),
+      json: async () => [],
+    } as Response);
+
+    await listGlobalPermissions(false, 'fake-token');
+
+    const [url] = vi.mocked(fetch).mock.calls[0];
+    expect(url).toContain('/permissions?includeInherited=false');
   });
 
   it('grantPermission POSTs principalType user, principalId, and permissionLevel', async () => {
