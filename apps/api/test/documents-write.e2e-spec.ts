@@ -232,4 +232,68 @@ describe('Documents write path (e2e)', () => {
       ),
     ).rejects.toMatchObject({ response: { status: 403 } });
   });
+
+  it('PATCH /documents/:id rejects folderId: null with 400', async () => {
+    const adminToken = await getToken('testadmin', 'testadminpass');
+    const folderRes = await axios.post<{ id: string }>(
+      `${API_BASE_URL}/folders`,
+      { name: `doc-null-folder-${Date.now()}` },
+      { headers: { Authorization: `Bearer ${adminToken}` } },
+    );
+    const form = new FormData();
+    form.append('folderId', folderRes.data.id);
+    form.append('name', 'doc.txt');
+    form.append('file', Buffer.from('content'), { filename: 'doc.txt' });
+    const createRes = await axios.post<{ id: string }>(`${API_BASE_URL}/documents`, form, {
+      headers: { Authorization: `Bearer ${adminToken}`, ...form.getHeaders() },
+    });
+
+    await expect(
+      axios.patch(
+        `${API_BASE_URL}/documents/${createRes.data.id}`,
+        { folderId: null },
+        { headers: { Authorization: `Bearer ${adminToken}` } },
+      ),
+    ).rejects.toMatchObject({ response: { status: 400 } });
+  });
+
+  it('PATCH /documents/:id with unchanged folderId succeeds and records only rename audit, no move', async () => {
+    const adminToken = await getToken('testadmin', 'testadminpass');
+    const folderRes = await axios.post<{ id: string }>(
+      `${API_BASE_URL}/folders`,
+      { name: `doc-unchanged-folder-${Date.now()}` },
+      { headers: { Authorization: `Bearer ${adminToken}` } },
+    );
+    const form = new FormData();
+    form.append('folderId', folderRes.data.id);
+    form.append('name', 'oldname.txt');
+    form.append('file', Buffer.from('content'), { filename: 'oldname.txt' });
+    const createRes = await axios.post<{ id: string }>(`${API_BASE_URL}/documents`, form, {
+      headers: { Authorization: `Bearer ${adminToken}`, ...form.getHeaders() },
+    });
+
+    const res = await axios.patch<{ name: string; folderId: string }>(
+      `${API_BASE_URL}/documents/${createRes.data.id}`,
+      { name: 'newname.txt', folderId: folderRes.data.id },
+      { headers: { Authorization: `Bearer ${adminToken}` } },
+    );
+    expect(res.status).toBe(200);
+    expect(res.data.name).toBe('newname.txt');
+    expect(res.data.folderId).toBe(folderRes.data.id);
+
+    // Verify audit entries: should have document_rename but NOT document_move
+    const prisma = new PrismaClient({
+      datasources: { db: { url: 'postgresql://drm:drm_dev_password@localhost:5433/drm' } },
+    });
+    const auditEntries = await prisma.auditLog.findMany({
+      where: { resourceId: createRes.data.id },
+      orderBy: { createdAt: 'desc' },
+    });
+    await prisma.$disconnect();
+
+    const renameEntries = auditEntries.filter((a) => a.action === 'document_rename');
+    const moveEntries = auditEntries.filter((a) => a.action === 'document_move');
+    expect(renameEntries.length).toBeGreaterThan(0);
+    expect(moveEntries.length).toBe(0);
+  });
 });

@@ -275,8 +275,8 @@ export class DocumentsService {
 
     let newFolderId = document.folderId;
     if (changes.folderId !== undefined) {
-      if (changes.folderId === document.folderId) {
-        throw new BadRequestException('Document is already in this folder');
+      if (changes.folderId === null) {
+        throw new BadRequestException('folderId cannot be null');
       }
       const destinationAllowed = await this.acl.can(user, 'folder', changes.folderId, 'edit');
       if (!destinationAllowed) {
