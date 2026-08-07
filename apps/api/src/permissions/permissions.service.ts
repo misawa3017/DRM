@@ -72,7 +72,21 @@ export class PermissionsService {
     if (!allowed) {
       throw new ForbiddenException('You do not have manage access to this resource');
     }
-    return this.prisma.permission.findMany({ where: { resourceType, resourceId } });
+    const permissions = await this.prisma.permission.findMany({ where: { resourceType, resourceId } });
+    return Promise.all(permissions.map((p) => this.enrichWithPrincipal(p)));
+  }
+
+  private async enrichWithPrincipal<T extends { principalType: PrincipalType; principalId: string }>(
+    permission: T,
+  ): Promise<T & { principal: { email: string; displayName: string } | null }> {
+    if (permission.principalType !== 'user') {
+      return { ...permission, principal: null };
+    }
+    const user = await this.prisma.user.findUnique({
+      where: { id: permission.principalId },
+      select: { email: true, displayName: true },
+    });
+    return { ...permission, principal: user ?? null };
   }
 
   async revoke(

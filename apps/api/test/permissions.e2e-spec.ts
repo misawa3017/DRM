@@ -213,4 +213,35 @@ describe('Permissions (e2e)', () => {
     );
     expect(listBRes.data.map((p) => p.id)).toContain(permissionBId);
   });
+
+  it('GET .../permissions includes the principal display name and email for each grant', async () => {
+    const adminToken = await getToken('testadmin', 'testadminpass');
+    const adminHeader = { Authorization: `Bearer ${adminToken}` };
+
+    const folderRes = await axios.post<FolderResponse>(
+      `${API_BASE_URL}/folders`,
+      { name: `perm-principal-test-${Date.now()}` },
+      { headers: adminHeader },
+    );
+    const folderId = folderRes.data.id;
+
+    const employeeToken = await getToken('testuser', 'testpass');
+    const employeeUser = await whoami(employeeToken);
+
+    await axios.post(
+      `${API_BASE_URL}/folders/${folderId}/permissions`,
+      { principalType: 'user', principalId: employeeUser.id, permissionLevel: 'view' },
+      { headers: adminHeader },
+    );
+
+    const listRes = await axios.get<
+      { principalId: string; principal: { email: string; displayName: string } | null }[]
+    >(`${API_BASE_URL}/folders/${folderId}/permissions`, { headers: adminHeader });
+
+    const entry = listRes.data.find((p) => p.principalId === employeeUser.id);
+    expect(entry).toBeDefined();
+    expect(entry?.principal).not.toBeNull();
+    expect(entry?.principal?.email).toEqual(expect.stringContaining('@'));
+    expect(entry?.principal?.displayName).toEqual(expect.any(String));
+  });
 });
