@@ -246,4 +246,149 @@ describe('Folders (e2e)', () => {
 
     expect(res.data.map((f) => f.id)).toContain(folder.id);
   });
+
+  it('POST /folders rejects a name that collides with an existing, non-deleted sibling', async () => {
+    const parent = await prisma.folder.create({
+      data: { name: `conflict-parent-${randomUUID()}`, parentId: null, createdBy: 'seed' },
+    });
+    await prisma.permission.create({
+      data: {
+        resourceType: 'folder',
+        resourceId: parent.id,
+        principalType: 'user',
+        principalId: testUserId,
+        permissionLevel: 'edit',
+        grantedBy: 'seed',
+      },
+    });
+    const token = await getToken('testuser', 'testpass');
+    await axios.post(
+      `${API_BASE_URL}/folders`,
+      { name: 'dup-name', parentId: parent.id },
+      { headers: { Authorization: `Bearer ${token}` } },
+    );
+
+    await expect(
+      axios.post(
+        `${API_BASE_URL}/folders`,
+        { name: 'dup-name', parentId: parent.id },
+        { headers: { Authorization: `Bearer ${token}` } },
+      ),
+    ).rejects.toMatchObject({ response: { status: 409 } });
+  });
+
+  it('POST /folders allows a name that collides only with a soft-deleted sibling', async () => {
+    const parent = await prisma.folder.create({
+      data: { name: `conflict-parent-${randomUUID()}`, parentId: null, createdBy: 'seed' },
+    });
+    await prisma.permission.create({
+      data: {
+        resourceType: 'folder',
+        resourceId: parent.id,
+        principalType: 'user',
+        principalId: testUserId,
+        permissionLevel: 'edit',
+        grantedBy: 'seed',
+      },
+    });
+    const deletedSibling = await prisma.folder.create({
+      data: {
+        name: 'reusable-name',
+        parentId: parent.id,
+        createdBy: 'seed',
+        deletedAt: new Date(),
+      },
+    });
+    void deletedSibling;
+
+    const token = await getToken('testuser', 'testpass');
+    const res = await axios.post<FolderResponse>(
+      `${API_BASE_URL}/folders`,
+      { name: 'reusable-name', parentId: parent.id },
+      { headers: { Authorization: `Bearer ${token}` } },
+    );
+    expect(res.status).toBe(201);
+  });
+
+  it('GET /folders and GET /folders/:id never return a soft-deleted folder', async () => {
+    const root = await prisma.folder.create({
+      data: { name: `soft-deleted-root-${randomUUID()}`, parentId: null, createdBy: 'seed' },
+    });
+    await prisma.permission.create({
+      data: {
+        resourceType: 'folder',
+        resourceId: root.id,
+        principalType: 'user',
+        principalId: testUserId,
+        permissionLevel: 'manage',
+        grantedBy: 'seed',
+      },
+    });
+    await prisma.folder.update({ where: { id: root.id }, data: { deletedAt: new Date() } });
+
+    const token = await getToken('testuser', 'testpass');
+    const listRes = await axios.get<FolderResponse[]>(`${API_BASE_URL}/folders`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    expect(listRes.data.map((f) => f.id)).not.toContain(root.id);
+
+    await expect(
+      axios.get(`${API_BASE_URL}/folders/${root.id}`, {
+        headers: { Authorization: `Bearer ${token}` },
+      }),
+    ).rejects.toMatchObject({ response: { status: 404 } });
+  });
+
+  it("GET /folders/:id's children and documents each carry their own canManage, and exclude soft-deleted rows", async () => {
+    const parent = await prisma.folder.create({
+      data: { name: `parent-children-canmanage-${randomUUID()}`, parentId: null, createdBy: 'seed' },
+    });
+    await prisma.permission.create({
+      data: {
+        resourceType: 'folder',
+        resourceId: parent.id,
+        principalType: 'user',
+        principalId: testUserId,
+        permissionLevel: 'view',
+        grantedBy: 'seed',
+      },
+    });
+    const manageableChild = await prisma.folder.create({
+      data: { name: 'manageable-child', parentId: parent.id, createdBy: 'seed' },
+    });
+    await prisma.permission.create({
+      data: {
+        resourceType: 'folder',
+        resourceId: manageableChild.id,
+        principalType: 'user',
+        principalId: testUserId,
+        permissionLevel: 'manage',
+        grantedBy: 'seed',
+      },
+    });
+    const viewOnlyChild = await prisma.folder.create({
+      data: { name: 'view-only-child', parentId: parent.id, createdBy: 'seed' },
+    });
+    const deletedChild = await prisma.folder.create({
+      data: {
+        name: 'deleted-child',
+        parentId: parent.id,
+        createdBy: 'seed',
+        deletedAt: new Date(),
+      },
+    });
+    void deletedChild;
+
+    const token = await getToken('testuser', 'testpass');
+    const res = await axios.get<
+      FolderResponse & { children: (FolderResponse & { canManage: boolean })[] }
+    >(`${API_BASE_URL}/folders/${parent.id}`, { headers: { Authorization: `Bearer ${token}` } });
+
+    const childIds = (res.data.children as (FolderResponse & { canManage: boolean })[]).map((c) => c.id);
+    expect(childIds).toContain(manageableChild.id);
+    expect(childIds).toContain(viewOnlyChild.id);
+    expect(childIds).not.toContain(deletedChild.id);
+    expect((res.data.children as (FolderResponse & { canManage: boolean })[]).find((c) => c.id === manageableChild.id)?.canManage).toBe(true);
+    expect((res.data.children as (FolderResponse & { canManage: boolean })[]).find((c) => c.id === viewOnlyChild.id)?.canManage).toBe(false);
+  });
 });
