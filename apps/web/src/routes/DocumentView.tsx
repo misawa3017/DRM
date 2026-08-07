@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { useParams } from 'react-router-dom';
+import { Link, useParams } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import { useAuth } from 'react-oidc-context';
 import { FileText } from 'lucide-react';
@@ -71,6 +71,12 @@ export function DocumentView() {
               下載目前版本
             </Button>
             <UploadDialog mode="new-version" documentId={documentId} />
+            <Link
+              to={`/documents/${documentId}/permissions`}
+              className="inline-flex items-center rounded-md border px-3 py-2 text-sm font-medium hover:bg-accent"
+            >
+              權限
+            </Link>
           </div>
         </div>
         {downloadError && (

@@ -37,4 +37,25 @@ describe('FolderView', () => {
     expect(screen.getByRole('link', { name: 'report.pdf' })).toBeInTheDocument();
     expect(getFolder).toHaveBeenCalledWith('folder-1', 'fake-token');
   });
+
+  it('renders a link to the folder\'s permissions page', async () => {
+    vi.mocked(getFolder).mockResolvedValue({
+      id: 'folder-1',
+      name: 'Finance',
+      parentId: null,
+      createdBy: 'u',
+      createdAt: '',
+      children: [],
+      documents: [],
+    });
+
+    renderWithProviders(<FolderView />, { route: '/folders/folder-1', path: '/folders/:id' });
+
+    await waitFor(() =>
+      expect(screen.getByRole('link', { name: '權限' })).toHaveAttribute(
+        'href',
+        '/folders/folder-1/permissions',
+      ),
+    );
+  });
 });

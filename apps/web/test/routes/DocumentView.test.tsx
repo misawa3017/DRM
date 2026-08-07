@@ -60,4 +60,26 @@ describe('DocumentView', () => {
       expect(downloadDocument).toHaveBeenCalledWith('doc-1', undefined, 'fake-token'),
     );
   });
+
+  it('renders a link to the document\'s permissions page', async () => {
+    vi.mocked(getDocument).mockResolvedValue({
+      id: 'doc-1',
+      folderId: 'folder-1',
+      name: 'report.pdf',
+      currentVersionId: 'v2',
+      currentVersion: null,
+      createdBy: 'u',
+      createdAt: '',
+    });
+    vi.mocked(listVersions).mockResolvedValue([]);
+
+    renderWithProviders(<DocumentView />, { route: '/documents/doc-1', path: '/documents/:id' });
+
+    await waitFor(() =>
+      expect(screen.getByRole('link', { name: '權限' })).toHaveAttribute(
+        'href',
+        '/documents/doc-1/permissions',
+      ),
+    );
+  });
 });

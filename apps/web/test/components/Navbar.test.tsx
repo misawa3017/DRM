@@ -95,4 +95,13 @@ describe('Navbar', () => {
 
     expect(signoutRedirect).toHaveBeenCalledTimes(1);
   });
+
+  it('renders 資料夾 and 權限管理 nav tabs linking to / and /permissions', async () => {
+    renderNavbar();
+
+    const foldersLink = screen.getByRole('link', { name: '資料夾' });
+    const permissionsLink = screen.getByRole('link', { name: '權限管理' });
+    expect(foldersLink).toHaveAttribute('href', '/');
+    expect(permissionsLink).toHaveAttribute('href', '/permissions');
+  });
 });

@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState, type ReactNode } from 'react';
-import { Link, Outlet } from 'react-router-dom';
+import { Link, NavLink, Outlet } from 'react-router-dom';
 import { useAuth } from 'react-oidc-context';
 import { Folder } from 'lucide-react';
 import { NavbarBreadcrumbContext } from '../lib/navbarBreadcrumb';
@@ -45,6 +45,25 @@ export function Navbar() {
           </span>
           DRM
         </Link>
+        <nav className="flex shrink-0 gap-4 text-sm">
+          <NavLink
+            to="/"
+            end
+            className={({ isActive }) =>
+              isActive ? 'font-semibold text-white' : 'text-primary-foreground/75'
+            }
+          >
+            資料夾
+          </NavLink>
+          <NavLink
+            to="/permissions"
+            className={({ isActive }) =>
+              isActive ? 'font-semibold text-white' : 'text-primary-foreground/75'
+            }
+          >
+            權限管理
+          </NavLink>
+        </nav>
 
         <div
           className="flex min-w-0 flex-1 items-center justify-center gap-1 text-sm"

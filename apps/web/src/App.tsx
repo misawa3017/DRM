@@ -8,6 +8,9 @@ import { Navbar } from './components/Navbar';
 import { RootFolders } from './routes/RootFolders';
 import { FolderView } from './routes/FolderView';
 import { DocumentView } from './routes/DocumentView';
+import { PermissionsDashboard } from './routes/PermissionsDashboard';
+import { FolderPermissions } from './routes/FolderPermissions';
+import { DocumentPermissions } from './routes/DocumentPermissions';
 
 function AuthScreen({ children }: { children: ReactNode }) {
   return (
@@ -57,7 +60,10 @@ export default function App() {
         <Route element={<Navbar />}>
           <Route path="/" element={<RootFolders />} />
           <Route path="/folders/:id" element={<FolderView />} />
+          <Route path="/folders/:id/permissions" element={<FolderPermissions />} />
           <Route path="/documents/:id" element={<DocumentView />} />
+          <Route path="/documents/:id/permissions" element={<DocumentPermissions />} />
+          <Route path="/permissions" element={<PermissionsDashboard />} />
         </Route>
       </Routes>
     </BrowserRouter>
