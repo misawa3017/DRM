@@ -7,11 +7,19 @@ import { listGlobalPermissions, revokePermission } from '../api/permissions';
 import { friendlyErrorMessage } from '../api/client';
 import { PermissionsTable } from '../components/PermissionsTable';
 import { GrantPermissionForm } from '../components/GrantPermissionForm';
+import { getRolesFromToken } from '../lib/jwt';
 
 export function PermissionsDashboard() {
   const auth = useAuth();
   const accessToken = auth.user?.access_token ?? '';
   const queryClient = useQueryClient();
+  // Admins already see every permission in the system regardless of this
+  // toggle (the backend short-circuits findManagedResources to "all" for
+  // the admin role, bypassing the direct/inherited distinction entirely),
+  // so clicking it would visibly change the button but never the table —
+  // confusing enough in practice to disable it outright rather than let an
+  // admin click it and wonder if it's broken.
+  const isAdmin = getRolesFromToken(accessToken).includes('admin');
 
   const [includeInherited, setIncludeInherited] = useState(false);
   const [filter, setFilter] = useState('');
@@ -71,12 +79,18 @@ export function PermissionsDashboard() {
           variant="outline"
           size="sm"
           data-testid="include-inherited-toggle"
-          disabled={includeInherited || query.isFetching}
+          disabled={isAdmin || includeInherited || query.isFetching}
+          title={isAdmin ? 'admin 本來就看得到系統中所有的授權' : undefined}
           onClick={() => setIncludeInherited(true)}
         >
           {includeInherited ? '已包含繼承項目' : '顯示繼承項目'}
         </Button>
       </div>
+      {isAdmin && (
+        <p className="mb-4 text-xs text-muted-foreground">
+          你是 admin，已經看得到系統中所有的授權，「顯示繼承項目」對你沒有作用。
+        </p>
+      )}
 
       {revokeError && (
         <p className="mb-4 text-sm text-destructive" data-testid="revoke-error">

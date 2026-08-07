@@ -5,6 +5,16 @@ import { PermissionsDashboard } from '../../src/routes/PermissionsDashboard';
 import { listGlobalPermissions, revokePermission } from '../../src/api/permissions';
 import { renderWithProviders } from '../testUtils';
 
+function fakeJwt(payload: unknown): string {
+  const b64url = (obj: unknown) =>
+    Buffer.from(JSON.stringify(obj))
+      .toString('base64')
+      .replace(/\+/g, '-')
+      .replace(/\//g, '_')
+      .replace(/=+$/, '');
+  return `${b64url({ alg: 'RS256', typ: 'JWT' })}.${b64url(payload)}.signature`;
+}
+
 vi.mock('react-oidc-context', () => ({ useAuth: vi.fn() }));
 vi.mock('../../src/api/permissions', () => ({
   listGlobalPermissions: vi.fn(),
@@ -111,5 +121,18 @@ describe('PermissionsDashboard', () => {
     fireEvent.click(screen.getByTestId('revoke-p1'));
 
     await waitFor(() => expect(screen.getByTestId('revoke-error')).toBeInTheDocument());
+  });
+
+  it('disables the "顯示繼承項目" toggle for admins, who already see everything', async () => {
+    vi.mocked(useAuth).mockReturnValue({
+      user: { access_token: fakeJwt({ realm_access: { roles: ['admin'] } }) },
+    } as unknown as ReturnType<typeof useAuth>);
+    vi.mocked(listGlobalPermissions).mockResolvedValue([directEntry]);
+
+    renderWithProviders(<PermissionsDashboard />, { route: '/permissions', path: '/permissions' });
+
+    await waitFor(() => expect(screen.getByText('財務部')).toBeInTheDocument());
+
+    expect(screen.getByTestId('include-inherited-toggle')).toBeDisabled();
   });
 });
