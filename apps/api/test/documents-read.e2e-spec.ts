@@ -132,4 +132,73 @@ describe('Documents read path (e2e)', () => {
       }),
     ).rejects.toMatchObject({ response: { status: 403 } });
   });
+
+  it('GET /documents/:id, listVersions, and download all treat a soft-deleted document as not found', async () => {
+    const folder = await prisma.folder.create({
+      data: { name: `deleted-doc-folder-${randomUUID()}`, parentId: null, createdBy: 'seed' },
+    });
+    const document = await prisma.document.create({
+      data: {
+        name: 'will-be-deleted.txt',
+        folderId: folder.id,
+        createdBy: 'seed',
+        deletedAt: new Date(),
+      },
+    });
+    await prisma.permission.create({
+      data: {
+        resourceType: 'document',
+        resourceId: document.id,
+        principalType: 'user',
+        principalId: testUserId,
+        permissionLevel: 'manage',
+        grantedBy: 'seed',
+      },
+    });
+
+    const token = await getToken('testuser', 'testpass');
+    const headers = { Authorization: `Bearer ${token}` };
+
+    await expect(
+      axios.get(`${API_BASE_URL}/documents/${document.id}`, { headers }),
+    ).rejects.toMatchObject({ response: { status: 404 } });
+    await expect(
+      axios.get(`${API_BASE_URL}/documents/${document.id}/versions`, { headers }),
+    ).rejects.toMatchObject({ response: { status: 404 } });
+    await expect(
+      axios.get(`${API_BASE_URL}/documents/${document.id}/download`, { headers }),
+    ).rejects.toMatchObject({ response: { status: 404 } });
+  });
+
+  it('a soft-deleted document does not appear in its (non-deleted) folder listing', async () => {
+    const folder = await prisma.folder.create({
+      data: { name: `deleted-doc-listing-${randomUUID()}`, parentId: null, createdBy: 'seed' },
+    });
+    const document = await prisma.document.create({
+      data: {
+        name: 'hidden.txt',
+        folderId: folder.id,
+        createdBy: 'seed',
+        deletedAt: new Date(),
+      },
+    });
+    void document;
+    await prisma.permission.create({
+      data: {
+        resourceType: 'folder',
+        resourceId: folder.id,
+        principalType: 'user',
+        principalId: testUserId,
+        permissionLevel: 'view',
+        grantedBy: 'seed',
+      },
+    });
+
+    const token = await getToken('testuser', 'testpass');
+    const res = await axios.get<{ documents: { id: string }[] }>(
+      `${API_BASE_URL}/folders/${folder.id}`,
+      { headers: { Authorization: `Bearer ${token}` } },
+    );
+    expect(res.data.documents.map((d) => d.id)).not.toContain(document.id);
+  });
 });

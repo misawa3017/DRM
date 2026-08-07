@@ -1,8 +1,10 @@
 import {
   BadRequestException,
+  ConflictException,
   ForbiddenException,
   Injectable,
   Logger,
+  NotFoundException,
   PayloadTooLargeException,
   ServiceUnavailableException,
 } from '@nestjs/common';
@@ -103,6 +105,28 @@ export class DocumentsService {
     }
   }
 
+  // Same rationale as FoldersService.assertNoFolderNameConflict: application-
+  // level check, deletedAt: null excludes soft-deleted siblings from the
+  // conflict check.
+  private async assertNoDocumentNameConflict(
+    folderId: string,
+    name: string,
+    excludeId?: string,
+  ): Promise<void> {
+    const conflict = await this.prisma.document.findFirst({
+      where: {
+        folderId,
+        name,
+        deletedAt: null,
+        ...(excludeId ? { id: { not: excludeId } } : {}),
+      },
+      select: { id: true },
+    });
+    if (conflict) {
+      throw new ConflictException('A document with this name already exists in this folder');
+    }
+  }
+
   // Scans `file` for malware and, if infected, records the rejection as a
   // `virus_detected` audit entry and throws before the caller does any
   // storage.putObject or Prisma write. Uses recordSafely (not record) even
@@ -173,6 +197,11 @@ export class DocumentsService {
     if (!allowed) {
       throw new ForbiddenException('You do not have edit access to this folder');
     }
+    const folder = await this.prisma.folder.findUnique({ where: { id: folderId } });
+    if (!folder || folder.deletedAt) {
+      throw new NotFoundException('Folder not found');
+    }
+    await this.assertNoDocumentNameConflict(folderId, name);
 
     // No Document row exists yet at this point, so the rejection is
     // audited against the upload target (the folder) instead.
@@ -300,6 +329,10 @@ export class DocumentsService {
     if (!allowed) {
       throw new ForbiddenException('You do not have view access to this document');
     }
+    const document = await this.prisma.document.findUnique({ where: { id: documentId } });
+    if (!document || document.deletedAt) {
+      throw new NotFoundException('Document not found');
+    }
     return this.prisma.documentVersion.findMany({
       where: { documentId },
       orderBy: { versionNumber: 'desc' },
@@ -311,10 +344,13 @@ export class DocumentsService {
     if (!allowed) {
       throw new ForbiddenException('You do not have view access to this document');
     }
-    const document = await this.prisma.document.findUniqueOrThrow({
+    const document = await this.prisma.document.findUnique({
       where: { id: documentId },
       include: { currentVersion: true },
     });
+    if (!document || document.deletedAt) {
+      throw new NotFoundException('Document not found');
+    }
 
     await this.audit.recordSafely({
       actorId: user.id,
@@ -343,6 +379,10 @@ export class DocumentsService {
     const allowed = await this.acl.can(user, 'document', documentId, 'download');
     if (!allowed) {
       throw new ForbiddenException('You do not have download access to this document');
+    }
+    const document = await this.prisma.document.findUnique({ where: { id: documentId } });
+    if (!document || document.deletedAt) {
+      throw new NotFoundException('Document not found');
     }
 
     const version = versionId

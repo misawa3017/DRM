@@ -1,5 +1,7 @@
 import axios from 'axios';
 import FormData from 'form-data';
+import { PrismaClient } from '@prisma/client';
+import { randomUUID } from 'crypto';
 
 const KEYCLOAK_TOKEN_URL = 'https://auth.drm.apower.lan/realms/drm/protocol/openid-connect/token';
 const API_BASE_URL = 'https://api.drm.apower.lan';
@@ -32,6 +34,24 @@ async function getToken(username: string, password: string): Promise<string> {
 }
 
 describe('Documents write path (e2e)', () => {
+  const prisma = new PrismaClient({
+    datasources: { db: { url: 'postgresql://drm:drm_dev_password@localhost:5433/drm' } },
+  });
+
+  let testUserId: string;
+
+  beforeAll(async () => {
+    const token = await getToken('testuser', 'testpass');
+    const res = await axios.get<{ id: string }>(`${API_BASE_URL}/whoami`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    testUserId = res.data.id;
+  });
+
+  afterAll(async () => {
+    await prisma.$disconnect();
+  });
+
   it('a user with edit access can upload a document and a new version', async () => {
     const token = await getToken('testadmin', 'testadminpass');
     const authHeader = { Authorization: `Bearer ${token}` };
@@ -93,5 +113,33 @@ describe('Documents write path (e2e)', () => {
         headers: { Authorization: `Bearer ${employeeToken}`, ...form.getHeaders() },
       }),
     ).rejects.toMatchObject({ response: { status: 403 } });
+  });
+
+  it('POST /documents rejects a name that collides with an existing, non-deleted sibling in the same folder', async () => {
+    const adminToken = await getToken('testadmin', 'testadminpass');
+    const folderRes = await axios.post<{ id: string }>(
+      `${API_BASE_URL}/folders`,
+      { name: `doc-conflict-${Date.now()}` },
+      { headers: { Authorization: `Bearer ${adminToken}` } },
+    );
+    const folderId = folderRes.data.id;
+
+    const form1 = new FormData();
+    form1.append('folderId', folderId);
+    form1.append('name', 'dup.txt');
+    form1.append('file', Buffer.from('one'), { filename: 'dup.txt' });
+    await axios.post(`${API_BASE_URL}/documents`, form1, {
+      headers: { Authorization: `Bearer ${adminToken}`, ...form1.getHeaders() },
+    });
+
+    const form2 = new FormData();
+    form2.append('folderId', folderId);
+    form2.append('name', 'dup.txt');
+    form2.append('file', Buffer.from('two'), { filename: 'dup.txt' });
+    await expect(
+      axios.post(`${API_BASE_URL}/documents`, form2, {
+        headers: { Authorization: `Bearer ${adminToken}`, ...form2.getHeaders() },
+      }),
+    ).rejects.toMatchObject({ response: { status: 409 } });
   });
 });
