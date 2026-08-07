@@ -1,8 +1,8 @@
 import { useState } from 'react';
-import { Link, useParams } from 'react-router-dom';
-import { useQuery } from '@tanstack/react-query';
+import { Link, useNavigate, useParams } from 'react-router-dom';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useAuth } from 'react-oidc-context';
-import { FileText } from 'lucide-react';
+import { FileText, Trash2 } from 'lucide-react';
 import {
   Table,
   TableBody,
@@ -12,15 +12,26 @@ import {
   TableRow,
 } from '@/components/ui/table';
 import { Button } from '@/components/ui/button';
-import { getDocument, listVersions, downloadDocument } from '../api/documents';
+import {
+  getDocument,
+  listVersions,
+  downloadDocument,
+  renameDocument,
+  deleteDocument,
+} from '../api/documents';
 import { friendlyErrorMessage } from '../api/client';
 import { UploadDialog } from '../components/UploadDialog';
+import { InlineEditableName } from '../components/InlineEditableName';
+import { DeleteConfirmDialog } from '../components/DeleteConfirmDialog';
+import { MoveButton } from '../components/MoveButton';
 
 export function DocumentView() {
   const { id } = useParams<{ id: string }>();
   const auth = useAuth();
   const accessToken = auth.user?.access_token ?? '';
   const documentId = id ?? '';
+  const queryClient = useQueryClient();
+  const navigate = useNavigate();
 
   const documentQuery = useQuery({
     queryKey: ['document', documentId],
@@ -34,6 +45,29 @@ export function DocumentView() {
   });
 
   const [downloadError, setDownloadError] = useState<string | null>(null);
+  const [headerError, setHeaderError] = useState<string | null>(null);
+  const [deleteOpen, setDeleteOpen] = useState(false);
+
+  const invalidate = () => {
+    queryClient.invalidateQueries({ queryKey: ['document'] });
+    queryClient.invalidateQueries({ queryKey: ['folder'] });
+  };
+
+  const renameMutation = useMutation({
+    mutationFn: (name: string) => renameDocument(documentId, name, accessToken),
+    onSuccess: invalidate,
+    onError: (err) => setHeaderError(friendlyErrorMessage(err)),
+  });
+  const deleteMutation = useMutation({
+    mutationFn: () => deleteDocument(documentId, accessToken),
+    onSuccess: () => {
+      invalidate();
+      if (documentQuery.data) {
+        navigate(`/folders/${documentQuery.data.folderId}`);
+      }
+    },
+    onError: (err) => setHeaderError(friendlyErrorMessage(err)),
+  });
 
   const handleDownload = async (versionId?: string) => {
     setDownloadError(null);
@@ -64,7 +98,16 @@ export function DocumentView() {
         <div className="flex items-center justify-between gap-3 border-b px-5 py-4">
           <h1 className="flex items-center gap-2 text-lg font-semibold">
             <FileText className="h-5 w-5 text-muted-foreground" />
-            {doc.name}
+            {doc.canManage ? (
+              <InlineEditableName
+                value={doc.name}
+                onSave={(name) => renameMutation.mutate(name)}
+                ariaLabel="編輯文件名稱"
+                testId="document-name"
+              />
+            ) : (
+              doc.name
+            )}
           </h1>
           <div className="flex gap-2">
             <Button data-testid="download-current" onClick={() => handleDownload()}>
@@ -72,18 +115,45 @@ export function DocumentView() {
             </Button>
             <UploadDialog mode="new-version" documentId={documentId} />
             {doc.canManage && (
-              <Link
-                to={`/documents/${documentId}/permissions`}
-                className="inline-flex items-center rounded-md border px-3 py-2 text-sm font-medium hover:bg-accent"
-              >
-                權限
-              </Link>
+              <>
+                <MoveButton resourceType="document" resourceId={documentId} onMoved={invalidate} />
+                <Button
+                  variant="outline"
+                  size="sm"
+                  aria-label="刪除"
+                  data-testid={`delete-document-${documentId}`}
+                  onClick={() => {
+                    setHeaderError(null);
+                    setDeleteOpen(true);
+                  }}
+                >
+                  <Trash2 className="h-4 w-4" />
+                </Button>
+                <DeleteConfirmDialog
+                  open={deleteOpen}
+                  onOpenChange={setDeleteOpen}
+                  resourceName={doc.name}
+                  isDeleting={deleteMutation.isPending}
+                  onConfirm={() => deleteMutation.mutate()}
+                />
+                <Link
+                  to={`/documents/${documentId}/permissions`}
+                  className="inline-flex items-center rounded-md border px-3 py-2 text-sm font-medium hover:bg-accent"
+                >
+                  權限
+                </Link>
+              </>
             )}
           </div>
         </div>
         {downloadError && (
           <p className="px-5 py-3 text-sm text-destructive" data-testid="download-error">
             {downloadError}
+          </p>
+        )}
+        {headerError && (
+          <p className="px-5 py-3 text-sm text-destructive" data-testid="document-header-error">
+            {headerError}
           </p>
         )}
       </div>

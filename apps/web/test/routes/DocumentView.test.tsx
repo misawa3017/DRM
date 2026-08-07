@@ -2,7 +2,13 @@ import { fireEvent, screen, waitFor } from '@testing-library/react';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { useAuth } from 'react-oidc-context';
 import { DocumentView } from '../../src/routes/DocumentView';
-import { getDocument, listVersions, downloadDocument } from '../../src/api/documents';
+import {
+  getDocument,
+  listVersions,
+  downloadDocument,
+  renameDocument,
+  deleteDocument,
+} from '../../src/api/documents';
 import { renderWithProviders } from '../testUtils';
 
 vi.mock('react-oidc-context', () => ({ useAuth: vi.fn() }));
@@ -10,6 +16,9 @@ vi.mock('../../src/api/documents', () => ({
   getDocument: vi.fn(),
   listVersions: vi.fn(),
   downloadDocument: vi.fn(),
+  renameDocument: vi.fn(),
+  moveDocument: vi.fn(),
+  deleteDocument: vi.fn(),
 }));
 
 describe('DocumentView', () => {
@@ -102,5 +111,85 @@ describe('DocumentView', () => {
 
     await waitFor(() => expect(screen.getByText('report.pdf')).toBeInTheDocument());
     expect(screen.queryByRole('link', { name: '權限' })).not.toBeInTheDocument();
+  });
+
+  it('renaming the document via the header calls renameDocument and refetches', async () => {
+    vi.mocked(getDocument).mockResolvedValue({
+      id: 'doc-1',
+      folderId: 'folder-1',
+      name: 'report.pdf',
+      currentVersionId: null,
+      currentVersion: null,
+      createdBy: 'u',
+      createdAt: '',
+      canManage: true,
+    });
+    vi.mocked(listVersions).mockResolvedValue([]);
+    vi.mocked(renameDocument).mockResolvedValue({
+      id: 'doc-1',
+      folderId: 'folder-1',
+      name: 'report.pdf',
+      currentVersionId: null,
+      currentVersion: null,
+      createdBy: 'u',
+      createdAt: '',
+      canManage: true,
+    });
+
+    renderWithProviders(<DocumentView />, { route: '/documents/doc-1', path: '/documents/:id' });
+
+    await waitFor(() => expect(screen.getByTestId('document-name')).toBeInTheDocument());
+    fireEvent.click(screen.getByTestId('document-name'));
+    fireEvent.change(screen.getByRole('textbox'), { target: { value: 'renamed.pdf' } });
+    fireEvent.keyDown(screen.getByRole('textbox'), { key: 'Enter' });
+
+    await waitFor(() =>
+      expect(renameDocument).toHaveBeenCalledWith('doc-1', 'renamed.pdf', 'fake-token'),
+    );
+  });
+
+  it('does not show the rename/move/delete header actions when canManage is false', async () => {
+    vi.mocked(getDocument).mockResolvedValue({
+      id: 'doc-1',
+      folderId: 'folder-1',
+      name: 'report.pdf',
+      currentVersionId: null,
+      currentVersion: null,
+      createdBy: 'u',
+      createdAt: '',
+      canManage: false,
+    });
+    vi.mocked(listVersions).mockResolvedValue([]);
+
+    renderWithProviders(<DocumentView />, { route: '/documents/doc-1', path: '/documents/:id' });
+
+    await waitFor(() => expect(screen.getByText('report.pdf')).toBeInTheDocument());
+    expect(screen.queryByTestId('document-name')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('delete-document-doc-1')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('move-document-doc-1')).not.toBeInTheDocument();
+  });
+
+  it('deleting the document via the header calls deleteDocument', async () => {
+    vi.mocked(getDocument).mockResolvedValue({
+      id: 'doc-1',
+      folderId: 'folder-1',
+      name: 'report.pdf',
+      currentVersionId: null,
+      currentVersion: null,
+      createdBy: 'u',
+      createdAt: '',
+      canManage: true,
+    });
+    vi.mocked(listVersions).mockResolvedValue([]);
+    vi.mocked(deleteDocument).mockResolvedValue(undefined);
+
+    renderWithProviders(<DocumentView />, { route: '/documents/doc-1', path: '/documents/:id' });
+
+    await waitFor(() => expect(screen.getByTestId('delete-document-doc-1')).toBeInTheDocument());
+    fireEvent.click(screen.getByTestId('delete-document-doc-1'));
+    await waitFor(() => expect(screen.getByTestId('confirm-delete')).toBeInTheDocument());
+    fireEvent.click(screen.getByTestId('confirm-delete'));
+
+    await waitFor(() => expect(deleteDocument).toHaveBeenCalledWith('doc-1', 'fake-token'));
   });
 });
