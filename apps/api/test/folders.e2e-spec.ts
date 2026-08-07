@@ -771,4 +771,53 @@ describe('Folders (e2e)', () => {
       ),
     ).rejects.toMatchObject({ response: { status: 404 } });
   });
+
+  it('DELETE /folders/:id does not re-delete already-deleted descendants or overwrite their original deletedAt', async () => {
+    const root = await prisma.folder.create({
+      data: { name: `cascade-root-${randomUUID()}`, parentId: null, createdBy: 'seed' },
+    });
+    const child = await prisma.folder.create({
+      data: { name: 'cascade-child', parentId: root.id, createdBy: 'seed' },
+    });
+    await prisma.permission.create({
+      data: {
+        resourceType: 'folder',
+        resourceId: root.id,
+        principalType: 'user',
+        principalId: testUserId,
+        permissionLevel: 'edit',
+        grantedBy: 'seed',
+      },
+    });
+
+    // Soft-delete the child directly with a known timestamp (simulating prior deletion)
+    const originalDeletedAt = new Date('2026-08-01T12:00:00Z');
+    await prisma.folder.update({
+      where: { id: child.id },
+      data: { deletedAt: originalDeletedAt },
+    });
+
+    // Now delete the root via API (cascade delete)
+    const token = await getToken('testuser', 'testpass');
+    const res = await axios.delete(`${API_BASE_URL}/folders/${root.id}`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    expect(res.status).toBe(204);
+
+    // Verify root was actually deleted by the cascade
+    const rootRow = await prisma.folder.findUniqueOrThrow({ where: { id: root.id } });
+    expect(rootRow.deletedAt).not.toBeNull();
+
+    // Verify child's deletedAt was NOT overwritten — still the original timestamp
+    // (if cascade re-deleted it, it would have a new timestamp)
+    const childRow = await prisma.folder.findUniqueOrThrow({ where: { id: child.id } });
+    expect(childRow.deletedAt).toEqual(originalDeletedAt);
+
+    // Verify there is NO folder_delete audit entry for the child
+    // (the cascade must not have touched the already-deleted child)
+    const childAuditLogs = await prisma.auditLog.findMany({
+      where: { resourceType: 'folder', resourceId: child.id, action: 'folder_delete' },
+    });
+    expect(childAuditLogs).toHaveLength(0);
+  });
 });

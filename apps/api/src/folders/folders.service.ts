@@ -243,8 +243,8 @@ export class FoldersService {
     while (queue.length > 0) {
       const current = queue.shift() as string;
       const [children, documents] = await Promise.all([
-        this.prisma.folder.findMany({ where: { parentId: current }, select: { id: true } }),
-        this.prisma.document.findMany({ where: { folderId: current }, select: { id: true } }),
+        this.prisma.folder.findMany({ where: { parentId: current, deletedAt: null }, select: { id: true } }),
+        this.prisma.document.findMany({ where: { folderId: current, deletedAt: null }, select: { id: true } }),
       ]);
       for (const child of children) {
         folderIds.push(child.id);
