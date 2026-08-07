@@ -54,6 +54,10 @@ describe('GrantPermissionForm', () => {
     await waitFor(() => expect(screen.getByText('Alice')).toBeInTheDocument());
     fireEvent.click(screen.getByText('Alice'));
 
+    // Regression: selecting a user used to leave the search-results row visible
+    // alongside the "selected user" summary, showing the same person twice.
+    expect(screen.getAllByText('Alice')).toHaveLength(1);
+
     fireEvent.click(screen.getByTestId('permission-level-edit'));
     fireEvent.click(screen.getByTestId('grant-submit'));
 

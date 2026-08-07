@@ -134,21 +134,25 @@ export function GrantPermissionForm({ fixedResource, onGranted }: GrantPermissio
           </Button>
         </div>
 
-        {searchResults.isError && (
+        {!selectedUser && searchResults.isError && (
           <p className="mt-2 text-sm text-destructive">{friendlyErrorMessage(searchResults.error)}</p>
         )}
-        {searchResults.data && searchResults.data.length === 0 && (
+        {!selectedUser && searchResults.data && searchResults.data.length === 0 && (
           <p className="mt-2 text-sm text-muted-foreground" data-testid="no-results">
             找不到符合的使用者
           </p>
         )}
-        {searchResults.data && searchResults.data.length > 0 && (
+        {!selectedUser && searchResults.data && searchResults.data.length > 0 && (
           <ul className="mt-2 overflow-hidden rounded-md border">
             {searchResults.data.map((user) => (
               <li key={user.id} className="border-b last:border-0">
                 <button
                   className="flex w-full items-center gap-2.5 px-3 py-2 text-left hover:bg-muted/50"
-                  onClick={() => setSelectedUser(user)}
+                  onClick={() => {
+                    setSelectedUser(user);
+                    setSearchInput('');
+                    setSearchQuery('');
+                  }}
                 >
                   <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-primary text-xs font-bold text-primary-foreground">
                     {initials(user.displayName)}
