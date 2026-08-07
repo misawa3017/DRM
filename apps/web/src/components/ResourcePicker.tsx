@@ -21,9 +21,17 @@ interface ResourcePickerProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   onSelect: (resource: PickedResource) => void;
+  mode?: 'any' | 'folder-only';
+  title?: string;
 }
 
-export function ResourcePicker({ open, onOpenChange, onSelect }: ResourcePickerProps) {
+export function ResourcePicker({
+  open,
+  onOpenChange,
+  onSelect,
+  mode = 'any',
+  title = '選擇資源',
+}: ResourcePickerProps) {
   const auth = useAuth();
   const accessToken = auth.user?.access_token ?? '';
   const [folderId, setFolderId] = useState<string | null>(null);
@@ -66,7 +74,7 @@ export function ResourcePicker({ open, onOpenChange, onSelect }: ResourcePickerP
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent>
         <DialogHeader>
-          <DialogTitle>選擇資源</DialogTitle>
+          <DialogTitle>{title}</DialogTitle>
         </DialogHeader>
 
         {folderId === null ? (
@@ -132,24 +140,25 @@ export function ResourcePicker({ open, onOpenChange, onSelect }: ResourcePickerP
                   </button>
                 </li>
               ))}
-              {(folderQuery.data?.documents ?? []).map((doc) => (
-                <li key={doc.id} className="border-b last:border-0">
-                  <button
-                    className="flex w-full items-center gap-2.5 px-3 py-2.5 text-left text-sm hover:bg-muted/50"
-                    onClick={() =>
-                      onSelect({
-                        resourceType: 'document',
-                        resourceId: doc.id,
-                        name: doc.name,
-                        path: fullPath,
-                      })
-                    }
-                  >
-                    <FileText className="h-4 w-4 shrink-0 text-muted-foreground" />
-                    {doc.name}
-                  </button>
-                </li>
-              ))}
+              {mode === 'any' &&
+                (folderQuery.data?.documents ?? []).map((doc) => (
+                  <li key={doc.id} className="border-b last:border-0">
+                    <button
+                      className="flex w-full items-center gap-2.5 px-3 py-2.5 text-left text-sm hover:bg-muted/50"
+                      onClick={() =>
+                        onSelect({
+                          resourceType: 'document',
+                          resourceId: doc.id,
+                          name: doc.name,
+                          path: fullPath,
+                        })
+                      }
+                    >
+                      <FileText className="h-4 w-4 shrink-0 text-muted-foreground" />
+                      {doc.name}
+                    </button>
+                  </li>
+                ))}
             </ul>
           </div>
         )}

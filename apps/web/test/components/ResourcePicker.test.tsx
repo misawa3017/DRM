@@ -257,4 +257,47 @@ describe('ResourcePicker', () => {
       path: 'Root / Finance',
     });
   });
+
+  it('mode="folder-only" hides documents and does not let them be selected', async () => {
+    vi.mocked(listRootFolders).mockResolvedValue([
+      { id: 'f1', name: 'Finance', parentId: null, createdBy: 'u', createdAt: '' },
+    ]);
+    vi.mocked(getFolder).mockResolvedValue({
+      id: 'f1',
+      name: 'Finance',
+      parentId: null,
+      createdBy: 'u',
+      createdAt: '',
+      children: [],
+      documents: [{ id: 'd1', name: 'report.pdf', currentVersion: null, canManage: true }],
+      canManage: true,
+    });
+
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const onSelect = vi.fn();
+    render(
+      <QueryClientProvider client={queryClient}>
+        <ResourcePicker open={true} onOpenChange={vi.fn()} onSelect={onSelect} mode="folder-only" />
+      </QueryClientProvider>,
+    );
+
+    await waitFor(() => expect(screen.getByText('Finance')).toBeInTheDocument());
+    fireEvent.click(screen.getByText('Finance'));
+
+    await waitFor(() => expect(screen.getByTestId('pick-current-folder')).toBeInTheDocument());
+    expect(screen.queryByText('report.pdf')).not.toBeInTheDocument();
+  });
+
+  it('renders a custom title when provided', async () => {
+    vi.mocked(listRootFolders).mockResolvedValue([]);
+
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    render(
+      <QueryClientProvider client={queryClient}>
+        <ResourcePicker open={true} onOpenChange={vi.fn()} onSelect={vi.fn()} title="選擇移動目的地" />
+      </QueryClientProvider>,
+    );
+
+    await waitFor(() => expect(screen.getByText('選擇移動目的地')).toBeInTheDocument());
+  });
 });
