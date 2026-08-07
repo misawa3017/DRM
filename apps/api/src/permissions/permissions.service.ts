@@ -1,7 +1,7 @@
 import { BadRequestException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
 import { PermissionLevel, PrincipalType, ResourceType } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
-import { AclService } from '../acl/acl.service';
+import { AclService, type ManagedResourceRef } from '../acl/acl.service';
 import { AuditService } from '../audit/audit.service';
 
 interface AuthenticatedUser {
@@ -74,6 +74,80 @@ export class PermissionsService {
     }
     const permissions = await this.prisma.permission.findMany({ where: { resourceType, resourceId } });
     return Promise.all(permissions.map((p) => this.enrichWithPrincipal(p)));
+  }
+
+  async listGlobal(user: AuthenticatedUser, includeInherited: boolean) {
+    const managed = await this.acl.findManagedResources(user, includeInherited);
+
+    if (managed !== 'all' && managed.length === 0) {
+      return [];
+    }
+
+    const permissionWhere =
+      managed === 'all'
+        ? {}
+        : { OR: managed.map((m) => ({ resourceType: m.resourceType, resourceId: m.resourceId })) };
+
+    const permissions = await this.prisma.permission.findMany({ where: permissionWhere });
+
+    const sourceByResource = new Map<string, ManagedResourceRef['source']>();
+    if (managed !== 'all') {
+      for (const m of managed) {
+        sourceByResource.set(`${m.resourceType}:${m.resourceId}`, m.source);
+      }
+    }
+
+    return Promise.all(
+      permissions.map(async (p) => {
+        const enriched = await this.enrichWithPrincipal(p);
+        const resource = await this.resolveResourcePath(p.resourceType, p.resourceId);
+        return {
+          ...enriched,
+          resourceName: resource?.name ?? '(已刪除)',
+          resourcePath: resource?.path ?? '',
+          source:
+            managed === 'all'
+              ? 'direct'
+              : (sourceByResource.get(`${p.resourceType}:${p.resourceId}`) ?? 'direct'),
+        };
+      }),
+    );
+  }
+
+  private async resolveResourcePath(
+    resourceType: ResourceType,
+    resourceId: string,
+  ): Promise<{ name: string; path: string } | null> {
+    if (resourceType === 'document') {
+      const doc = await this.prisma.document.findUnique({
+        where: { id: resourceId },
+        select: { name: true, folderId: true },
+      });
+      if (!doc) return null;
+      return { name: doc.name, path: await this.resolveFolderPath(doc.folderId) };
+    }
+    const folder = await this.prisma.folder.findUnique({
+      where: { id: resourceId },
+      select: { name: true, parentId: true },
+    });
+    if (!folder) return null;
+    return { name: folder.name, path: await this.resolveFolderPath(folder.parentId) };
+  }
+
+  private async resolveFolderPath(folderId: string | null): Promise<string> {
+    const names: string[] = [];
+    let currentId = folderId;
+    for (let depth = 0; currentId && depth < 100; depth++) {
+      const folder: { name: string; parentId: string | null } | null =
+        await this.prisma.folder.findUnique({
+          where: { id: currentId },
+          select: { name: true, parentId: true },
+        });
+      if (!folder) break;
+      names.unshift(folder.name);
+      currentId = folder.parentId;
+    }
+    return ['Root', ...names].join(' / ');
   }
 
   private async enrichWithPrincipal<T extends { principalType: PrincipalType; principalId: string }>(

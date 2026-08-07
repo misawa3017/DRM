@@ -1,4 +1,4 @@
-import { Body, Controller, Delete, Get, HttpCode, Param, Post, Req, UseGuards } from '@nestjs/common';
+import { Body, Controller, Delete, Get, HttpCode, Param, Post, Query, Req, UseGuards } from '@nestjs/common';
 import { AuthGuard } from '@nestjs/passport';
 import { Request } from 'express';
 import { PermissionsService } from './permissions.service';
@@ -16,6 +16,18 @@ export class PermissionsController {
     private readonly permissionsService: PermissionsService,
     private readonly usersService: UsersService,
   ) {}
+
+  @Get('permissions')
+  async listGlobal(
+    @Req() req: AuthenticatedRequest,
+    @Query('includeInherited') includeInherited?: string,
+  ) {
+    const user = await this.usersService.upsertFromToken(req.user);
+    return this.permissionsService.listGlobal(
+      { id: user.id, roles: req.user.roles },
+      includeInherited === 'true',
+    );
+  }
 
   @Post('folders/:id/permissions')
   async grantOnFolder(@Req() req: AuthenticatedRequest, @Param('id') id: string, @Body() body: GrantPermissionDto) {
