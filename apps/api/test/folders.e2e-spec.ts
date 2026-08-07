@@ -570,7 +570,7 @@ describe('Folders (e2e)', () => {
       data: [
         {
           resourceType: 'folder',
-          resourceId: grandparent.id,
+          resourceId: parent.id,
           principalType: 'user',
           principalId: testUserId,
           permissionLevel: 'edit',
@@ -588,11 +588,42 @@ describe('Folders (e2e)', () => {
     });
 
     const token = await getToken('testuser', 'testpass');
-    // Move grandparent into its own grandchild — a cycle two levels down.
+    // Move parent (non-root, has parentId: grandparent.id) into its own child.
+    // This tests the descendant-cycle check, not the root-boundary check.
     await expect(
       axios.patch(
-        `${API_BASE_URL}/folders/${grandparent.id}`,
+        `${API_BASE_URL}/folders/${parent.id}`,
         { parentId: child.id },
+        { headers: { Authorization: `Bearer ${token}` } },
+      ),
+    ).rejects.toMatchObject({ response: { status: 400 } });
+  });
+
+  it('PATCH /folders/:id rejects explicit parentId: null', async () => {
+    const parent = await prisma.folder.create({
+      data: { name: `null-parent-${randomUUID()}`, parentId: null, createdBy: 'seed' },
+    });
+    const folder = await prisma.folder.create({
+      data: { name: 'null-target', parentId: parent.id, createdBy: 'seed' },
+    });
+    await prisma.permission.create({
+      data: {
+        resourceType: 'folder',
+        resourceId: folder.id,
+        principalType: 'user',
+        principalId: testUserId,
+        permissionLevel: 'edit',
+        grantedBy: 'seed',
+      },
+    });
+
+    const token = await getToken('testuser', 'testpass');
+    // Explicitly passing null for parentId in the request body should reject with 400,
+    // not 403 (which would indicate a permissions problem).
+    await expect(
+      axios.patch(
+        `${API_BASE_URL}/folders/${folder.id}`,
+        { parentId: null },
         { headers: { Authorization: `Bearer ${token}` } },
       ),
     ).rejects.toMatchObject({ response: { status: 400 } });

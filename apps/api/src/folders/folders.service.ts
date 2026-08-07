@@ -173,6 +173,9 @@ export class FoldersService {
 
     let newParentId = folder.parentId;
     if (changes.parentId !== undefined) {
+      if (changes.parentId === null) {
+        throw new BadRequestException('parentId cannot be null');
+      }
       if (folder.parentId === null) {
         throw new BadRequestException('Cannot move a top-level folder');
       }
