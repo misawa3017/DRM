@@ -28,6 +28,10 @@ describe('apiFetch', () => {
 });
 
 describe('friendlyErrorMessage', () => {
+  it('maps 400 to a cannot-move message', () => {
+    expect(friendlyErrorMessage(new ApiError(400, 'x'))).toBe('無法移動到這個位置');
+  });
+
   it('maps 403 to a permission message', () => {
     expect(friendlyErrorMessage(new ApiError(403, 'x'))).toContain('權限');
   });

@@ -17,6 +17,7 @@ interface FolderResponse {
 interface DocumentResponse {
   id: string;
   canManage?: boolean;
+  canEdit?: boolean;
 }
 
 async function getToken(username: string, password: string): Promise<string> {
@@ -97,6 +98,58 @@ describe('Documents read path (e2e)', () => {
     });
 
     expect(res.data.canManage).toBe(true);
+  });
+
+  it('GET /documents/:id reports canEdit=false for a caller who only has download access', async () => {
+    const folder = await prisma.folder.create({
+      data: { name: `doc-canedit-${randomUUID()}`, parentId: null, createdBy: 'seed' },
+    });
+    const document = await prisma.document.create({
+      data: { name: 'readme.txt', folderId: folder.id, createdBy: 'seed' },
+    });
+    await prisma.permission.create({
+      data: {
+        resourceType: 'document',
+        resourceId: document.id,
+        principalType: 'user',
+        principalId: testUserId,
+        permissionLevel: 'download',
+        grantedBy: 'seed',
+      },
+    });
+
+    const token = await getToken('testuser', 'testpass');
+    const res = await axios.get<DocumentResponse>(`${API_BASE_URL}/documents/${document.id}`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+
+    expect(res.data.canEdit).toBe(false);
+  });
+
+  it('GET /documents/:id reports canEdit=true for a caller with edit access', async () => {
+    const folder = await prisma.folder.create({
+      data: { name: `doc-canedit-${randomUUID()}`, parentId: null, createdBy: 'seed' },
+    });
+    const document = await prisma.document.create({
+      data: { name: 'readme.txt', folderId: folder.id, createdBy: 'seed' },
+    });
+    await prisma.permission.create({
+      data: {
+        resourceType: 'document',
+        resourceId: document.id,
+        principalType: 'user',
+        principalId: testUserId,
+        permissionLevel: 'edit',
+        grantedBy: 'seed',
+      },
+    });
+
+    const token = await getToken('testuser', 'testpass');
+    const res = await axios.get<DocumentResponse>(`${API_BASE_URL}/documents/${document.id}`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+
+    expect(res.data.canEdit).toBe(true);
   });
 
   it('downloads the current version content correctly, and is blocked without a grant', async () => {

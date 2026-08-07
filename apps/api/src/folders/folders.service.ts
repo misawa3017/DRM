@@ -109,16 +109,21 @@ export class FoldersService {
       throw new NotFoundException('Folder not found');
     }
 
-    // Each child's own canManage — not just the folder being viewed — so the
-    // frontend can gate a rename/move/delete affordance per row. GET
+    // Each child's own canManage/canEdit — not just the folder being viewed
+    // — so the frontend can gate affordances per row. GET
     // /folders/:id/permissions requires 'manage', a higher bar than the
     // 'view' access that gets a caller into this method at all, so a caller
-    // can see a child without being allowed to mutate it.
-    const [canManage, childrenCanManage, documentsCanManage] = await Promise.all([
-      this.acl.can(user, 'folder', id, 'manage'),
-      Promise.all(folder.children.map((c) => this.acl.can(user, 'folder', c.id, 'manage'))),
-      Promise.all(folder.documents.map((d) => this.acl.can(user, 'document', d.id, 'manage'))),
-    ]);
+    // can see a child without being allowed to mutate it. canEdit is the
+    // lower bar that actually gates rename/move/delete.
+    const [canManage, canEdit, childrenCanManage, childrenCanEdit, documentsCanManage, documentsCanEdit] =
+      await Promise.all([
+        this.acl.can(user, 'folder', id, 'manage'),
+        this.acl.can(user, 'folder', id, 'edit'),
+        Promise.all(folder.children.map((c) => this.acl.can(user, 'folder', c.id, 'manage'))),
+        Promise.all(folder.children.map((c) => this.acl.can(user, 'folder', c.id, 'edit'))),
+        Promise.all(folder.documents.map((d) => this.acl.can(user, 'document', d.id, 'manage'))),
+        Promise.all(folder.documents.map((d) => this.acl.can(user, 'document', d.id, 'edit'))),
+      ]);
 
     await this.audit.recordSafely({
       actorId: user.id,
@@ -131,8 +136,17 @@ export class FoldersService {
     return {
       ...folder,
       canManage,
-      children: folder.children.map((c, i) => ({ ...c, canManage: childrenCanManage[i] })),
-      documents: folder.documents.map((d, i) => ({ ...d, canManage: documentsCanManage[i] })),
+      canEdit,
+      children: folder.children.map((c, i) => ({
+        ...c,
+        canManage: childrenCanManage[i],
+        canEdit: childrenCanEdit[i],
+      })),
+      documents: folder.documents.map((d, i) => ({
+        ...d,
+        canManage: documentsCanManage[i],
+        canEdit: documentsCanEdit[i],
+      })),
     };
   }
 

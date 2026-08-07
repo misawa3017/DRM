@@ -98,7 +98,7 @@ export function DocumentView() {
         <div className="flex items-center justify-between gap-3 border-b px-5 py-4">
           <h1 className="flex items-center gap-2 text-lg font-semibold">
             <FileText className="h-5 w-5 text-muted-foreground" />
-            {doc.canManage ? (
+            {doc.canEdit ? (
               <InlineEditableName
                 value={doc.name}
                 onSave={(name) => renameMutation.mutate(name)}
@@ -114,7 +114,7 @@ export function DocumentView() {
               下載目前版本
             </Button>
             <UploadDialog mode="new-version" documentId={documentId} />
-            {doc.canManage && (
+            {doc.canEdit && (
               <>
                 <MoveButton resourceType="document" resourceId={documentId} onMoved={invalidate} />
                 <Button
@@ -134,15 +134,18 @@ export function DocumentView() {
                   onOpenChange={setDeleteOpen}
                   resourceName={doc.name}
                   isDeleting={deleteMutation.isPending}
+                  error={headerError}
                   onConfirm={() => deleteMutation.mutate()}
                 />
-                <Link
-                  to={`/documents/${documentId}/permissions`}
-                  className="inline-flex items-center rounded-md border px-3 py-2 text-sm font-medium hover:bg-accent"
-                >
-                  權限
-                </Link>
               </>
+            )}
+            {doc.canManage && (
+              <Link
+                to={`/documents/${documentId}/permissions`}
+                className="inline-flex items-center rounded-md border px-3 py-2 text-sm font-medium hover:bg-accent"
+              >
+                權限
+              </Link>
             )}
           </div>
         </div>

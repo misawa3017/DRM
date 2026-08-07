@@ -51,13 +51,9 @@ export function MoveButton({ resourceType, resourceId, onMoved }: MoveButtonProp
         onOpenChange={setPickerOpen}
         mode="folder-only"
         title="選擇移動目的地"
+        errorMessage={error}
         onSelect={(picked) => mutation.mutate(picked.resourceId)}
       />
-      {error && (
-        <p className="mt-1 text-xs text-destructive" data-testid={`move-error-${resourceId}`}>
-          {error}
-        </p>
-      )}
     </>
   );
 }

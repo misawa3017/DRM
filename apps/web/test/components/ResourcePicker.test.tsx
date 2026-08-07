@@ -40,9 +40,10 @@ describe('ResourcePicker', () => {
       parentId: null,
       createdBy: 'u',
       createdAt: '',
-      children: [{ id: 'f2', name: 'Q1', parentId: 'f1', createdBy: 'u', createdAt: '', canManage: false }],
-      documents: [{ id: 'd1', name: 'report.pdf', currentVersion: null, canManage: false }],
+      children: [{ id: 'f2', name: 'Q1', parentId: 'f1', createdBy: 'u', createdAt: '', canManage: false, canEdit: false }],
+      documents: [{ id: 'd1', name: 'report.pdf', currentVersion: null, canManage: false, canEdit: false }],
       canManage: false,
+      canEdit: false,
     });
 
     renderPicker();
@@ -67,6 +68,7 @@ describe('ResourcePicker', () => {
       children: [],
       documents: [],
       canManage: false,
+      canEdit: false,
     });
 
     const { onSelect } = renderPicker();
@@ -96,8 +98,9 @@ describe('ResourcePicker', () => {
       createdBy: 'u',
       createdAt: '',
       children: [],
-      documents: [{ id: 'd1', name: 'report.pdf', currentVersion: null, canManage: false }],
+      documents: [{ id: 'd1', name: 'report.pdf', currentVersion: null, canManage: false, canEdit: false }],
       canManage: false,
+      canEdit: false,
     });
 
     const { onSelect } = renderPicker();
@@ -129,6 +132,7 @@ describe('ResourcePicker', () => {
       children: [],
       documents: [],
       canManage: false,
+      canEdit: false,
     });
 
     const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
@@ -173,9 +177,10 @@ describe('ResourcePicker', () => {
           parentId: null,
           createdBy: 'u',
           createdAt: '',
-          children: [{ id: 'f2', name: 'Q1', parentId: 'f1', createdBy: 'u', createdAt: '', canManage: false }],
+          children: [{ id: 'f2', name: 'Q1', parentId: 'f1', createdBy: 'u', createdAt: '', canManage: false, canEdit: false }],
           documents: [],
           canManage: false,
+          canEdit: false,
         };
       }
       if (id === 'f2') {
@@ -188,6 +193,7 @@ describe('ResourcePicker', () => {
           children: [],
           documents: [],
           canManage: false,
+          canEdit: false,
         };
       }
       throw new Error(`unexpected id ${id}`);
@@ -219,9 +225,10 @@ describe('ResourcePicker', () => {
           parentId: null,
           createdBy: 'u',
           createdAt: '',
-          children: [{ id: 'f2', name: 'Q1', parentId: 'f1', createdBy: 'u', createdAt: '', canManage: false }],
+          children: [{ id: 'f2', name: 'Q1', parentId: 'f1', createdBy: 'u', createdAt: '', canManage: false, canEdit: false }],
           documents: [],
           canManage: false,
+          canEdit: false,
         };
       }
       if (id === 'f2') {
@@ -234,6 +241,7 @@ describe('ResourcePicker', () => {
           children: [],
           documents: [],
           canManage: false,
+          canEdit: false,
         };
       }
       throw new Error(`unexpected id ${id}`);
@@ -269,8 +277,9 @@ describe('ResourcePicker', () => {
       createdBy: 'u',
       createdAt: '',
       children: [],
-      documents: [{ id: 'd1', name: 'report.pdf', currentVersion: null, canManage: true }],
+      documents: [{ id: 'd1', name: 'report.pdf', currentVersion: null, canManage: true, canEdit: true }],
       canManage: true,
+      canEdit: true,
     });
 
     const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
@@ -299,5 +308,24 @@ describe('ResourcePicker', () => {
     );
 
     await waitFor(() => expect(screen.getByText('選擇移動目的地')).toBeInTheDocument());
+  });
+
+  it('renders errorMessage inside the dialog when provided', async () => {
+    vi.mocked(listRootFolders).mockResolvedValue([]);
+
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    render(
+      <QueryClientProvider client={queryClient}>
+        <ResourcePicker
+          open={true}
+          onOpenChange={vi.fn()}
+          onSelect={vi.fn()}
+          errorMessage="測試錯誤"
+        />
+      </QueryClientProvider>,
+    );
+
+    await waitFor(() => expect(screen.getByTestId('resource-picker-error')).toBeInTheDocument());
+    expect(screen.getByTestId('resource-picker-error')).toHaveTextContent('測試錯誤');
   });
 });

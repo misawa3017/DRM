@@ -18,6 +18,7 @@ interface FolderResponse {
   children?: unknown[];
   documents?: unknown[];
   canManage?: boolean;
+  canEdit?: boolean;
 }
 
 async function getToken(username: string, password: string): Promise<string> {
@@ -234,6 +235,52 @@ describe('Folders (e2e)', () => {
     expect(res.data.canManage).toBe(true);
   });
 
+  it('GET /folders/:id reports canEdit=false for a caller who only has view access', async () => {
+    const folder = await prisma.folder.create({
+      data: { name: `view-only-canedit-${randomUUID()}`, parentId: null, createdBy: 'seed' },
+    });
+    await prisma.permission.create({
+      data: {
+        resourceType: 'folder',
+        resourceId: folder.id,
+        principalType: 'user',
+        principalId: testUserId,
+        permissionLevel: 'view',
+        grantedBy: 'seed',
+      },
+    });
+
+    const token = await getToken('testuser', 'testpass');
+    const res = await axios.get<FolderResponse>(`${API_BASE_URL}/folders/${folder.id}`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+
+    expect(res.data.canEdit).toBe(false);
+  });
+
+  it('GET /folders/:id reports canEdit=true for a caller with edit access', async () => {
+    const folder = await prisma.folder.create({
+      data: { name: `edit-granted-${randomUUID()}`, parentId: null, createdBy: 'seed' },
+    });
+    await prisma.permission.create({
+      data: {
+        resourceType: 'folder',
+        resourceId: folder.id,
+        principalType: 'user',
+        principalId: testUserId,
+        permissionLevel: 'edit',
+        grantedBy: 'seed',
+      },
+    });
+
+    const token = await getToken('testuser', 'testpass');
+    const res = await axios.get<FolderResponse>(`${API_BASE_URL}/folders/${folder.id}`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+
+    expect(res.data.canEdit).toBe(true);
+  });
+
   it('GET /folders returns every root folder for an admin, even without an explicit grant', async () => {
     const folder = await prisma.folder.create({
       data: { name: `admin-visible-${randomUUID()}`, parentId: null, createdBy: 'seed' },
@@ -390,6 +437,59 @@ describe('Folders (e2e)', () => {
     expect(childIds).not.toContain(deletedChild.id);
     expect((res.data.children as (FolderResponse & { canManage: boolean })[]).find((c) => c.id === manageableChild.id)?.canManage).toBe(true);
     expect((res.data.children as (FolderResponse & { canManage: boolean })[]).find((c) => c.id === viewOnlyChild.id)?.canManage).toBe(false);
+  });
+
+  it("GET /folders/:id's children and documents each carry their own canEdit, and exclude soft-deleted rows", async () => {
+    const parent = await prisma.folder.create({
+      data: { name: `parent-children-canedit-${randomUUID()}`, parentId: null, createdBy: 'seed' },
+    });
+    await prisma.permission.create({
+      data: {
+        resourceType: 'folder',
+        resourceId: parent.id,
+        principalType: 'user',
+        principalId: testUserId,
+        permissionLevel: 'view',
+        grantedBy: 'seed',
+      },
+    });
+    const editableChild = await prisma.folder.create({
+      data: { name: 'editable-child', parentId: parent.id, createdBy: 'seed' },
+    });
+    await prisma.permission.create({
+      data: {
+        resourceType: 'folder',
+        resourceId: editableChild.id,
+        principalType: 'user',
+        principalId: testUserId,
+        permissionLevel: 'edit',
+        grantedBy: 'seed',
+      },
+    });
+    const viewOnlyChild = await prisma.folder.create({
+      data: { name: 'view-only-child-canedit', parentId: parent.id, createdBy: 'seed' },
+    });
+    const deletedChild = await prisma.folder.create({
+      data: {
+        name: 'deleted-child-canedit',
+        parentId: parent.id,
+        createdBy: 'seed',
+        deletedAt: new Date(),
+      },
+    });
+    void deletedChild;
+
+    const token = await getToken('testuser', 'testpass');
+    const res = await axios.get<
+      FolderResponse & { children: (FolderResponse & { canEdit: boolean })[] }
+    >(`${API_BASE_URL}/folders/${parent.id}`, { headers: { Authorization: `Bearer ${token}` } });
+
+    const childIds = (res.data.children as (FolderResponse & { canEdit: boolean })[]).map((c) => c.id);
+    expect(childIds).toContain(editableChild.id);
+    expect(childIds).toContain(viewOnlyChild.id);
+    expect(childIds).not.toContain(deletedChild.id);
+    expect((res.data.children as (FolderResponse & { canEdit: boolean })[]).find((c) => c.id === editableChild.id)?.canEdit).toBe(true);
+    expect((res.data.children as (FolderResponse & { canEdit: boolean })[]).find((c) => c.id === viewOnlyChild.id)?.canEdit).toBe(false);
   });
 
   it('PATCH /folders/:id renames a folder the caller has edit access to, and records folder_rename', async () => {

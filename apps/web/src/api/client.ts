@@ -34,6 +34,7 @@ export async function apiFetch<T>(
 
 export function friendlyErrorMessage(error: unknown): string {
   if (error instanceof ApiError) {
+    if (error.status === 400) return '無法移動到這個位置';
     if (error.status === 403) return '你沒有存取這個項目的權限';
     if (error.status === 404) return '找不到這個項目';
     if (error.status === 409) return '這個名稱已經被使用了';

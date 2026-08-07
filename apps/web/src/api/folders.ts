@@ -16,10 +16,12 @@ export interface DocumentSummary {
 
 export interface FolderChildSummary extends FolderSummary {
   canManage: boolean;
+  canEdit: boolean;
 }
 
 export interface DocumentChildSummary extends DocumentSummary {
   canManage: boolean;
+  canEdit: boolean;
 }
 
 export interface FolderDetail extends FolderSummary {
@@ -27,8 +29,11 @@ export interface FolderDetail extends FolderSummary {
   documents: DocumentChildSummary[];
   // Whether the caller has manage-level access — GET /folders/:id only
   // requires 'view', a lower bar, so a caller can see the folder without
-  // being allowed to see or edit its ACL.
+  // being allowed to see or edit its ACL. Gates the 權限 (ACL admin) link.
   canManage: boolean;
+  // Whether the caller has edit-level access — the bar that actually gates
+  // rename/move/delete affordances.
+  canEdit: boolean;
 }
 
 export function listRootFolders(accessToken: string) {

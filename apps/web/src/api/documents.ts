@@ -21,8 +21,11 @@ export interface DocumentDetail {
   createdAt: string;
   // Whether the caller has manage-level access — GET /documents/:id only
   // requires 'view', a lower bar, so a caller can see the document without
-  // being allowed to see or edit its ACL.
+  // being allowed to see or edit its ACL. Gates the 權限 (ACL admin) link.
   canManage: boolean;
+  // Whether the caller has edit-level access — the bar that actually gates
+  // rename/move/delete/upload-version affordances.
+  canEdit: boolean;
 }
 
 export function getDocument(id: string, accessToken: string) {

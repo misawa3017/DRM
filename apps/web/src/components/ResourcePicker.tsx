@@ -23,6 +23,7 @@ interface ResourcePickerProps {
   onSelect: (resource: PickedResource) => void;
   mode?: 'any' | 'folder-only';
   title?: string;
+  errorMessage?: string | null;
 }
 
 export function ResourcePicker({
@@ -31,6 +32,7 @@ export function ResourcePicker({
   onSelect,
   mode = 'any',
   title = '選擇資源',
+  errorMessage,
 }: ResourcePickerProps) {
   const auth = useAuth();
   const accessToken = auth.user?.access_token ?? '';
@@ -76,6 +78,12 @@ export function ResourcePicker({
         <DialogHeader>
           <DialogTitle>{title}</DialogTitle>
         </DialogHeader>
+
+        {errorMessage && (
+          <p className="text-sm text-destructive" data-testid="resource-picker-error">
+            {errorMessage}
+          </p>
+        )}
 
         {folderId === null ? (
           <ul className="overflow-hidden rounded-md border">

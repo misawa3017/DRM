@@ -359,6 +359,11 @@ export class DocumentsService {
       throw new ForbiddenException('You do not have edit access to this document');
     }
 
+    const document = await this.prisma.document.findUnique({ where: { id: documentId } });
+    if (!document || document.deletedAt) {
+      throw new NotFoundException('Document not found');
+    }
+
     // The Document row already exists here, so audit the rejection against it.
     await this.rejectIfInfected(file, user.id, 'document', documentId, ipAddress);
 
@@ -451,14 +456,18 @@ export class DocumentsService {
       ipAddress,
     });
 
-    // The UI uses this to decide whether to offer a "manage permissions"
-    // link at all — GET /documents/:id/permissions requires 'manage', a
-    // higher bar than the 'view' access that gets a caller into this
-    // method, so a caller can legitimately see the document yet not be
-    // allowed to see or edit its ACL.
-    const canManage = await this.acl.can(user, 'document', documentId, 'manage');
+    // The UI uses canManage to decide whether to offer a "manage
+    // permissions" link at all — GET /documents/:id/permissions requires
+    // 'manage', a higher bar than the 'view' access that gets a caller into
+    // this method, so a caller can legitimately see the document yet not be
+    // allowed to see or edit its ACL. canEdit is the lower bar that
+    // actually gates rename/move/delete/upload-version affordances.
+    const [canManage, canEdit] = await Promise.all([
+      this.acl.can(user, 'document', documentId, 'manage'),
+      this.acl.can(user, 'document', documentId, 'edit'),
+    ]);
 
-    return { ...document, canManage };
+    return { ...document, canManage, canEdit };
   }
 
   async getDownloadStream(

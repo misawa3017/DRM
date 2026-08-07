@@ -38,10 +38,21 @@ describe('FolderView', () => {
       createdBy: 'u',
       createdAt: '',
       children: [
-        { id: 'child-1', name: 'Q1', parentId: 'folder-1', createdBy: 'u', createdAt: '', canManage: false },
+        {
+          id: 'child-1',
+          name: 'Q1',
+          parentId: 'folder-1',
+          createdBy: 'u',
+          createdAt: '',
+          canManage: false,
+          canEdit: false,
+        },
       ],
-      documents: [{ id: 'doc-1', name: 'report.pdf', currentVersion: null, canManage: false }],
+      documents: [
+        { id: 'doc-1', name: 'report.pdf', currentVersion: null, canManage: false, canEdit: false },
+      ],
       canManage: false,
+      canEdit: false,
     });
 
     renderWithProviders(<FolderView />, { route: '/folders/folder-1', path: '/folders/:id' });
@@ -61,6 +72,7 @@ describe('FolderView', () => {
       children: [],
       documents: [],
       canManage: true,
+      canEdit: true,
     });
 
     renderWithProviders(<FolderView />, { route: '/folders/folder-1', path: '/folders/:id' });
@@ -83,6 +95,7 @@ describe('FolderView', () => {
       children: [],
       documents: [],
       canManage: false,
+      canEdit: true,
     });
 
     renderWithProviders(<FolderView />, { route: '/folders/folder-1', path: '/folders/:id' });
@@ -101,6 +114,7 @@ describe('FolderView', () => {
       children: [],
       documents: [],
       canManage: true,
+      canEdit: true,
     });
     vi.mocked(renameFolder).mockResolvedValue({
       id: 'folder-1',
@@ -122,7 +136,7 @@ describe('FolderView', () => {
     );
   });
 
-  it('does not show the rename/move/delete header actions when canManage is false', async () => {
+  it('does not show the rename/move/delete header actions when canEdit is false', async () => {
     vi.mocked(getFolder).mockResolvedValue({
       id: 'folder-1',
       name: 'Finance',
@@ -132,6 +146,7 @@ describe('FolderView', () => {
       children: [],
       documents: [],
       canManage: false,
+      canEdit: false,
     });
 
     renderWithProviders(<FolderView />, { route: '/folders/folder-1', path: '/folders/:id' });
@@ -142,7 +157,48 @@ describe('FolderView', () => {
     expect(screen.queryByTestId('move-folder-folder-1')).not.toBeInTheDocument();
   });
 
-  it('shows rename/move/delete actions only on child rows the caller can manage', async () => {
+  it('shows rename/move/delete header actions when canEdit is true but hides 權限 when canManage is false', async () => {
+    vi.mocked(getFolder).mockResolvedValue({
+      id: 'folder-1',
+      name: 'Finance',
+      parentId: 'root-folder',
+      createdBy: 'u',
+      createdAt: '',
+      children: [],
+      documents: [],
+      canManage: false,
+      canEdit: true,
+    });
+
+    renderWithProviders(<FolderView />, { route: '/folders/folder-1', path: '/folders/:id' });
+
+    await waitFor(() => expect(screen.getByTestId('folder-name')).toBeInTheDocument());
+    expect(screen.getByTestId('delete-folder-folder-1')).toBeInTheDocument();
+    expect(screen.getByTestId('move-folder-folder-1')).toBeInTheDocument();
+    expect(screen.queryByRole('link', { name: '權限' })).not.toBeInTheDocument();
+  });
+
+  it('hides the Move button on a root folder (no parentId) even when canEdit is true, but still shows rename/delete', async () => {
+    vi.mocked(getFolder).mockResolvedValue({
+      id: 'folder-1',
+      name: 'Finance',
+      parentId: null,
+      createdBy: 'u',
+      createdAt: '',
+      children: [],
+      documents: [],
+      canManage: true,
+      canEdit: true,
+    });
+
+    renderWithProviders(<FolderView />, { route: '/folders/folder-1', path: '/folders/:id' });
+
+    await waitFor(() => expect(screen.getByTestId('folder-name')).toBeInTheDocument());
+    expect(screen.getByTestId('delete-folder-folder-1')).toBeInTheDocument();
+    expect(screen.queryByTestId('move-folder-folder-1')).not.toBeInTheDocument();
+  });
+
+  it('shows rename/move/delete actions only on child rows the caller can edit', async () => {
     vi.mocked(getFolder).mockResolvedValue({
       id: 'folder-1',
       name: 'Finance',
@@ -156,7 +212,8 @@ describe('FolderView', () => {
           parentId: 'folder-1',
           createdBy: 'u',
           createdAt: '',
-          canManage: true,
+          canManage: false,
+          canEdit: true,
         },
         {
           id: 'child-2',
@@ -165,10 +222,12 @@ describe('FolderView', () => {
           createdBy: 'u',
           createdAt: '',
           canManage: false,
+          canEdit: false,
         },
       ],
       documents: [],
       canManage: true,
+      canEdit: true,
     });
 
     renderWithProviders(<FolderView />, { route: '/folders/folder-1', path: '/folders/:id' });
@@ -187,9 +246,10 @@ describe('FolderView', () => {
       createdAt: '',
       children: [],
       documents: [
-        { id: 'doc-1', name: 'report.pdf', currentVersion: null, canManage: true },
+        { id: 'doc-1', name: 'report.pdf', currentVersion: null, canManage: false, canEdit: true },
       ],
       canManage: true,
+      canEdit: true,
     });
     vi.mocked(deleteDocument).mockResolvedValue(undefined);
 
@@ -201,5 +261,66 @@ describe('FolderView', () => {
     fireEvent.click(screen.getByTestId('confirm-delete'));
 
     await waitFor(() => expect(deleteDocument).toHaveBeenCalledWith('doc-1', 'fake-token'));
+  });
+
+  it('shows a failed row delete error inside the still-open DeleteConfirmDialog', async () => {
+    vi.mocked(getFolder).mockResolvedValue({
+      id: 'folder-1',
+      name: 'Finance',
+      parentId: null,
+      createdBy: 'u',
+      createdAt: '',
+      children: [
+        {
+          id: 'child-1',
+          name: 'Q1',
+          parentId: 'folder-1',
+          createdBy: 'u',
+          createdAt: '',
+          canManage: false,
+          canEdit: true,
+        },
+      ],
+      documents: [],
+      canManage: true,
+      canEdit: true,
+    });
+    vi.mocked(deleteFolder).mockRejectedValue({ response: { status: 403 } });
+
+    renderWithProviders(<FolderView />, { route: '/folders/folder-1', path: '/folders/:id' });
+
+    await waitFor(() => expect(screen.getByTestId('delete-folder-child-1')).toBeInTheDocument());
+    fireEvent.click(screen.getByTestId('delete-folder-child-1'));
+    await waitFor(() => expect(screen.getByTestId('confirm-delete')).toBeInTheDocument());
+    fireEvent.click(screen.getByTestId('confirm-delete'));
+
+    await waitFor(() => expect(screen.getByTestId('delete-confirm-error')).toBeInTheDocument());
+    // Dialog stays open on failure — the confirm button is still present.
+    expect(screen.getByTestId('confirm-delete')).toBeInTheDocument();
+  });
+
+  it("shows a failed header delete error inside the still-open DeleteConfirmDialog", async () => {
+    vi.mocked(getFolder).mockResolvedValue({
+      id: 'folder-1',
+      name: 'Finance',
+      parentId: 'root-folder',
+      createdBy: 'u',
+      createdAt: '',
+      children: [],
+      documents: [],
+      canManage: true,
+      canEdit: true,
+    });
+    vi.mocked(deleteFolder).mockRejectedValue({ response: { status: 403 } });
+
+    renderWithProviders(<FolderView />, { route: '/folders/folder-1', path: '/folders/:id' });
+
+    await waitFor(() => expect(screen.getByTestId('delete-folder-folder-1')).toBeInTheDocument());
+    fireEvent.click(screen.getByTestId('delete-folder-folder-1'));
+    await waitFor(() => expect(screen.getByTestId('confirm-delete')).toBeInTheDocument());
+    fireEvent.click(screen.getByTestId('confirm-delete'));
+
+    await waitFor(() => expect(screen.getByTestId('delete-confirm-error')).toBeInTheDocument());
+    expect(screen.getByTestId('confirm-delete')).toBeInTheDocument();
   });
 });

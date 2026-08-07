@@ -47,6 +47,7 @@ describe('MoveButton', () => {
       children: [],
       documents: [],
       canManage: true,
+      canEdit: true,
     });
     vi.mocked(moveFolder).mockResolvedValue({
       id: 'f1',
@@ -81,6 +82,7 @@ describe('MoveButton', () => {
       children: [],
       documents: [],
       canManage: true,
+      canEdit: true,
     });
     vi.mocked(moveDocument).mockResolvedValue({
       id: 'd1',
@@ -91,6 +93,7 @@ describe('MoveButton', () => {
       createdBy: 'u',
       createdAt: '',
       canManage: true,
+      canEdit: true,
     });
 
     renderMoveButton({ resourceType: 'document', resourceId: 'd1' });
@@ -117,6 +120,7 @@ describe('MoveButton', () => {
       children: [],
       documents: [],
       canManage: true,
+      canEdit: true,
     });
     vi.mocked(moveFolder).mockRejectedValue(new Error('boom'));
 
@@ -128,6 +132,7 @@ describe('MoveButton', () => {
     await waitFor(() => expect(screen.getByTestId('pick-current-folder')).toBeInTheDocument());
     fireEvent.click(screen.getByTestId('pick-current-folder'));
 
-    await waitFor(() => expect(screen.getByText('發生錯誤，請稍後再試')).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByTestId('resource-picker-error')).toBeInTheDocument());
+    expect(screen.getByTestId('resource-picker-error')).toHaveTextContent('發生錯誤，請稍後再試');
   });
 });

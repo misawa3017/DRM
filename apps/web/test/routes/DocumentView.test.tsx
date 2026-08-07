@@ -43,6 +43,7 @@ describe('DocumentView', () => {
       createdBy: 'u',
       createdAt: '',
       canManage: false,
+      canEdit: false,
     });
     vi.mocked(listVersions).mockResolvedValue([
       {
@@ -81,6 +82,7 @@ describe('DocumentView', () => {
       createdBy: 'u',
       createdAt: '',
       canManage: true,
+      canEdit: true,
     });
     vi.mocked(listVersions).mockResolvedValue([]);
 
@@ -104,6 +106,7 @@ describe('DocumentView', () => {
       createdBy: 'u',
       createdAt: '',
       canManage: false,
+      canEdit: true,
     });
     vi.mocked(listVersions).mockResolvedValue([]);
 
@@ -123,6 +126,7 @@ describe('DocumentView', () => {
       createdBy: 'u',
       createdAt: '',
       canManage: true,
+      canEdit: true,
     });
     vi.mocked(listVersions).mockResolvedValue([]);
     vi.mocked(renameDocument).mockResolvedValue({
@@ -134,6 +138,7 @@ describe('DocumentView', () => {
       createdBy: 'u',
       createdAt: '',
       canManage: true,
+      canEdit: true,
     });
 
     renderWithProviders(<DocumentView />, { route: '/documents/doc-1', path: '/documents/:id' });
@@ -148,7 +153,7 @@ describe('DocumentView', () => {
     );
   });
 
-  it('does not show the rename/move/delete header actions when canManage is false', async () => {
+  it('does not show the rename/move/delete header actions when canEdit is false', async () => {
     vi.mocked(getDocument).mockResolvedValue({
       id: 'doc-1',
       folderId: 'folder-1',
@@ -158,6 +163,7 @@ describe('DocumentView', () => {
       createdBy: 'u',
       createdAt: '',
       canManage: false,
+      canEdit: false,
     });
     vi.mocked(listVersions).mockResolvedValue([]);
 
@@ -167,6 +173,28 @@ describe('DocumentView', () => {
     expect(screen.queryByTestId('document-name')).not.toBeInTheDocument();
     expect(screen.queryByTestId('delete-document-doc-1')).not.toBeInTheDocument();
     expect(screen.queryByTestId('move-document-doc-1')).not.toBeInTheDocument();
+  });
+
+  it('shows rename/move/delete header actions when canEdit is true but hides 權限 when canManage is false', async () => {
+    vi.mocked(getDocument).mockResolvedValue({
+      id: 'doc-1',
+      folderId: 'folder-1',
+      name: 'report.pdf',
+      currentVersionId: null,
+      currentVersion: null,
+      createdBy: 'u',
+      createdAt: '',
+      canManage: false,
+      canEdit: true,
+    });
+    vi.mocked(listVersions).mockResolvedValue([]);
+
+    renderWithProviders(<DocumentView />, { route: '/documents/doc-1', path: '/documents/:id' });
+
+    await waitFor(() => expect(screen.getByTestId('document-name')).toBeInTheDocument());
+    expect(screen.getByTestId('delete-document-doc-1')).toBeInTheDocument();
+    expect(screen.getByTestId('move-document-doc-1')).toBeInTheDocument();
+    expect(screen.queryByRole('link', { name: '權限' })).not.toBeInTheDocument();
   });
 
   it('deleting the document via the header calls deleteDocument', async () => {
@@ -179,6 +207,7 @@ describe('DocumentView', () => {
       createdBy: 'u',
       createdAt: '',
       canManage: true,
+      canEdit: true,
     });
     vi.mocked(listVersions).mockResolvedValue([]);
     vi.mocked(deleteDocument).mockResolvedValue(undefined);
@@ -191,5 +220,31 @@ describe('DocumentView', () => {
     fireEvent.click(screen.getByTestId('confirm-delete'));
 
     await waitFor(() => expect(deleteDocument).toHaveBeenCalledWith('doc-1', 'fake-token'));
+  });
+
+  it('shows a failed header delete error inside the still-open DeleteConfirmDialog', async () => {
+    vi.mocked(getDocument).mockResolvedValue({
+      id: 'doc-1',
+      folderId: 'folder-1',
+      name: 'report.pdf',
+      currentVersionId: null,
+      currentVersion: null,
+      createdBy: 'u',
+      createdAt: '',
+      canManage: true,
+      canEdit: true,
+    });
+    vi.mocked(listVersions).mockResolvedValue([]);
+    vi.mocked(deleteDocument).mockRejectedValue({ response: { status: 403 } });
+
+    renderWithProviders(<DocumentView />, { route: '/documents/doc-1', path: '/documents/:id' });
+
+    await waitFor(() => expect(screen.getByTestId('delete-document-doc-1')).toBeInTheDocument());
+    fireEvent.click(screen.getByTestId('delete-document-doc-1'));
+    await waitFor(() => expect(screen.getByTestId('confirm-delete')).toBeInTheDocument());
+    fireEvent.click(screen.getByTestId('confirm-delete'));
+
+    await waitFor(() => expect(screen.getByTestId('delete-confirm-error')).toBeInTheDocument());
+    expect(screen.getByTestId('confirm-delete')).toBeInTheDocument();
   });
 });

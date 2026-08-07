@@ -47,4 +47,18 @@ describe('DeleteConfirmDialog', () => {
 
     expect(screen.getByTestId('confirm-delete')).toBeDisabled();
   });
+
+  it('renders the error message inside the dialog when provided', () => {
+    render(
+      <DeleteConfirmDialog
+        open={true}
+        onOpenChange={vi.fn()}
+        resourceName="財務部"
+        onConfirm={vi.fn()}
+        error="刪除失敗"
+      />,
+    );
+
+    expect(screen.getByTestId('delete-confirm-error')).toHaveTextContent('刪除失敗');
+  });
 });

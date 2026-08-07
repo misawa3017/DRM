@@ -354,4 +354,42 @@ describe('Documents write path (e2e)', () => {
       }),
     ).rejects.toMatchObject({ response: { status: 403 } });
   });
+
+  it('POST /documents/:id/versions rejects an upload to a soft-deleted document', async () => {
+    const adminToken = await getToken('testadmin', 'testadminpass');
+    const employeeToken = await getToken('testuser', 'testpass');
+    const folderRes = await axios.post<{ id: string }>(
+      `${API_BASE_URL}/folders`,
+      { name: `doc-version-softdeleted-${Date.now()}` },
+      { headers: { Authorization: `Bearer ${adminToken}` } },
+    );
+    const form = new FormData();
+    form.append('folderId', folderRes.data.id);
+    form.append('name', 'soondeleted.txt');
+    form.append('file', Buffer.from('content'), { filename: 'soondeleted.txt' });
+    const createRes = await axios.post<{ id: string }>(`${API_BASE_URL}/documents`, form, {
+      headers: { Authorization: `Bearer ${adminToken}`, ...form.getHeaders() },
+    });
+    const documentId = createRes.data.id;
+
+    const whoamiRes = await axios.get<{ id: string }>(`${API_BASE_URL}/whoami`, {
+      headers: { Authorization: `Bearer ${employeeToken}` },
+    });
+    await axios.post(
+      `${API_BASE_URL}/documents/${documentId}/permissions`,
+      { principalType: 'user', principalId: whoamiRes.data.id, permissionLevel: 'edit' },
+      { headers: { Authorization: `Bearer ${adminToken}` } },
+    );
+
+    await prisma.document.update({ where: { id: documentId }, data: { deletedAt: new Date() } });
+
+    const versionForm = new FormData();
+    versionForm.append('file', Buffer.from('should not be allowed'), { filename: 'v2.txt' });
+
+    await expect(
+      axios.post(`${API_BASE_URL}/documents/${documentId}/versions`, versionForm, {
+        headers: { Authorization: `Bearer ${employeeToken}`, ...versionForm.getHeaders() },
+      }),
+    ).rejects.toMatchObject({ response: { status: 404 } });
+  });
 });

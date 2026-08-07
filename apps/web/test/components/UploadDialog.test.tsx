@@ -28,6 +28,7 @@ describe('UploadDialog', () => {
       createdBy: 'u',
       createdAt: '',
       canManage: false,
+      canEdit: false,
     });
 
     renderWithProviders(<UploadDialog mode="new-document" folderId="folder-1" />);

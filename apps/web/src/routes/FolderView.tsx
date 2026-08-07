@@ -62,7 +62,7 @@ function FolderRow({
           <Link to={`/folders/${folder.id}`} className="flex items-center gap-2">
             <Folder className="h-4 w-4 text-muted-foreground" />
           </Link>
-          {folder.canManage ? (
+          {folder.canEdit ? (
             <InlineEditableName
               value={folder.name}
               onSave={(name) => renameMutation.mutate(name)}
@@ -80,7 +80,7 @@ function FolderRow({
         )}
       </TableCell>
       <TableCell className="w-0 whitespace-nowrap">
-        {folder.canManage && (
+        {folder.canEdit && (
           <div className="flex items-center gap-1">
             <MoveButton resourceType="folder" resourceId={folder.id} onMoved={onChanged} />
             <Button
@@ -100,6 +100,7 @@ function FolderRow({
               onOpenChange={setConfirmOpen}
               resourceName={folder.name}
               isDeleting={deleteMutation.isPending}
+              error={rowError}
               onConfirm={() => deleteMutation.mutate()}
             />
           </div>
@@ -142,7 +143,7 @@ function DocumentRow({
           <Link to={`/documents/${document.id}`} className="flex items-center gap-2">
             <FileText className="h-4 w-4 text-muted-foreground" />
           </Link>
-          {document.canManage ? (
+          {document.canEdit ? (
             <InlineEditableName
               value={document.name}
               onSave={(name) => renameMutation.mutate(name)}
@@ -166,7 +167,7 @@ function DocumentRow({
         {document.currentVersion ? `v${document.currentVersion.versionNumber}` : '—'}
       </TableCell>
       <TableCell className="w-0 whitespace-nowrap">
-        {document.canManage && (
+        {document.canEdit && (
           <div className="flex items-center gap-1">
             <MoveButton resourceType="document" resourceId={document.id} onMoved={onChanged} />
             <Button
@@ -186,6 +187,7 @@ function DocumentRow({
               onOpenChange={setConfirmOpen}
               resourceName={document.name}
               isDeleting={deleteMutation.isPending}
+              error={rowError}
               onConfirm={() => deleteMutation.mutate()}
             />
           </div>
@@ -248,7 +250,7 @@ export function FolderView() {
   return (
     <div className="mx-auto max-w-4xl px-6 py-8">
       <div className="mb-6 flex items-center justify-between gap-3">
-        {folder.canManage ? (
+        {folder.canEdit ? (
           <InlineEditableName
             value={folder.name}
             onSave={(name) => renameMutation.mutate(name)}
@@ -262,9 +264,11 @@ export function FolderView() {
         <div className="flex gap-2">
           <CreateFolderDialog parentId={folder.id} />
           <UploadDialog mode="new-document" folderId={folder.id} />
-          {folder.canManage && (
+          {folder.canEdit && folder.parentId && (
+            <MoveButton resourceType="folder" resourceId={folder.id} onMoved={invalidate} />
+          )}
+          {folder.canEdit && (
             <>
-              <MoveButton resourceType="folder" resourceId={folder.id} onMoved={invalidate} />
               <Button
                 variant="outline"
                 size="sm"
@@ -282,15 +286,18 @@ export function FolderView() {
                 onOpenChange={setHeaderDeleteOpen}
                 resourceName={folder.name}
                 isDeleting={deleteMutation.isPending}
+                error={headerError}
                 onConfirm={() => deleteMutation.mutate()}
               />
-              <Link
-                to={`/folders/${folder.id}/permissions`}
-                className="inline-flex items-center rounded-md border px-3 py-2 text-sm font-medium hover:bg-accent"
-              >
-                權限
-              </Link>
             </>
+          )}
+          {folder.canManage && (
+            <Link
+              to={`/folders/${folder.id}/permissions`}
+              className="inline-flex items-center rounded-md border px-3 py-2 text-sm font-medium hover:bg-accent"
+            >
+              權限
+            </Link>
           )}
         </div>
       </div>

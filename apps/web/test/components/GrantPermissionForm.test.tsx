@@ -104,9 +104,10 @@ describe('GrantPermissionForm', () => {
           parentId: null,
           createdBy: 'u',
           createdAt: '',
-          children: [{ id: 'f2', name: 'Q1', parentId: 'f1', createdBy: 'u', createdAt: '', canManage: false }],
+          children: [{ id: 'f2', name: 'Q1', parentId: 'f1', createdBy: 'u', createdAt: '', canManage: false, canEdit: false }],
           documents: [],
           canManage: false,
+          canEdit: false,
         };
       }
       if (id === 'f2') {
@@ -119,6 +120,7 @@ describe('GrantPermissionForm', () => {
           children: [],
           documents: [],
           canManage: false,
+          canEdit: false,
         };
       }
       throw new Error(`unexpected id ${id}`);

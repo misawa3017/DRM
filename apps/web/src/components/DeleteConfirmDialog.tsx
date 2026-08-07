@@ -7,6 +7,7 @@ interface DeleteConfirmDialogProps {
   resourceName: string;
   onConfirm: () => void;
   isDeleting?: boolean;
+  error?: string | null;
 }
 
 export function DeleteConfirmDialog({
@@ -15,6 +16,7 @@ export function DeleteConfirmDialog({
   resourceName,
   onConfirm,
   isDeleting,
+  error,
 }: DeleteConfirmDialogProps) {
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -25,6 +27,11 @@ export function DeleteConfirmDialog({
         <p className="text-sm text-muted-foreground">
           刪除後這個項目就不會再出現在清單裡，目前介面上還沒有提供還原功能。
         </p>
+        {error && (
+          <p className="text-sm text-destructive" data-testid="delete-confirm-error">
+            {error}
+          </p>
+        )}
         <DialogFooter>
           <Button variant="outline" onClick={() => onOpenChange(false)}>
             取消
