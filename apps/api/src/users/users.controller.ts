@@ -1,4 +1,4 @@
-import { Controller, Get, Req, UseGuards } from '@nestjs/common';
+import { Controller, Get, Query, Req, UseGuards } from '@nestjs/common';
 import { AuthGuard } from '@nestjs/passport';
 import { Request } from 'express';
 import { UsersService } from './users.service';
@@ -22,5 +22,11 @@ export class UsersController {
       displayName: user.displayName,
       roles,
     };
+  }
+
+  @UseGuards(AuthGuard('jwt'))
+  @Get('users')
+  async search(@Query('search') search?: string) {
+    return this.usersService.search(search);
   }
 }
