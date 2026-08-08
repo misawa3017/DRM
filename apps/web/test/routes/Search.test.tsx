@@ -22,6 +22,14 @@ describe('Search', () => {
     expect(searchResources).not.toHaveBeenCalled();
   });
 
+  it('shows a loading state while the search request is pending', async () => {
+    vi.mocked(searchResources).mockReturnValue(new Promise(() => {}));
+
+    renderWithProviders(<Search />, { route: '/search?q=finance', path: '/search' });
+
+    await waitFor(() => expect(screen.getByTestId('loading')).toBeInTheDocument());
+  });
+
   it('calls searchResources with the URL query and shows results', async () => {
     vi.mocked(searchResources).mockResolvedValue([
       { resourceType: 'folder', resourceId: 'f1', name: 'Finance', path: 'Root' },
