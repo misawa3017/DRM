@@ -198,6 +198,46 @@ describe('FolderView', () => {
     expect(screen.queryByTestId('move-folder-folder-1')).not.toBeInTheDocument();
   });
 
+  it('hides 新增資料夾/上傳新文件 when the caller cannot edit the folder', async () => {
+    vi.mocked(getFolder).mockResolvedValue({
+      id: 'folder-1',
+      name: 'Finance',
+      parentId: null,
+      createdBy: 'u',
+      createdAt: '',
+      children: [],
+      documents: [],
+      canManage: false,
+      canEdit: false,
+    });
+
+    renderWithProviders(<FolderView />, { route: '/folders/folder-1', path: '/folders/:id' });
+
+    await waitFor(() => expect(screen.getByText('Finance')).toBeInTheDocument());
+    expect(screen.queryByRole('button', { name: '新增資料夾' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: '上傳新文件' })).not.toBeInTheDocument();
+  });
+
+  it('shows 新增資料夾/上傳新文件 when the caller can edit the folder', async () => {
+    vi.mocked(getFolder).mockResolvedValue({
+      id: 'folder-1',
+      name: 'Finance',
+      parentId: null,
+      createdBy: 'u',
+      createdAt: '',
+      children: [],
+      documents: [],
+      canManage: false,
+      canEdit: true,
+    });
+
+    renderWithProviders(<FolderView />, { route: '/folders/folder-1', path: '/folders/:id' });
+
+    await waitFor(() => expect(screen.getByText('Finance')).toBeInTheDocument());
+    expect(screen.getByRole('button', { name: '新增資料夾' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '上傳新文件' })).toBeInTheDocument();
+  });
+
   it('shows rename/move/delete actions only on child rows the caller can edit', async () => {
     vi.mocked(getFolder).mockResolvedValue({
       id: 'folder-1',

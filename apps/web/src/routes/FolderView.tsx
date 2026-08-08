@@ -262,8 +262,12 @@ export function FolderView() {
           <h1 className="text-xl font-bold">{folder.name}</h1>
         )}
         <div className="flex gap-2">
-          <CreateFolderDialog parentId={folder.id} />
-          <UploadDialog mode="new-document" folderId={folder.id} />
+          {folder.canEdit && (
+            <>
+              <CreateFolderDialog parentId={folder.id} />
+              <UploadDialog mode="new-document" folderId={folder.id} />
+            </>
+          )}
           {folder.canEdit && folder.parentId && (
             <MoveButton resourceType="folder" resourceId={folder.id} onMoved={invalidate} />
           )}
