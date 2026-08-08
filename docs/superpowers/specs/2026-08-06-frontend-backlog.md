@@ -6,9 +6,9 @@
 
 ## 1. 設計文件明確排除的範疇（功能性缺口）
 
-- [ ] **權限管理 UI**（grant/revoke ACL）——目前只能靠後端 API/資料庫直接操作，前端沒有任何介面
+- [x] **權限管理 UI**（grant/revoke ACL）——2026-08-07 完成並合併（全域權限儀表板 `/permissions`）
 - [ ] **搜尋**——資料夾/文件清單沒有搜尋功能
-- [ ] **rename / move / delete**——文件與資料夾都不能改名、搬移、刪除
+- [x] **rename / move / delete**——2026-08-08 完成並合併（後端 PATCH/DELETE + 軟刪除 + 前端整合）
 - [ ] **站內 PDF 預覽、動態浮水印顯示**——`download` 端點目前直接吐原始檔案，浮水印邏輯還沒接上
 - [ ] **上傳者姓名顯示**——版本歷史目前顯示 user ID，不是姓名（需要一支查詢其他使用者身分的 API）
 - [ ] **響應式/行動裝置版面**——目前桌面優先，沒做手機/平板適配
@@ -18,7 +18,13 @@
 
 - [ ] **`DocumentView` 沒有麵包屑**——只有 `FolderView` 接上 `useSetNavbarCrumb`，進入文件詳情頁時導覽列中間的麵包屑 slot 是空的（已記錄在 navbar 改版設計文件的「已知落差」）
 - [ ] **`FolderView` 沒有空狀態設計**——資料夾內沒有子資料夾/文件時，只顯示空的卡片框，不像 `RootFolders` 有圖示+提示文字
-- [ ] **`FolderView` 的寫入按鈕沒有依權限隱藏**——沒有寫入權限的使用者一樣看得到「新增資料夾」「上傳文件」按鈕，填完表單送出才會被 403 擋下；理想做法是讓 `GET /folders/:id` 回傳呼叫者的有效權限層級，前端據此隱藏/停用
+- [ ] **`FolderView` 的寫入按鈕沒有依權限隱藏**——沒有寫入權限的使用者一樣看得到「新增資料夾」「上傳文件」按鈕，填完表單送出才會被 403 擋下。rename/move/delete 這次已經讓 `GET /folders/:id` 回傳呼叫者的 `canEdit`（配合既有的 `canManage`），所以現在補這個只需要把 `CreateFolderDialog`/`UploadDialog` 也用 `folder.canEdit` 包起來——不需要再動後端
+
+## 4. rename/move/delete 分支的最終審查中新發現、刻意延後的項目
+
+- [ ] **軟刪除沒有滲透到權限管理功能**——已軟刪除的資料夾/文件在「權限管理」（`permissions.service.ts`、`acl.service.ts` 的 `walkFolderForManagedDescendants`）中仍然可見且可操作（例如 `GET /folders/:id/permissions` 對已刪除資料夾仍回 200，全域權限儀表板也會永遠列出已刪除項目）。跨兩個已合併功能的整合缺口，2026-08-08 決定另開任務修，不算功能缺陷
+- [ ] **`friendlyErrorMessage` 的 400 訊息太窄**——`apps/web/src/api/client.ts` 新增的 400 分支寫死「無法移動到這個位置」，但 400 也會被病毒掃描拒絕上傳、「file is required」、「group principals not supported」等情境共用，導致這些情境也顯示搬移相關的錯誤文字。應該做成搬移專用的 helper 或讓呼叫端可以覆蓋預設文字
+- [ ] **`getWithContents` 的 ACL 查詢數翻倍**——為了同時算出每個子項目的 `canManage` 和 `canEdit`，現在對每個子資料夾/文件都各自呼叫兩次 `acl.can`；可以改成呼叫一次 `resolveLevel` 再用 `LEVEL_ORDER` 比較兩次，效能不影響正確性，純屬微調
 
 ## 3. 技術債（不影響功能，效能/健壯性微調）
 
