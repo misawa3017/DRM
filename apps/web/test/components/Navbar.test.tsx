@@ -1,12 +1,17 @@
 import { useMemo, type ReactNode } from 'react';
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { MemoryRouter, Routes, Route } from 'react-router-dom';
+import { MemoryRouter, Routes, Route, useSearchParams } from 'react-router-dom';
 import { useAuth } from 'react-oidc-context';
 import { Navbar } from '../../src/components/Navbar';
 import { useSetNavbarCrumb } from '../../src/lib/navbarBreadcrumb';
 
 vi.mock('react-oidc-context', () => ({ useAuth: vi.fn() }));
+
+function SearchProbe() {
+  const [params] = useSearchParams();
+  return <div>search results page: {params.get('q')}</div>;
+}
 
 function renderNavbar(child: ReactNode = <div>page content</div>) {
   return render(
@@ -14,6 +19,7 @@ function renderNavbar(child: ReactNode = <div>page content</div>) {
       <Routes>
         <Route element={<Navbar />}>
           <Route path="/" element={child} />
+          <Route path="/search" element={<SearchProbe />} />
         </Route>
       </Routes>
     </MemoryRouter>,
@@ -103,5 +109,28 @@ describe('Navbar', () => {
     const permissionsLink = screen.getByRole('link', { name: '權限管理' });
     expect(foldersLink).toHaveAttribute('href', '/');
     expect(permissionsLink).toHaveAttribute('href', '/permissions');
+  });
+
+  it('navigates to /search?q=... when a search term is submitted via Enter', async () => {
+    renderNavbar();
+
+    const input = screen.getByTestId('navbar-search-input');
+    fireEvent.change(input, { target: { value: 'finance report' } });
+    fireEvent.keyDown(input, { key: 'Enter' });
+
+    await waitFor(() =>
+      expect(screen.getByText('search results page: finance report')).toBeInTheDocument(),
+    );
+  });
+
+  it('does not navigate when the search input is blank', async () => {
+    renderNavbar();
+
+    const input = screen.getByTestId('navbar-search-input');
+    fireEvent.change(input, { target: { value: '   ' } });
+    fireEvent.keyDown(input, { key: 'Enter' });
+
+    expect(screen.getByText('page content')).toBeInTheDocument();
+    expect(screen.queryByText(/search results page/)).not.toBeInTheDocument();
   });
 });

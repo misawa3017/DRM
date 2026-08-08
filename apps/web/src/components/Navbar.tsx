@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState, type ReactNode } from 'react';
-import { Link, NavLink, Outlet } from 'react-router-dom';
+import { Link, NavLink, Outlet, useNavigate } from 'react-router-dom';
 import { useAuth } from 'react-oidc-context';
-import { Folder } from 'lucide-react';
+import { Folder, Search } from 'lucide-react';
 import { NavbarBreadcrumbContext } from '../lib/navbarBreadcrumb';
 
 interface WhoAmI {
@@ -13,9 +13,17 @@ interface WhoAmI {
 
 export function Navbar() {
   const auth = useAuth();
+  const navigate = useNavigate();
   const accessToken = auth.user?.access_token ?? '';
   const [whoami, setWhoami] = useState<WhoAmI | null>(null);
   const [crumb, setCrumb] = useState<ReactNode>(null);
+  const [searchInput, setSearchInput] = useState('');
+
+  const submitSearch = () => {
+    const trimmed = searchInput.trim();
+    if (!trimmed) return;
+    navigate(`/search?q=${encodeURIComponent(trimmed)}`);
+  };
 
   useEffect(() => {
     if (!accessToken) return;
@@ -64,6 +72,27 @@ export function Navbar() {
             權限管理
           </NavLink>
         </nav>
+
+        <div className="flex w-56 shrink-0 items-center gap-1.5 rounded-md bg-primary-foreground/10 px-2.5 py-1.5">
+          <button
+            type="button"
+            aria-label="搜尋"
+            onClick={submitSearch}
+            className="text-primary-foreground/70 hover:text-primary-foreground"
+          >
+            <Search className="h-4 w-4" />
+          </button>
+          <input
+            data-testid="navbar-search-input"
+            value={searchInput}
+            onChange={(e) => setSearchInput(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') submitSearch();
+            }}
+            placeholder="搜尋資料夾或文件..."
+            className="w-full border-none bg-transparent text-sm text-primary-foreground placeholder:text-primary-foreground/50 focus:outline-none"
+          />
+        </div>
 
         <div
           className="flex min-w-0 flex-1 items-center justify-center gap-1 text-sm"
