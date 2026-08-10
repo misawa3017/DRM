@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useAuth } from 'react-oidc-context';
@@ -29,6 +29,8 @@ import { DeleteConfirmDialog } from '../components/DeleteConfirmDialog';
 import { MoveButton } from '../components/MoveButton';
 import { WatermarkSetting } from '../components/WatermarkSetting';
 import { ProtectedPdfPreview } from '../components/ProtectedPdfPreview';
+import { Breadcrumb } from '../components/Breadcrumb';
+import { useSetNavbarCrumb } from '../lib/navbarBreadcrumb';
 
 const PREVIEWABLE_MIME_TYPES = new Set([
   'application/pdf',
@@ -184,6 +186,20 @@ export function DocumentView() {
     onError: (err) => setHeaderError(friendlyErrorMessage(err)),
   });
 
+  const document = documentQuery.data;
+  const crumb = useMemo(
+    () =>
+      document ? (
+        <Breadcrumb
+          currentId={document.id}
+          currentName={document.name}
+          parentId={document.folderId}
+        />
+      ) : null,
+    [document],
+  );
+  useSetNavbarCrumb(crumb);
+
   const handleDownload = async (versionId?: string) => {
     setDownloadError(null);
     try {
@@ -204,7 +220,7 @@ export function DocumentView() {
     return <p data-testid="error">{friendlyErrorMessage(documentQuery.error)}</p>;
   }
 
-  const doc = documentQuery.data;
+  const doc = document;
   if (!doc) return <p data-testid="loading">Loading...</p>;
 
   return (

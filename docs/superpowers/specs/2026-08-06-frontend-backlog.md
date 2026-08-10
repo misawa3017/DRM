@@ -16,7 +16,7 @@
 
 ## 2. 這次改版審查中發現的已知落差
 
-- [ ] **`DocumentView` 沒有麵包屑**——只有 `FolderView` 接上 `useSetNavbarCrumb`，進入文件詳情頁時導覽列中間的麵包屑 slot 是空的（已記錄在 navbar 改版設計文件的「已知落差」）
+- [x] **`DocumentView` 沒有麵包屑**——2026-08-10 完成，顯示完整資料夾路徑與目前文件名稱
 - [ ] **`FolderView` 沒有空狀態設計**——資料夾內沒有子資料夾/文件時，只顯示空的卡片框，不像 `RootFolders` 有圖示+提示文字
 - [x] **`FolderView` 的寫入按鈕沒有依權限隱藏**——2026-08-10 前已完成，寫入按鈕依 `folder.canEdit` 顯示
 
