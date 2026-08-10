@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useAuth } from 'react-oidc-context';
-import { FileText, Trash2 } from 'lucide-react';
+import { CalendarClock, FileText, ShieldCheck, Trash2 } from 'lucide-react';
 import {
   Table,
   TableBody,
@@ -18,12 +18,113 @@ import {
   downloadDocument,
   renameDocument,
   deleteDocument,
+  updateDocumentExpiration,
+  updateDocumentWatermark,
+  type DocumentDetail,
 } from '../api/documents';
 import { friendlyErrorMessage } from '../api/client';
 import { UploadDialog } from '../components/UploadDialog';
 import { InlineEditableName } from '../components/InlineEditableName';
 import { DeleteConfirmDialog } from '../components/DeleteConfirmDialog';
 import { MoveButton } from '../components/MoveButton';
+import { WatermarkSetting } from '../components/WatermarkSetting';
+import { ProtectedPdfPreview } from '../components/ProtectedPdfPreview';
+
+const PREVIEWABLE_MIME_TYPES = new Set([
+  'application/pdf',
+  'application/msword',
+  'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+  'application/vnd.ms-excel',
+  'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+  'application/vnd.ms-powerpoint',
+  'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+]);
+
+function toLocalDateTime(value: string | null | undefined): string {
+  if (!value) return '';
+  const date = new Date(value);
+  const offset = date.getTimezoneOffset() * 60_000;
+  return new Date(date.getTime() - offset).toISOString().slice(0, 16);
+}
+
+function DocumentPolicySettings({
+  doc,
+  accessToken,
+  onChanged,
+}: {
+  doc: DocumentDetail;
+  accessToken: string;
+  onChanged: () => void;
+}) {
+  const [expiresAt, setExpiresAt] = useState(() => toLocalDateTime(doc.expiresAt));
+  const [error, setError] = useState<string | null>(null);
+  const watermarkMutation = useMutation({
+    mutationFn: (value: boolean | null) =>
+      updateDocumentWatermark(doc.id, value, accessToken),
+    onSuccess: onChanged,
+    onError: (err) => setError(friendlyErrorMessage(err)),
+  });
+  const expirationMutation = useMutation({
+    mutationFn: () =>
+      updateDocumentExpiration(
+        doc.id,
+        expiresAt ? new Date(expiresAt).toISOString() : null,
+        accessToken,
+      ),
+    onSuccess: onChanged,
+    onError: (err) => setError(friendlyErrorMessage(err)),
+  });
+
+  return (
+    <section className="mb-8 rounded-lg border bg-background p-5" data-testid="document-policy-settings">
+      <div className="mb-4 flex items-center gap-2">
+        <ShieldCheck className="h-5 w-5 text-muted-foreground" />
+        <div>
+          <h2 className="font-semibold">DRM 保護設定</h2>
+          <p className="text-xs text-muted-foreground">只有具管理權限的使用者可以變更</p>
+        </div>
+      </div>
+      <div className="grid gap-4 md:grid-cols-2">
+        <WatermarkSetting
+          value={doc.watermarkEnabled}
+          disabled={watermarkMutation.isPending}
+          onChange={(value) => {
+            setError(null);
+            watermarkMutation.mutate(value);
+          }}
+        />
+        <label className="grid gap-1.5 text-sm">
+          <span className="font-medium">到期時間</span>
+          <div className="flex gap-2">
+            <input
+              aria-label="到期時間"
+              type="datetime-local"
+              value={expiresAt}
+              onChange={(event) => setExpiresAt(event.target.value)}
+              className="h-10 min-w-0 flex-1 rounded-md border bg-background px-3"
+            />
+            <Button
+              size="sm"
+              disabled={expirationMutation.isPending}
+              onClick={() => {
+                setError(null);
+                expirationMutation.mutate();
+              }}
+            >
+              儲存
+            </Button>
+          </div>
+          <span className="text-xs text-muted-foreground">留空代表永不到期</span>
+        </label>
+      </div>
+      <div className="mt-4 flex items-center gap-2 text-sm">
+        <CalendarClock className="h-4 w-4 text-muted-foreground" />
+        狀態：{doc.status === 'expired' ? '已到期' : '使用中'}
+      </div>
+      {error && <p className="mt-3 text-sm text-destructive" data-testid="policy-error">{error}</p>}
+    </section>
+  );
+}
 
 export function DocumentView() {
   const { id } = useParams<{ id: string }>();
@@ -51,6 +152,9 @@ export function DocumentView() {
   const invalidate = () => {
     queryClient.invalidateQueries({ queryKey: ['document'] });
     queryClient.invalidateQueries({ queryKey: ['folder'] });
+  };
+  const invalidateDocument = () => {
+    queryClient.invalidateQueries({ queryKey: ['document', documentId] });
   };
 
   const renameMutation = useMutation({
@@ -160,6 +264,19 @@ export function DocumentView() {
           </p>
         )}
       </div>
+
+      {doc.canManage && (
+        <DocumentPolicySettings
+          key={`${doc.watermarkEnabled}-${doc.expiresAt}-${doc.status}`}
+          doc={doc}
+          accessToken={accessToken}
+          onChanged={invalidateDocument}
+        />
+      )}
+
+      {doc.currentVersion && PREVIEWABLE_MIME_TYPES.has(doc.currentVersion.mimeType) && (
+        <ProtectedPdfPreview documentId={documentId} accessToken={accessToken} />
+      )}
 
       <h2 className="mb-2 text-sm font-semibold uppercase tracking-wide text-muted-foreground">
         版本歷史

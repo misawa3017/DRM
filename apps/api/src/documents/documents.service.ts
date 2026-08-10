@@ -8,6 +8,7 @@ import {
   NotFoundException,
   PayloadTooLargeException,
   ServiceUnavailableException,
+  UnsupportedMediaTypeException,
 } from '@nestjs/common';
 import { InjectQueue } from '@nestjs/bullmq';
 import { Queue } from 'bullmq';
@@ -372,6 +373,7 @@ export class DocumentsService {
     if (!document || document.deletedAt) {
       throw new NotFoundException('Document not found');
     }
+
     this.policy.assertActive(document);
 
     // The Document row already exists here, so audit the rejection against it.
@@ -458,7 +460,11 @@ export class DocumentsService {
     if (!document || document.deletedAt) {
       throw new NotFoundException('Document not found');
     }
-    this.policy.assertActive(document);
+    const [canManage, canEdit] = await Promise.all([
+      this.acl.can(user, 'document', documentId, 'manage'),
+      this.acl.can(user, 'document', documentId, 'edit'),
+    ]);
+    if (!canManage) this.policy.assertActive(document);
 
     await this.audit.recordSafely({
       actorId: user.id,
@@ -474,11 +480,6 @@ export class DocumentsService {
     // this method, so a caller can legitimately see the document yet not be
     // allowed to see or edit its ACL. canEdit is the lower bar that
     // actually gates rename/move/delete/upload-version affordances.
-    const [canManage, canEdit] = await Promise.all([
-      this.acl.can(user, 'document', documentId, 'manage'),
-      this.acl.can(user, 'document', documentId, 'edit'),
-    ]);
-
     return { ...document, canManage, canEdit };
   }
 
@@ -487,10 +488,12 @@ export class DocumentsService {
     documentId: string,
     versionId: string | undefined,
     ipAddress: string | null,
+    previewMode = false,
   ) {
-    const allowed = await this.acl.can(user, 'document', documentId, 'download');
+    const requiredLevel = previewMode ? 'view' : 'download';
+    const allowed = await this.acl.can(user, 'document', documentId, requiredLevel);
     if (!allowed) {
-      throw new ForbiddenException('You do not have download access to this document');
+      throw new ForbiddenException(`You do not have ${requiredLevel} access to this document`);
     }
     const document = await this.prisma.document.findUnique({ where: { id: documentId } });
     if (!document || document.deletedAt) {
@@ -511,17 +514,9 @@ export class DocumentsService {
             return doc.currentVersion;
           });
 
-    await this.audit.recordSafely({
-      actorId: user.id,
-      action: 'document_download',
-      resourceType: 'document',
-      resourceId: documentId,
-      ipAddress,
-      details: { versionId: version.id },
-    });
-
     const watermarkEnabled = await this.policy.resolveWatermarkEnabled(documentId);
-    if (!watermarkEnabled) {
+    if (!previewMode && !watermarkEnabled) {
+      await this.recordContentAccess(user.id, documentId, version.id, ipAddress, false);
       const stream = await this.storage.getObjectStream(version.objectKey);
       return { stream, mimeType: version.mimeType, fileName: version.id };
     }
@@ -537,13 +532,38 @@ export class DocumentsService {
     }
 
     if (!pdfObjectKey) {
+      if (previewMode) {
+        throw new UnsupportedMediaTypeException('This document type cannot be previewed as PDF');
+      }
+      await this.recordContentAccess(user.id, documentId, version.id, ipAddress, false);
       const stream = await this.storage.getObjectStream(version.objectKey);
       return { stream, mimeType: version.mimeType, fileName: version.id };
     }
 
     const source = await this.storage.getObjectStream(pdfObjectKey);
+    await this.recordContentAccess(user.id, documentId, version.id, ipAddress, previewMode);
+    if (!watermarkEnabled) {
+      return { stream: source, mimeType: 'application/pdf', fileName: `${version.id}.pdf` };
+    }
     const text = `${user.email} | ${new Date().toISOString()} | ${ipAddress ?? 'unknown-ip'}`;
     const stream = await this.watermark.apply(source, text);
     return { stream, mimeType: 'application/pdf', fileName: `${version.id}.pdf` };
+  }
+
+  private async recordContentAccess(
+    actorId: string,
+    documentId: string,
+    versionId: string,
+    ipAddress: string | null,
+    previewMode: boolean,
+  ): Promise<void> {
+    await this.audit.recordSafely({
+      actorId,
+      action: previewMode ? 'document_view' : 'document_download',
+      resourceType: 'document',
+      resourceId: documentId,
+      ipAddress,
+      details: { versionId },
+    });
   }
 }

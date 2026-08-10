@@ -1,5 +1,12 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { listRootFolders, createFolder, renameFolder, moveFolder, deleteFolder } from '../../src/api/folders';
+import {
+  listRootFolders,
+  createFolder,
+  renameFolder,
+  moveFolder,
+  deleteFolder,
+  updateFolderWatermark,
+} from '../../src/api/folders';
 
 describe('folders api', () => {
   beforeEach(() => {
@@ -71,5 +78,20 @@ describe('folders api', () => {
     const [url, init] = vi.mocked(fetch).mock.calls[0];
     expect(url).toContain('/folders/f1');
     expect(init?.method).toBe('DELETE');
+  });
+
+  it('updates the folder watermark policy', async () => {
+    vi.mocked(fetch).mockResolvedValue({
+      ok: true,
+      headers: new Headers({ 'content-type': 'application/json' }),
+      json: async () => ({ id: 'f1' }),
+    } as Response);
+
+    await updateFolderWatermark('f1', false, 'fake-token');
+
+    const [url, init] = vi.mocked(fetch).mock.calls[0];
+    expect(url).toContain('/folders/f1/watermark');
+    expect(init?.method).toBe('PATCH');
+    expect(JSON.parse(init?.body as string)).toEqual({ watermarkEnabled: false });
   });
 });

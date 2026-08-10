@@ -16,6 +16,7 @@ import {
   getFolder,
   renameFolder,
   deleteFolder,
+  updateFolderWatermark,
   type FolderChildSummary,
   type DocumentChildSummary,
 } from '../api/folders';
@@ -28,6 +29,7 @@ import { InlineEditableName } from '../components/InlineEditableName';
 import { DeleteConfirmDialog } from '../components/DeleteConfirmDialog';
 import { MoveButton } from '../components/MoveButton';
 import { useSetNavbarCrumb } from '../lib/navbarBreadcrumb';
+import { WatermarkSetting } from '../components/WatermarkSetting';
 
 function FolderRow({
   folder,
@@ -54,7 +56,6 @@ function FolderRow({
     },
     onError: (err) => setRowError(friendlyErrorMessage(err)),
   });
-
   return (
     <TableRow>
       <TableCell>
@@ -242,6 +243,12 @@ export function FolderView() {
     },
     onError: (err) => setHeaderError(friendlyErrorMessage(err)),
   });
+  const watermarkMutation = useMutation({
+    mutationFn: (value: boolean | null) =>
+      updateFolderWatermark(folderId, value, accessToken),
+    onSuccess: invalidate,
+    onError: (err) => setHeaderError(friendlyErrorMessage(err)),
+  });
 
   if (query.isLoading) return <p data-testid="loading">Loading...</p>;
   if (query.isError) return <p data-testid="error">{friendlyErrorMessage(query.error)}</p>;
@@ -309,6 +316,23 @@ export function FolderView() {
         <p className="mb-4 text-sm text-destructive" data-testid="folder-header-error">
           {headerError}
         </p>
+      )}
+
+      {folder.canManage && (
+        <section className="mb-8 rounded-lg border bg-background p-5" data-testid="folder-policy-settings">
+          <h2 className="mb-1 font-semibold">DRM 保護設定</h2>
+          <p className="mb-4 text-xs text-muted-foreground">
+            子資料夾與文件若選擇繼承，會沿用這裡的浮水印設定
+          </p>
+          <WatermarkSetting
+            value={folder.watermarkEnabled}
+            disabled={watermarkMutation.isPending}
+            onChange={(value) => {
+              setHeaderError(null);
+              watermarkMutation.mutate(value);
+            }}
+          />
+        </section>
       )}
 
       <h2 className="mb-2 text-sm font-semibold uppercase tracking-wide text-muted-foreground">

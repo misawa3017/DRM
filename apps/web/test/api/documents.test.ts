@@ -1,5 +1,14 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { uploadDocument, downloadDocument, renameDocument, moveDocument, deleteDocument } from '../../src/api/documents';
+import {
+  uploadDocument,
+  downloadDocument,
+  renameDocument,
+  moveDocument,
+  deleteDocument,
+  updateDocumentExpiration,
+  updateDocumentWatermark,
+  previewDocument,
+} from '../../src/api/documents';
 
 describe('documents api', () => {
   beforeEach(() => {
@@ -36,6 +45,19 @@ describe('documents api', () => {
 
     expect(result.fileName).toBe('report.pdf');
     expect(result.blob).toBe(fakeBlob);
+  });
+
+  it('previewDocument requests the protected preview endpoint', async () => {
+    const fakeBlob = new Blob(['pdf'], { type: 'application/pdf' });
+    vi.mocked(fetch).mockResolvedValue({
+      ok: true,
+      headers: new Headers({ 'content-type': 'application/pdf' }),
+      blob: async () => fakeBlob,
+    } as Response);
+
+    await expect(previewDocument('doc-1', 'fake-token')).resolves.toBe(fakeBlob);
+    const [url] = vi.mocked(fetch).mock.calls[0];
+    expect(url).toContain('/documents/doc-1/preview');
   });
 
   it('renameDocument PATCHes a JSON body with the new name', async () => {
@@ -76,5 +98,25 @@ describe('documents api', () => {
     const [url, init] = vi.mocked(fetch).mock.calls[0];
     expect(url).toContain('/documents/d1');
     expect(init?.method).toBe('DELETE');
+  });
+
+  it('updates watermark and expiration policies with PATCH requests', async () => {
+    vi.mocked(fetch).mockResolvedValue({
+      ok: true,
+      headers: new Headers({ 'content-type': 'application/json' }),
+      json: async () => ({ id: 'd1' }),
+    } as Response);
+
+    await updateDocumentWatermark('d1', null, 'fake-token');
+    await updateDocumentExpiration('d1', '2026-08-20T02:30:00.000Z', 'fake-token');
+
+    expect(vi.mocked(fetch).mock.calls[0][0]).toContain('/documents/d1/watermark');
+    expect(JSON.parse(vi.mocked(fetch).mock.calls[0][1]?.body as string)).toEqual({
+      watermarkEnabled: null,
+    });
+    expect(vi.mocked(fetch).mock.calls[1][0]).toContain('/documents/d1/expiration');
+    expect(JSON.parse(vi.mocked(fetch).mock.calls[1][1]?.body as string)).toEqual({
+      expiresAt: '2026-08-20T02:30:00.000Z',
+    });
   });
 });

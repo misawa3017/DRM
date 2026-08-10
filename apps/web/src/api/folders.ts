@@ -6,6 +6,7 @@ export interface FolderSummary {
   parentId: string | null;
   createdBy: string;
   createdAt: string;
+  watermarkEnabled?: boolean | null;
 }
 
 export interface DocumentSummary {
@@ -73,4 +74,16 @@ export function moveFolder(id: string, parentId: string, accessToken: string) {
 
 export function deleteFolder(id: string, accessToken: string) {
   return apiFetch<void>(`/folders/${id}`, accessToken, { method: 'DELETE' });
+}
+
+export function updateFolderWatermark(
+  id: string,
+  watermarkEnabled: boolean | null,
+  accessToken: string,
+) {
+  return apiFetch<FolderDetail>(`/folders/${id}/watermark`, accessToken, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ watermarkEnabled }),
+  });
 }

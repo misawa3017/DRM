@@ -19,6 +19,9 @@ export interface DocumentDetail {
   currentVersion: DocumentVersion | null;
   createdBy: string;
   createdAt: string;
+  expiresAt?: string | null;
+  status?: 'active' | 'expired';
+  watermarkEnabled?: boolean | null;
   // Whether the caller has manage-level access — GET /documents/:id only
   // requires 'view', a lower bar, so a caller can see the document without
   // being allowed to see or edit its ACL. Gates the 權限 (ACL admin) link.
@@ -76,6 +79,17 @@ export async function downloadDocument(
   return { blob, fileName };
 }
 
+export async function previewDocument(documentId: string, accessToken: string): Promise<Blob> {
+  const response = await fetch(
+    `${import.meta.env.VITE_API_BASE_URL}/documents/${documentId}/preview`,
+    { headers: { Authorization: `Bearer ${accessToken}` } },
+  );
+  if (!response.ok) {
+    throw new ApiError(response.status, `Preview failed with status ${response.status}`);
+  }
+  return response.blob();
+}
+
 export function renameDocument(id: string, name: string, accessToken: string) {
   return apiFetch<DocumentDetail>(`/documents/${id}`, accessToken, {
     method: 'PATCH',
@@ -94,4 +108,28 @@ export function moveDocument(id: string, folderId: string, accessToken: string) 
 
 export function deleteDocument(id: string, accessToken: string) {
   return apiFetch<void>(`/documents/${id}`, accessToken, { method: 'DELETE' });
+}
+
+export function updateDocumentWatermark(
+  id: string,
+  watermarkEnabled: boolean | null,
+  accessToken: string,
+) {
+  return apiFetch<DocumentDetail>(`/documents/${id}/watermark`, accessToken, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ watermarkEnabled }),
+  });
+}
+
+export function updateDocumentExpiration(
+  id: string,
+  expiresAt: string | null,
+  accessToken: string,
+) {
+  return apiFetch<DocumentDetail>(`/documents/${id}/expiration`, accessToken, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ expiresAt }),
+  });
 }

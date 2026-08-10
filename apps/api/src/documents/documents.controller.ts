@@ -173,4 +173,32 @@ export class DocumentsController {
     });
     stream.pipe(res);
   }
+
+  @Get(':id/preview')
+  async preview(
+    @Req() req: AuthenticatedRequest,
+    @Param('id') id: string,
+    @Res() res: Response,
+  ) {
+    const user = await this.usersService.upsertFromToken(req.user);
+    const { stream, mimeType } = await this.documentsService.getDownloadStream(
+      { id: user.id, roles: req.user.roles, email: user.email },
+      id,
+      undefined,
+      req.ip ?? null,
+      true,
+    );
+    res.setHeader('Content-Type', mimeType);
+    res.setHeader('Content-Disposition', 'inline');
+    stream.on('error', (err) => {
+      console.error('Error streaming document preview from storage:', err);
+      if (!res.headersSent) {
+        res.status(500).json({ message: 'Failed to read preview from storage' });
+      } else {
+        res.destroy();
+      }
+    });
+    res.on('close', () => stream.destroy());
+    stream.pipe(res);
+  }
 }

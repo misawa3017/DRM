@@ -136,6 +136,13 @@ describe('浮水印與到期控制 (e2e)', () => {
       { headers: { Authorization: `Bearer ${token}` }, responseType: 'arraybuffer' },
     );
     expect(Buffer.from(originalDownload.data).equals(original)).toBe(true);
+
+    const preview = await axios.get<ArrayBuffer>(
+      `${API_BASE_URL}/documents/${created.data.id}/preview`,
+      { headers: { Authorization: `Bearer ${token}` }, responseType: 'arraybuffer' },
+    );
+    expect(preview.headers['content-type']).toContain('application/pdf');
+    await expect(PDFDocument.load(Buffer.from(preview.data))).resolves.toBeDefined();
   });
 
   it('已到期文件回傳 410，管理者延長後可重新啟用', async () => {
@@ -146,7 +153,7 @@ describe('浮水印與到期控制 (e2e)', () => {
     });
 
     await expect(
-      axios.get(`${API_BASE_URL}/documents/${document.id}`, {
+      axios.get(`${API_BASE_URL}/documents/${document.id}/download`, {
         headers: { Authorization: `Bearer ${token}` },
       }),
     ).rejects.toMatchObject({ response: { status: 410 } });

@@ -2,7 +2,7 @@ import { screen, waitFor, fireEvent } from '@testing-library/react';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { useAuth } from 'react-oidc-context';
 import { FolderView } from '../../src/routes/FolderView';
-import { getFolder, renameFolder, deleteFolder } from '../../src/api/folders';
+import { getFolder, renameFolder, deleteFolder, updateFolderWatermark } from '../../src/api/folders';
 import { deleteDocument } from '../../src/api/documents';
 import { renderWithProviders } from '../testUtils';
 
@@ -13,6 +13,7 @@ vi.mock('../../src/api/folders', () => ({
   renameFolder: vi.fn(),
   moveFolder: vi.fn(),
   deleteFolder: vi.fn(),
+  updateFolderWatermark: vi.fn(),
 }));
 vi.mock('../../src/api/documents', () => ({
   uploadDocument: vi.fn(),
@@ -82,6 +83,30 @@ describe('FolderView', () => {
         'href',
         '/folders/folder-1/permissions',
       ),
+    );
+  });
+
+  it('allows a manager to update the inherited watermark setting', async () => {
+    vi.mocked(getFolder).mockResolvedValue({
+      id: 'folder-1',
+      name: 'Finance',
+      parentId: null,
+      createdBy: 'u',
+      createdAt: '',
+      watermarkEnabled: null,
+      children: [],
+      documents: [],
+      canManage: true,
+      canEdit: true,
+    });
+    vi.mocked(updateFolderWatermark).mockResolvedValue({} as never);
+
+    renderWithProviders(<FolderView />, { route: '/folders/folder-1', path: '/folders/:id' });
+
+    await waitFor(() => expect(screen.getByTestId('folder-policy-settings')).toBeInTheDocument());
+    fireEvent.change(screen.getByLabelText('動態浮水印'), { target: { value: 'enabled' } });
+    await waitFor(() =>
+      expect(updateFolderWatermark).toHaveBeenCalledWith('folder-1', true, 'fake-token'),
     );
   });
 

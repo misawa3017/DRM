@@ -8,6 +8,8 @@ import {
   downloadDocument,
   renameDocument,
   deleteDocument,
+  updateDocumentExpiration,
+  updateDocumentWatermark,
 } from '../../src/api/documents';
 import { renderWithProviders } from '../testUtils';
 
@@ -19,6 +21,8 @@ vi.mock('../../src/api/documents', () => ({
   renameDocument: vi.fn(),
   moveDocument: vi.fn(),
   deleteDocument: vi.fn(),
+  updateDocumentExpiration: vi.fn(),
+  updateDocumentWatermark: vi.fn(),
 }));
 
 describe('DocumentView', () => {
@@ -92,6 +96,46 @@ describe('DocumentView', () => {
       expect(screen.getByRole('link', { name: '權限' })).toHaveAttribute(
         'href',
         '/documents/doc-1/permissions',
+      ),
+    );
+  });
+
+  it('allows a manager to update watermark and expiration settings', async () => {
+    vi.mocked(getDocument).mockResolvedValue({
+      id: 'doc-1',
+      folderId: 'folder-1',
+      name: 'report.pdf',
+      currentVersionId: null,
+      currentVersion: null,
+      createdBy: 'u',
+      createdAt: '',
+      watermarkEnabled: null,
+      expiresAt: null,
+      status: 'active',
+      canManage: true,
+      canEdit: true,
+    });
+    vi.mocked(listVersions).mockResolvedValue([]);
+    vi.mocked(updateDocumentWatermark).mockResolvedValue({} as never);
+    vi.mocked(updateDocumentExpiration).mockResolvedValue({} as never);
+
+    renderWithProviders(<DocumentView />, { route: '/documents/doc-1', path: '/documents/:id' });
+
+    await waitFor(() => expect(screen.getByTestId('document-policy-settings')).toBeInTheDocument());
+    fireEvent.change(screen.getByLabelText('動態浮水印'), { target: { value: 'disabled' } });
+    await waitFor(() =>
+      expect(updateDocumentWatermark).toHaveBeenCalledWith('doc-1', false, 'fake-token'),
+    );
+
+    fireEvent.change(screen.getByLabelText('到期時間'), {
+      target: { value: '2026-08-20T10:30' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: '儲存' }));
+    await waitFor(() =>
+      expect(updateDocumentExpiration).toHaveBeenCalledWith(
+        'doc-1',
+        new Date('2026-08-20T10:30').toISOString(),
+        'fake-token',
       ),
     );
   });
