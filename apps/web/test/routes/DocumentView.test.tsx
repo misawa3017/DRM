@@ -110,6 +110,7 @@ describe('DocumentView', () => {
       createdBy: 'u',
       createdAt: '',
       watermarkEnabled: null,
+      watermarkTemplate: null,
       expiresAt: null,
       status: 'active',
       canManage: true,
@@ -125,6 +126,20 @@ describe('DocumentView', () => {
     fireEvent.change(screen.getByLabelText('動態浮水印'), { target: { value: 'disabled' } });
     await waitFor(() =>
       expect(updateDocumentWatermark).toHaveBeenCalledWith('doc-1', false, 'fake-token'),
+    );
+
+    fireEvent.change(screen.getByLabelText('浮水印內容來源'), { target: { value: 'custom' } });
+    fireEvent.change(screen.getByLabelText('浮水印範本'), {
+      target: { value: '機密｜{{email}}｜{{documentName}}' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: '儲存範本' }));
+    await waitFor(() =>
+      expect(updateDocumentWatermark).toHaveBeenCalledWith(
+        'doc-1',
+        null,
+        'fake-token',
+        '機密｜{{email}}｜{{documentName}}',
+      ),
     );
 
     fireEvent.change(screen.getByLabelText('到期時間'), {

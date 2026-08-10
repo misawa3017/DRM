@@ -7,6 +7,7 @@ export interface FolderSummary {
   createdBy: string;
   createdAt: string;
   watermarkEnabled?: boolean | null;
+  watermarkTemplate?: string | null;
 }
 
 export interface DocumentSummary {
@@ -80,10 +81,14 @@ export function updateFolderWatermark(
   id: string,
   watermarkEnabled: boolean | null,
   accessToken: string,
+  watermarkTemplate?: string | null,
 ) {
   return apiFetch<FolderDetail>(`/folders/${id}/watermark`, accessToken, {
     method: 'PATCH',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ watermarkEnabled }),
+    body: JSON.stringify({
+      watermarkEnabled,
+      ...(watermarkTemplate !== undefined && { watermarkTemplate }),
+    }),
   });
 }

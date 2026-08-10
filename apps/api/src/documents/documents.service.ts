@@ -24,7 +24,7 @@ import {
   VirusScanSizeLimitError,
   VirusScanService,
 } from './virus-scan.service';
-import { DocumentPolicyService } from './document-policy.service';
+import { DocumentPolicyService, renderWatermarkTemplate } from './document-policy.service';
 import { WatermarkService } from './watermark.service';
 
 interface AuthenticatedUser {
@@ -514,7 +514,8 @@ export class DocumentsService {
             return doc.currentVersion;
           });
 
-    const watermarkEnabled = await this.policy.resolveWatermarkEnabled(documentId);
+    const watermarkPolicy = await this.policy.resolveWatermarkPolicy(documentId);
+    const watermarkEnabled = watermarkPolicy.enabled;
     if (!previewMode && !watermarkEnabled) {
       await this.recordContentAccess(user.id, documentId, version.id, ipAddress, false);
       const stream = await this.storage.getObjectStream(version.objectKey);
@@ -545,7 +546,13 @@ export class DocumentsService {
     if (!watermarkEnabled) {
       return { stream: source, mimeType: 'application/pdf', fileName: `${version.id}.pdf` };
     }
-    const text = `${user.email} | ${new Date().toISOString()} | ${ipAddress ?? 'unknown-ip'}`;
+    const variables: Record<string, string> = {
+      email: user.email,
+      datetime: new Date().toISOString(),
+      ip: ipAddress ?? 'unknown-ip',
+      documentName: document.name,
+    };
+    const text = renderWatermarkTemplate(watermarkPolicy.template, variables);
     const stream = await this.watermark.apply(source, text);
     return { stream, mimeType: 'application/pdf', fileName: `${version.id}.pdf` };
   }

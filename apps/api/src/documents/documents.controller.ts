@@ -129,6 +129,7 @@ export class DocumentsController {
       id,
       body.watermarkEnabled,
       req.ip ?? null,
+      body.watermarkTemplate,
     );
   }
 

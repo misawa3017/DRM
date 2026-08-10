@@ -249,6 +249,12 @@ export function FolderView() {
     onSuccess: invalidate,
     onError: (err) => setHeaderError(friendlyErrorMessage(err)),
   });
+  const watermarkTemplateMutation = useMutation({
+    mutationFn: (template: string | null) =>
+      updateFolderWatermark(folderId, folder?.watermarkEnabled ?? null, accessToken, template),
+    onSuccess: invalidate,
+    onError: (err) => setHeaderError(friendlyErrorMessage(err)),
+  });
 
   if (query.isLoading) return <p data-testid="loading">Loading...</p>;
   if (query.isError) return <p data-testid="error">{friendlyErrorMessage(query.error)}</p>;
@@ -326,10 +332,15 @@ export function FolderView() {
           </p>
           <WatermarkSetting
             value={folder.watermarkEnabled}
-            disabled={watermarkMutation.isPending}
+            template={folder.watermarkTemplate}
+            disabled={watermarkMutation.isPending || watermarkTemplateMutation.isPending}
             onChange={(value) => {
               setHeaderError(null);
               watermarkMutation.mutate(value);
+            }}
+            onTemplateChange={(template) => {
+              setHeaderError(null);
+              watermarkTemplateMutation.mutate(template);
             }}
           />
         </section>

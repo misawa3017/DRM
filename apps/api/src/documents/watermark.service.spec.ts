@@ -28,4 +28,18 @@ describe('WatermarkService', () => {
     const parsed = await PDFDocument.load(result);
     expect(parsed.getPageCount()).toBe(2);
   });
+
+  it('支援繁體中文自訂浮水印', async () => {
+    const source = await PDFDocument.create();
+    source.addPage([400, 600]);
+
+    const result = await readAll(
+      await new WatermarkService().apply(
+        Readable.from(Buffer.from(await source.save())),
+        '機密文件｜user@example.com｜報告.pdf',
+      ),
+    );
+
+    await expect(PDFDocument.load(result)).resolves.toBeDefined();
+  });
 });

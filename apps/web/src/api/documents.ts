@@ -22,6 +22,7 @@ export interface DocumentDetail {
   expiresAt?: string | null;
   status?: 'active' | 'expired';
   watermarkEnabled?: boolean | null;
+  watermarkTemplate?: string | null;
   // Whether the caller has manage-level access — GET /documents/:id only
   // requires 'view', a lower bar, so a caller can see the document without
   // being allowed to see or edit its ACL. Gates the 權限 (ACL admin) link.
@@ -114,11 +115,15 @@ export function updateDocumentWatermark(
   id: string,
   watermarkEnabled: boolean | null,
   accessToken: string,
+  watermarkTemplate?: string | null,
 ) {
   return apiFetch<DocumentDetail>(`/documents/${id}/watermark`, accessToken, {
     method: 'PATCH',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ watermarkEnabled }),
+    body: JSON.stringify({
+      watermarkEnabled,
+      ...(watermarkTemplate !== undefined && { watermarkTemplate }),
+    }),
   });
 }
 

@@ -94,6 +94,7 @@ describe('FolderView', () => {
       createdBy: 'u',
       createdAt: '',
       watermarkEnabled: null,
+      watermarkTemplate: null,
       children: [],
       documents: [],
       canManage: true,
@@ -107,6 +108,20 @@ describe('FolderView', () => {
     fireEvent.change(screen.getByLabelText('動態浮水印'), { target: { value: 'enabled' } });
     await waitFor(() =>
       expect(updateFolderWatermark).toHaveBeenCalledWith('folder-1', true, 'fake-token'),
+    );
+
+    fireEvent.change(screen.getByLabelText('浮水印內容來源'), { target: { value: 'custom' } });
+    fireEvent.change(screen.getByLabelText('浮水印範本'), {
+      target: { value: '部門機密｜{{email}}' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: '儲存範本' }));
+    await waitFor(() =>
+      expect(updateFolderWatermark).toHaveBeenCalledWith(
+        'folder-1',
+        null,
+        'fake-token',
+        '部門機密｜{{email}}',
+      ),
     );
   });
 

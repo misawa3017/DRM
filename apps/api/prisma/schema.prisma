@@ -49,6 +49,7 @@ model Folder {
   updatedAt DateTime   @updatedAt
   deletedAt DateTime?
   watermarkEnabled Boolean?
+  watermarkTemplate String?
 
   @@index([parentId])
   @@map("folders")
@@ -74,6 +75,7 @@ model Document {
   expiresAt        DateTime?
   status           DocumentStatus    @default(active)
   watermarkEnabled Boolean?
+  watermarkTemplate String?
 
   @@index([folderId])
   @@index([status, expiresAt])

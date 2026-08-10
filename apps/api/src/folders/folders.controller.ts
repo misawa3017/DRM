@@ -71,6 +71,7 @@ export class FoldersController {
       id,
       body.watermarkEnabled,
       req.ip ?? null,
+      body.watermarkTemplate,
     );
   }
 

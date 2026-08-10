@@ -64,6 +64,12 @@ function DocumentPolicySettings({
     onSuccess: onChanged,
     onError: (err) => setError(friendlyErrorMessage(err)),
   });
+  const watermarkTemplateMutation = useMutation({
+    mutationFn: (template: string | null) =>
+      updateDocumentWatermark(doc.id, doc.watermarkEnabled ?? null, accessToken, template),
+    onSuccess: onChanged,
+    onError: (err) => setError(friendlyErrorMessage(err)),
+  });
   const expirationMutation = useMutation({
     mutationFn: () =>
       updateDocumentExpiration(
@@ -87,10 +93,15 @@ function DocumentPolicySettings({
       <div className="grid gap-4 md:grid-cols-2">
         <WatermarkSetting
           value={doc.watermarkEnabled}
-          disabled={watermarkMutation.isPending}
+          template={doc.watermarkTemplate}
+          disabled={watermarkMutation.isPending || watermarkTemplateMutation.isPending}
           onChange={(value) => {
             setError(null);
             watermarkMutation.mutate(value);
+          }}
+          onTemplateChange={(template) => {
+            setError(null);
+            watermarkTemplateMutation.mutate(template);
           }}
         />
         <label className="grid gap-1.5 text-sm">

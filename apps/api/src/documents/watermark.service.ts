@@ -1,9 +1,21 @@
 import { Injectable } from '@nestjs/common';
-import { degrees, PDFDocument, rgb, StandardFonts } from 'pdf-lib';
+import fontkit from '@pdf-lib/fontkit';
+import { readFile } from 'node:fs/promises';
+import { join } from 'node:path';
+import { degrees, PDFDocument, rgb } from 'pdf-lib';
 import { Readable } from 'stream';
+
+const WATERMARK_FONT_PATH = join(
+  process.cwd(),
+  'assets',
+  'fonts',
+  'NotoSansCJKtc-Regular.otf',
+);
 
 @Injectable()
 export class WatermarkService {
+  private readonly fontBytes = readFile(WATERMARK_FONT_PATH);
+
   async apply(stream: Readable, text: string): Promise<Readable> {
     const chunks: Buffer[] = [];
     for await (const chunk of stream) {
@@ -11,7 +23,8 @@ export class WatermarkService {
     }
 
     const pdf = await PDFDocument.load(Buffer.concat(chunks), { updateMetadata: false });
-    const font = await pdf.embedFont(StandardFonts.Helvetica);
+    pdf.registerFontkit(fontkit);
+    const font = await pdf.embedFont(await this.fontBytes, { subset: true });
     for (const page of pdf.getPages()) {
       const { width, height } = page.getSize();
       const fontSize = Math.max(12, Math.min(22, width / 28));

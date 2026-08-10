@@ -137,6 +137,16 @@ describe('浮水印與到期控制 (e2e)', () => {
     );
     expect(Buffer.from(originalDownload.data).equals(original)).toBe(true);
 
+    const customPolicy = await axios.patch<{ watermarkTemplate: string }>(
+      `${API_BASE_URL}/documents/${created.data.id}/watermark`,
+      {
+        watermarkEnabled: true,
+        watermarkTemplate: '機密｜{{email}}｜{{documentName}}',
+      },
+      { headers: { Authorization: `Bearer ${token}` } },
+    );
+    expect(customPolicy.data.watermarkTemplate).toBe('機密｜{{email}}｜{{documentName}}');
+
     const preview = await axios.get<ArrayBuffer>(
       `${API_BASE_URL}/documents/${created.data.id}/preview`,
       { headers: { Authorization: `Bearer ${token}` }, responseType: 'arraybuffer' },

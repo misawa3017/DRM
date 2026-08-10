@@ -2,7 +2,7 @@ import { GoneException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { AclService } from '../acl/acl.service';
 import { AuditService } from '../audit/audit.service';
-import { DocumentPolicyService } from './document-policy.service';
+import { DocumentPolicyService, renderWatermarkTemplate } from './document-policy.service';
 
 describe('DocumentPolicyService', () => {
   const documentFindUnique = jest.fn();
@@ -46,6 +46,24 @@ describe('DocumentPolicyService', () => {
     await expect(service.resolveWatermarkEnabled('document-1')).resolves.toBe(true);
   });
 
+  it('分別繼承浮水印開關與範本，文件範本優先', async () => {
+    documentFindUnique.mockResolvedValue({
+      watermarkEnabled: null,
+      watermarkTemplate: '文件：{{documentName}}',
+      folderId: 'child',
+    });
+    folderFindUnique.mockResolvedValue({
+      watermarkEnabled: false,
+      watermarkTemplate: '資料夾：{{email}}',
+      parentId: null,
+    });
+
+    await expect(service.resolveWatermarkPolicy('document-1')).resolves.toEqual({
+      enabled: false,
+      template: '文件：{{documentName}}',
+    });
+  });
+
   it('拒絕存取已到期文件', () => {
     expect(() => service.assertActive({ status: 'expired' })).toThrow(GoneException);
   });
@@ -59,5 +77,16 @@ describe('DocumentPolicyService', () => {
     expect(recordSafely).toHaveBeenCalledWith(
       expect.objectContaining({ action: 'document_expired', resourceId: 'document-1' }),
     );
+  });
+});
+
+describe('renderWatermarkTemplate', () => {
+  it('只替換允許的變數，未知內容維持純文字', () => {
+    expect(
+      renderWatermarkTemplate('{{email}}｜{{documentName}}｜{{unknown}}', {
+        email: 'user@example.com',
+        documentName: '報告.pdf',
+      }),
+    ).toBe('user@example.com｜報告.pdf｜{{unknown}}');
   });
 });

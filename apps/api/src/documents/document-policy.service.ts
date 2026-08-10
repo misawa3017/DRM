@@ -11,6 +11,20 @@ interface AuthenticatedUser {
 
 const SYSTEM_ACTOR_ID = 'system:document-expiration';
 const MAX_FOLDER_DEPTH = 100;
+export const DEFAULT_WATERMARK_TEMPLATE = '{{email}} | {{datetime}} | {{ip}}';
+export const WATERMARK_VARIABLE_PATTERN = /\{\{(email|datetime|ip|documentName)\}\}/g;
+
+export function renderWatermarkTemplate(
+  template: string,
+  variables: Record<string, string>,
+): string {
+  return template.replace(WATERMARK_VARIABLE_PATTERN, (_match, key: string) => variables[key] ?? '');
+}
+
+interface WatermarkPolicy {
+  enabled: boolean;
+  template: string;
+}
 
 @Injectable()
 export class DocumentPolicyService {
@@ -48,6 +62,39 @@ export class DocumentPolicyService {
     return true;
   }
 
+  async resolveWatermarkPolicy(documentId: string): Promise<WatermarkPolicy> {
+    const document = await this.prisma.document.findUnique({
+      where: { id: documentId },
+      select: { watermarkEnabled: true, watermarkTemplate: true, folderId: true },
+    });
+    if (!document) throw new NotFoundException('Document not found');
+
+    let enabled = document.watermarkEnabled;
+    let template = document.watermarkTemplate;
+
+    let folderId: string | null = document.folderId;
+    for (let depth = 0; folderId && depth < MAX_FOLDER_DEPTH; depth++) {
+      const folder: {
+        watermarkEnabled: boolean | null;
+        watermarkTemplate: string | null;
+        parentId: string | null;
+      } | null =
+        await this.prisma.folder.findUnique({
+          where: { id: folderId },
+          select: { watermarkEnabled: true, watermarkTemplate: true, parentId: true },
+        });
+      if (!folder) break;
+      enabled ??= folder.watermarkEnabled;
+      template ??= folder.watermarkTemplate;
+      if (enabled !== null && template !== null) break;
+      folderId = folder.parentId;
+    }
+    return {
+      enabled: enabled ?? true,
+      template: template?.trim() || DEFAULT_WATERMARK_TEMPLATE,
+    };
+  }
+
   async updateExpiration(
     user: AuthenticatedUser,
     documentId: string,
@@ -82,6 +129,7 @@ export class DocumentPolicyService {
     documentId: string,
     watermarkEnabled: boolean | null,
     ipAddress: string | null,
+    watermarkTemplate?: string | null,
   ) {
     if (!(await this.acl.can(user, 'document', documentId, 'manage'))) {
       throw new ForbiddenException('You do not have manage access to this document');
@@ -90,7 +138,10 @@ export class DocumentPolicyService {
     if (!document || document.deletedAt) throw new NotFoundException('Document not found');
     const updated = await this.prisma.document.update({
       where: { id: documentId },
-      data: { watermarkEnabled },
+      data: {
+        watermarkEnabled,
+        ...(watermarkTemplate !== undefined && { watermarkTemplate }),
+      },
     });
     await this.audit.recordSafely({
       actorId: user.id,
@@ -98,7 +149,10 @@ export class DocumentPolicyService {
       resourceType: 'document',
       resourceId: documentId,
       ipAddress,
-      details: { watermarkEnabled: String(watermarkEnabled) },
+      details: {
+        watermarkEnabled: String(watermarkEnabled),
+        ...(watermarkTemplate !== undefined && { watermarkTemplate: watermarkTemplate ?? 'inherit' }),
+      },
     });
     return updated;
   }
@@ -108,6 +162,7 @@ export class DocumentPolicyService {
     folderId: string,
     watermarkEnabled: boolean | null,
     ipAddress: string | null,
+    watermarkTemplate?: string | null,
   ) {
     if (!(await this.acl.can(user, 'folder', folderId, 'manage'))) {
       throw new ForbiddenException('You do not have manage access to this folder');
@@ -116,7 +171,10 @@ export class DocumentPolicyService {
     if (!folder || folder.deletedAt) throw new NotFoundException('Folder not found');
     const updated = await this.prisma.folder.update({
       where: { id: folderId },
-      data: { watermarkEnabled },
+      data: {
+        watermarkEnabled,
+        ...(watermarkTemplate !== undefined && { watermarkTemplate }),
+      },
     });
     await this.audit.recordSafely({
       actorId: user.id,
@@ -124,7 +182,10 @@ export class DocumentPolicyService {
       resourceType: 'folder',
       resourceId: folderId,
       ipAddress,
-      details: { watermarkEnabled: String(watermarkEnabled) },
+      details: {
+        watermarkEnabled: String(watermarkEnabled),
+        ...(watermarkTemplate !== undefined && { watermarkTemplate: watermarkTemplate ?? 'inherit' }),
+      },
     });
     return updated;
   }
