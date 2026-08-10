@@ -4,9 +4,9 @@ import type { GlobalPermissionEntry, PermissionEntry } from '../api/permissions'
 
 const LEVEL_LABEL_CLASS: Record<string, string> = {
   view: 'bg-muted text-muted-foreground',
-  download: 'bg-blue-100 text-blue-800',
-  edit: 'bg-amber-100 text-amber-800',
-  manage: 'bg-red-100 text-red-800',
+  download: 'bg-blue-100 text-blue-800 dark:bg-blue-950 dark:text-blue-200',
+  edit: 'bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-200',
+  manage: 'bg-red-100 text-red-800 dark:bg-red-950 dark:text-red-200',
 };
 
 function isGlobalEntry(

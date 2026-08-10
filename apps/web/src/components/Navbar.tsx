@@ -3,6 +3,7 @@ import { Link, NavLink, Outlet, useNavigate } from 'react-router-dom';
 import { useAuth } from 'react-oidc-context';
 import { Folder, Search } from 'lucide-react';
 import { NavbarBreadcrumbContext } from '../lib/navbarBreadcrumb';
+import { ThemeToggle } from './ThemeToggle';
 
 interface WhoAmI {
   id: string;
@@ -102,6 +103,7 @@ export function Navbar() {
         </div>
 
         <div className="order-3 ml-auto flex shrink-0 items-center gap-2 text-sm lg:order-none lg:gap-3">
+          <ThemeToggle />
           {whoami && (
             <>
               <span
