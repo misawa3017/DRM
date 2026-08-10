@@ -135,6 +135,16 @@ describe('AclService', () => {
     expect(result).toBe(false);
   });
 
+  it('fails closed when a resource has been soft-deleted, even if it has a direct grant', async () => {
+    const folder = await makeFolder('deleted-acl-folder');
+    await grant('folder', folder.id, 'user-deleted-acl', 'manage');
+    await prisma.folder.update({ where: { id: folder.id }, data: { deletedAt: new Date() } });
+
+    expect(
+      await acl.can({ id: 'user-deleted-acl', roles: ['employee'] }, 'folder', folder.id, 'view'),
+    ).toBe(false);
+  });
+
   it('walks up multiple levels of folder nesting to find a grant', async () => {
     const root = await makeFolder('root-8');
     const mid = await makeFolder('mid-8', root.id);
@@ -282,6 +292,32 @@ describe('AclService', () => {
       expect(childRefs).toEqual([
         { resourceType: 'folder', resourceId: child.id, source: 'direct' },
       ]);
+    });
+
+    it('excludes soft-deleted direct grants and descendants', async () => {
+      const parent = await makeFolder('fmr-active-parent');
+      const deletedChild = await makeFolder('fmr-deleted-child', parent.id);
+      const deletedDocument = await makeDocument(parent.id, 'fmr-deleted-document');
+      await grant('folder', parent.id, 'user-fmr-deleted', 'manage');
+      await grant('folder', deletedChild.id, 'user-fmr-deleted', 'manage');
+      await prisma.folder.update({
+        where: { id: deletedChild.id },
+        data: { deletedAt: new Date() },
+      });
+      await prisma.document.update({
+        where: { id: deletedDocument.id },
+        data: { deletedAt: new Date() },
+      });
+
+      const result = await acl.findManagedResources(
+        { id: 'user-fmr-deleted', roles: ['employee'] },
+        true,
+      );
+
+      const refs = result as { resourceType: string; resourceId: string }[];
+      expect(refs.some((ref) => ref.resourceId === deletedChild.id)).toBe(false);
+      expect(refs.some((ref) => ref.resourceId === deletedDocument.id)).toBe(false);
+      expect(refs.some((ref) => ref.resourceId === parent.id)).toBe(true);
     });
   });
 });

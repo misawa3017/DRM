@@ -30,6 +30,7 @@ export class PermissionsService {
       throw new BadRequestException('group principals are not yet supported');
     }
 
+    await this.assertActiveResource(resourceType, resourceId);
     const allowed = await this.acl.can(user, resourceType, resourceId, 'manage');
     if (!allowed) {
       throw new ForbiddenException('You do not have manage access to this resource');
@@ -68,6 +69,7 @@ export class PermissionsService {
   }
 
   async list(user: AuthenticatedUser, resourceType: ResourceType, resourceId: string) {
+    await this.assertActiveResource(resourceType, resourceId);
     const allowed = await this.acl.can(user, resourceType, resourceId, 'manage');
     if (!allowed) {
       throw new ForbiddenException('You do not have manage access to this resource');
@@ -89,6 +91,10 @@ export class PermissionsService {
         : { OR: managed.map((m) => ({ resourceType: m.resourceType, resourceId: m.resourceId })) };
 
     const permissions = await this.prisma.permission.findMany({ where: permissionWhere });
+    const activeResourceKeys = await this.findActiveResourceKeys(permissions);
+    const activePermissions = permissions.filter((permission) =>
+      activeResourceKeys.has(`${permission.resourceType}:${permission.resourceId}`),
+    );
 
     const sourceByResource = new Map<string, ManagedResourceRef['source']>();
     if (managed !== 'all') {
@@ -98,7 +104,7 @@ export class PermissionsService {
     }
 
     return Promise.all(
-      permissions.map(async (p) => {
+      activePermissions.map(async (p) => {
         const enriched = await this.enrichWithPrincipal(p);
         const resource = await this.resolveResourcePath(p.resourceType, p.resourceId);
         return {
@@ -124,15 +130,15 @@ export class PermissionsService {
     resourceId: string,
   ): Promise<{ name: string; path: string } | null> {
     if (resourceType === 'document') {
-      const doc = await this.prisma.document.findUnique({
-        where: { id: resourceId },
+      const doc = await this.prisma.document.findFirst({
+        where: { id: resourceId, deletedAt: null },
         select: { name: true, folderId: true },
       });
       if (!doc) return null;
       return { name: doc.name, path: await this.resolveFolderPath(doc.folderId) };
     }
-    const folder = await this.prisma.folder.findUnique({
-      where: { id: resourceId },
+    const folder = await this.prisma.folder.findFirst({
+      where: { id: resourceId, deletedAt: null },
       select: { name: true, parentId: true },
     });
     if (!folder) return null;
@@ -144,8 +150,8 @@ export class PermissionsService {
     let currentId = folderId;
     for (let depth = 0; currentId && depth < 100; depth++) {
       const folder: { name: string; parentId: string | null } | null =
-        await this.prisma.folder.findUnique({
-          where: { id: currentId },
+        await this.prisma.folder.findFirst({
+          where: { id: currentId, deletedAt: null },
           select: { name: true, parentId: true },
         });
       if (!folder) break;
@@ -175,6 +181,7 @@ export class PermissionsService {
     permissionId: string,
     ipAddress: string | null,
   ) {
+    await this.assertActiveResource(resourceType, resourceId);
     const allowed = await this.acl.can(user, resourceType, resourceId, 'manage');
     if (!allowed) {
       throw new ForbiddenException('You do not have manage access to this resource');
@@ -209,5 +216,49 @@ export class PermissionsService {
         ? { principalId: toDelete.principalId, permissionLevel: toDelete.permissionLevel }
         : undefined,
     });
+  }
+
+  private async assertActiveResource(
+    resourceType: ResourceType,
+    resourceId: string,
+  ): Promise<void> {
+    const resource =
+      resourceType === 'folder'
+        ? await this.prisma.folder.findFirst({
+            where: { id: resourceId, deletedAt: null },
+            select: { id: true },
+          })
+        : await this.prisma.document.findFirst({
+            where: { id: resourceId, deletedAt: null },
+            select: { id: true },
+          });
+    if (!resource) {
+      throw new NotFoundException('Resource not found');
+    }
+  }
+
+  private async findActiveResourceKeys(
+    resources: Array<{ resourceType: ResourceType; resourceId: string }>,
+  ): Promise<Set<string>> {
+    const folderIds = resources
+      .filter((resource) => resource.resourceType === 'folder')
+      .map((resource) => resource.resourceId);
+    const documentIds = resources
+      .filter((resource) => resource.resourceType === 'document')
+      .map((resource) => resource.resourceId);
+    const [folders, documents] = await Promise.all([
+      this.prisma.folder.findMany({
+        where: { id: { in: folderIds }, deletedAt: null },
+        select: { id: true },
+      }),
+      this.prisma.document.findMany({
+        where: { id: { in: documentIds }, deletedAt: null },
+        select: { id: true },
+      }),
+    ]);
+    return new Set([
+      ...folders.map((folder) => `folder:${folder.id}`),
+      ...documents.map((document) => `document:${document.id}`),
+    ]);
   }
 }

@@ -22,7 +22,7 @@
 
 ## 4. rename/move/delete 分支的最終審查中新發現、刻意延後的項目
 
-- [ ] **軟刪除沒有滲透到權限管理功能**——已軟刪除的資料夾/文件在「權限管理」（`permissions.service.ts`、`acl.service.ts` 的 `walkFolderForManagedDescendants`）中仍然可見且可操作（例如 `GET /folders/:id/permissions` 對已刪除資料夾仍回 200，全域權限儀表板也會永遠列出已刪除項目）。跨兩個已合併功能的整合缺口，2026-08-08 決定另開任務修，不算功能缺陷
+- [x] **軟刪除沒有滲透到權限管理功能**——2026-08-10 完成：已刪除資源不再出現在全域權限列表，資源權限的查詢、授權與撤銷端點統一回傳 404，ACL 亦不再解析已刪除資源的直接或繼承權限
 - [ ] **`friendlyErrorMessage` 的 400 訊息太窄**——`apps/web/src/api/client.ts` 新增的 400 分支寫死「無法移動到這個位置」，但 400 也會被病毒掃描拒絕上傳、「file is required」、「group principals not supported」等情境共用，導致這些情境也顯示搬移相關的錯誤文字。應該做成搬移專用的 helper 或讓呼叫端可以覆蓋預設文字
 - [ ] **`getWithContents` 的 ACL 查詢數翻倍**——為了同時算出每個子項目的 `canManage` 和 `canEdit`，現在對每個子資料夾/文件都各自呼叫兩次 `acl.can`；可以改成呼叫一次 `resolveLevel` 再用 `LEVEL_ORDER` 比較兩次，效能不影響正確性，純屬微調
 

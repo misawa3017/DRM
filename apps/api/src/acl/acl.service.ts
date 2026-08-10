@@ -53,27 +53,27 @@ export class AclService {
     resourceId: string,
   ): Promise<PermissionLevel | null> {
     if (resourceType === 'document') {
-      const direct = await this.findGrant('document', resourceId, userId);
-      if (direct) return direct;
-
-      const doc = await this.prisma.document.findUnique({
-        where: { id: resourceId },
+      const doc = await this.prisma.document.findFirst({
+        where: { id: resourceId, deletedAt: null },
         select: { folderId: true },
       });
-      if (!doc) return null; // fail closed: a non-existent resource never grants access
+      if (!doc) return null; // fail closed: a missing or deleted resource never grants access
+
+      const direct = await this.findGrant('document', resourceId, userId);
+      if (direct) return direct;
       return this.resolveLevel(userId, 'folder', doc.folderId);
     }
 
     let folderId: string | null = resourceId;
     for (let depth = 0; folderId && depth < MAX_FOLDER_DEPTH; depth++) {
-      const direct = await this.findGrant('folder', folderId, userId);
-      if (direct) return direct;
-
-      const folder: { parentId: string | null } | null = await this.prisma.folder.findUnique({
-        where: { id: folderId },
+      const folder: { parentId: string | null } | null = await this.prisma.folder.findFirst({
+        where: { id: folderId, deletedAt: null },
         select: { parentId: true },
       });
-      if (!folder) return null; // fail closed: a non-existent resource never grants access
+      if (!folder) return null; // fail closed: a missing or deleted resource never grants access
+
+      const direct = await this.findGrant('folder', folderId, userId);
+      if (direct) return direct;
       folderId = folder.parentId;
     }
     return null;
@@ -92,7 +92,31 @@ export class AclService {
       select: { resourceType: true, resourceId: true },
     });
 
-    const direct: ManagedResourceRef[] = directGrants.map((g) => ({
+    const folderIds = directGrants
+      .filter((grant) => grant.resourceType === 'folder')
+      .map((grant) => grant.resourceId);
+    const documentIds = directGrants
+      .filter((grant) => grant.resourceType === 'document')
+      .map((grant) => grant.resourceId);
+    const [activeFolders, activeDocuments] = await Promise.all([
+      this.prisma.folder.findMany({
+        where: { id: { in: folderIds }, deletedAt: null },
+        select: { id: true },
+      }),
+      this.prisma.document.findMany({
+        where: { id: { in: documentIds }, deletedAt: null },
+        select: { id: true },
+      }),
+    ]);
+    const activeResourceKeys = new Set([
+      ...activeFolders.map((folder) => `folder:${folder.id}`),
+      ...activeDocuments.map((document) => `document:${document.id}`),
+    ]);
+    const activeDirectGrants = directGrants.filter((grant) =>
+      activeResourceKeys.has(`${grant.resourceType}:${grant.resourceId}`),
+    );
+
+    const direct: ManagedResourceRef[] = activeDirectGrants.map((g) => ({
       resourceType: g.resourceType,
       resourceId: g.resourceId,
       source: 'direct',
@@ -109,10 +133,10 @@ export class AclService {
     // path would only reproduce identical entries — see the visited-set note on
     // walkFolderForManagedDescendants for why that's always safe to skip, not just faster.
     const visitedFolders = new Set<string>();
-    for (const seed of directGrants) {
+    for (const seed of activeDirectGrants) {
       if (seed.resourceType !== 'folder') continue;
-      const seedFolder = await this.prisma.folder.findUnique({
-        where: { id: seed.resourceId },
+      const seedFolder = await this.prisma.folder.findFirst({
+        where: { id: seed.resourceId, deletedAt: null },
         select: { name: true },
       });
       if (!seedFolder) continue;
@@ -187,8 +211,8 @@ export class AclService {
     visitedFolders.add(folderId);
 
     const [childFolders, documents] = await Promise.all([
-      this.prisma.folder.findMany({ where: { parentId: folderId } }),
-      this.prisma.document.findMany({ where: { folderId } }),
+      this.prisma.folder.findMany({ where: { parentId: folderId, deletedAt: null } }),
+      this.prisma.document.findMany({ where: { folderId, deletedAt: null } }),
     ]);
 
     for (const child of childFolders) {
