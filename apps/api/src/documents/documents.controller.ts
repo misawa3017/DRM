@@ -25,6 +25,7 @@ import { UpdateDocumentDto } from './dto/update-document.dto';
 import { UpdateExpirationDto } from './dto/update-expiration.dto';
 import { UpdateWatermarkDto } from './dto/update-watermark.dto';
 import { DocumentPolicyService } from './document-policy.service';
+import { createAttachmentContentDisposition } from './content-disposition';
 
 interface AuthenticatedRequest extends Request {
   user: { sub: string; email: string; name: string; roles: string[] };
@@ -142,7 +143,11 @@ export class DocumentsController {
   @Get(':id')
   async getMetadata(@Req() req: AuthenticatedRequest, @Param('id') id: string) {
     const user = await this.usersService.upsertFromToken(req.user);
-    return this.documentsService.getMetadata({ id: user.id, roles: req.user.roles }, id, req.ip ?? null);
+    return this.documentsService.getMetadata(
+      { id: user.id, roles: req.user.roles },
+      id,
+      req.ip ?? null,
+    );
   }
 
   @Get(':id/download')
@@ -160,7 +165,7 @@ export class DocumentsController {
       req.ip ?? null,
     );
     res.setHeader('Content-Type', mimeType);
-    res.setHeader('Content-Disposition', `attachment; filename="${fileName}"`);
+    res.setHeader('Content-Disposition', createAttachmentContentDisposition(fileName));
     stream.on('error', (err) => {
       console.error('Error streaming document download from storage:', err);
       if (!res.headersSent) {
@@ -176,11 +181,7 @@ export class DocumentsController {
   }
 
   @Get(':id/preview')
-  async preview(
-    @Req() req: AuthenticatedRequest,
-    @Param('id') id: string,
-    @Res() res: Response,
-  ) {
+  async preview(@Req() req: AuthenticatedRequest, @Param('id') id: string, @Res() res: Response) {
     const user = await this.usersService.upsertFromToken(req.user);
     const { stream, mimeType } = await this.documentsService.getDownloadStream(
       { id: user.id, roles: req.user.roles, email: user.email },
