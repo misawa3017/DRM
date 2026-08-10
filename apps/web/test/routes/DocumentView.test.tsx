@@ -58,6 +58,11 @@ describe('DocumentView', () => {
         mimeType: 'application/pdf',
         sizeBytes: 100,
         uploadedBy: 'user-1',
+        uploader: {
+          id: 'user-1',
+          displayName: '王小明',
+          email: 'ming@example.com',
+        },
         uploadedAt: '',
       },
     ]);
@@ -68,6 +73,8 @@ describe('DocumentView', () => {
 
     await waitFor(() => expect(screen.getByText('report.pdf')).toBeInTheDocument());
     expect(screen.getByText('v2')).toBeInTheDocument();
+    expect(screen.getByText('王小明')).toBeInTheDocument();
+    expect(screen.getByText('ming@example.com')).toBeInTheDocument();
 
     fireEvent.click(screen.getByTestId('download-current'));
 

@@ -8,6 +8,11 @@ export interface DocumentVersion {
   mimeType: string;
   sizeBytes: number;
   uploadedBy: string;
+  uploader?: {
+    id: string;
+    displayName: string;
+    email: string;
+  } | null;
   uploadedAt: string;
 }
 

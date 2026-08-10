@@ -9,8 +9,8 @@
 - [x] **權限管理 UI**（grant/revoke ACL）——2026-08-07 完成並合併（全域權限儀表板 `/permissions`）
 - [x] **搜尋**——2026-08-09 完成並合併（後端 GET /search + Navbar 搜尋框 + /search 結果頁）
 - [x] **rename / move / delete**——2026-08-08 完成並合併（後端 PATCH/DELETE + 軟刪除 + 前端整合）
-- [ ] **站內 PDF 預覽、動態浮水印顯示**——`download` 端點目前直接吐原始檔案，浮水印邏輯還沒接上
-- [ ] **上傳者姓名顯示**——版本歷史目前顯示 user ID，不是姓名（需要一支查詢其他使用者身分的 API）
+- [x] **站內 PDF 預覽、動態浮水印顯示**——2026-08-10 完成（受保護的站內 PDF 預覽、動態浮水印與自訂範本）
+- [x] **上傳者姓名顯示**——2026-08-10 完成（版本 API 批次帶回上傳者摘要，前端顯示姓名與 Email）
 - [ ] **響應式/行動裝置版面**——目前桌面優先，沒做手機/平板適配
 - [ ] **深色模式**
 
@@ -18,7 +18,7 @@
 
 - [ ] **`DocumentView` 沒有麵包屑**——只有 `FolderView` 接上 `useSetNavbarCrumb`，進入文件詳情頁時導覽列中間的麵包屑 slot 是空的（已記錄在 navbar 改版設計文件的「已知落差」）
 - [ ] **`FolderView` 沒有空狀態設計**——資料夾內沒有子資料夾/文件時，只顯示空的卡片框，不像 `RootFolders` 有圖示+提示文字
-- [ ] **`FolderView` 的寫入按鈕沒有依權限隱藏**——沒有寫入權限的使用者一樣看得到「新增資料夾」「上傳文件」按鈕，填完表單送出才會被 403 擋下。rename/move/delete 這次已經讓 `GET /folders/:id` 回傳呼叫者的 `canEdit`（配合既有的 `canManage`），所以現在補這個只需要把 `CreateFolderDialog`/`UploadDialog` 也用 `folder.canEdit` 包起來——不需要再動後端
+- [x] **`FolderView` 的寫入按鈕沒有依權限隱藏**——2026-08-10 前已完成，寫入按鈕依 `folder.canEdit` 顯示
 
 ## 4. rename/move/delete 分支的最終審查中新發現、刻意延後的項目
 

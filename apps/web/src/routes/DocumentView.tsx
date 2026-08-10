@@ -312,7 +312,16 @@ export function DocumentView() {
                 <TableRow key={version.id}>
                   <TableCell>v{version.versionNumber}</TableCell>
                   <TableCell>{version.sizeBytes}</TableCell>
-                  <TableCell>{version.uploadedBy}</TableCell>
+                  <TableCell>
+                    <span className="block font-medium">
+                      {version.uploader?.displayName || version.uploader?.email || version.uploadedBy}
+                    </span>
+                    {version.uploader?.displayName && (
+                      <span className="block text-xs text-muted-foreground">
+                        {version.uploader.email}
+                      </span>
+                    )}
+                  </TableCell>
                   <TableCell>
                     <Button
                       data-testid={`download-version-${version.id}`}

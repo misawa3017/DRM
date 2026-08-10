@@ -442,10 +442,20 @@ export class DocumentsService {
       throw new NotFoundException('Document not found');
     }
     this.policy.assertActive(document);
-    return this.prisma.documentVersion.findMany({
+    const versions = await this.prisma.documentVersion.findMany({
       where: { documentId },
       orderBy: { versionNumber: 'desc' },
     });
+    const uploaderIds = [...new Set(versions.map((version) => version.uploadedBy))];
+    const uploaders = await this.prisma.user.findMany({
+      where: { id: { in: uploaderIds } },
+      select: { id: true, displayName: true, email: true },
+    });
+    const uploaderById = new Map(uploaders.map((uploader) => [uploader.id, uploader]));
+    return versions.map((version) => ({
+      ...version,
+      uploader: uploaderById.get(version.uploadedBy) ?? null,
+    }));
   }
 
   async getMetadata(user: AuthenticatedUser, documentId: string, ipAddress: string | null) {
