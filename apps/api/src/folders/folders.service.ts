@@ -51,14 +51,30 @@ export class FoldersService {
       where: { parentId: null, deletedAt: null },
       orderBy: { name: 'asc' },
     });
-    const allowed = await Promise.all(
-      folders.map((folder) => this.acl.can(user, 'folder', folder.id, 'view')),
+
+    if (user.roles.includes('admin')) {
+      return folders;
+    }
+
+    const permissions = await this.prisma.permission.findMany({
+      where: {
+        resourceType: 'folder',
+        resourceId: { in: folders.map((folder) => folder.id) },
+        principalType: 'user',
+        principalId: user.id,
+      },
+      select: { resourceId: true, permissionLevel: true },
+    });
+    const permissionByFolderId = new Map(
+      permissions.map((permission) => [permission.resourceId, permission.permissionLevel]),
     );
     // Not audited: this only decides which root folders are *listed*, it
     // doesn't view any one folder's contents. Opening a folder is still
     // audited as folder_view via getWithContents below, mirroring the
     // listVersions/getMetadata split in documents.service.ts.
-    return folders.filter((_, index) => allowed[index]);
+    return folders.filter((folder) =>
+      hasRequiredLevel(permissionByFolderId.get(folder.id) ?? null, 'view'),
+    );
   }
 
   async create(

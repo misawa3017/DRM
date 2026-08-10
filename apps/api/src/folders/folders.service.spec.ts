@@ -3,14 +3,17 @@ import { AclService } from '../acl/acl.service';
 import { AuditService } from '../audit/audit.service';
 import { FoldersService } from './folders.service';
 
-describe('FoldersService.getWithContents', () => {
+describe('FoldersService', () => {
   const folderFindUnique = jest.fn();
+  const folderFindMany = jest.fn();
+  const permissionFindMany = jest.fn();
   const userFindMany = jest.fn();
   const resolveEffectiveLevel = jest.fn();
   const recordSafely = jest.fn();
 
   const prisma = {
-    folder: { findUnique: folderFindUnique },
+    folder: { findUnique: folderFindUnique, findMany: folderFindMany },
+    permission: { findMany: permissionFindMany },
     user: { findMany: userFindMany },
   } as unknown as PrismaService;
   const acl = { resolveEffectiveLevel } as unknown as AclService;
@@ -44,7 +47,35 @@ describe('FoldersService.getWithContents', () => {
     recordSafely.mockResolvedValue(undefined);
   });
 
-  it('每個資源只解析一次權限，並從同一等級計算操作能力', async () => {
+  it('以單次權限查詢篩選可見的頂層資料夾', async () => {
+    folderFindMany.mockResolvedValue([
+      { id: 'folder-view', name: '可檢視' },
+      { id: 'folder-none', name: '不可檢視' },
+      { id: 'folder-manage', name: '可管理' },
+    ]);
+    permissionFindMany.mockResolvedValue([
+      { resourceId: 'folder-view', permissionLevel: 'view' },
+      { resourceId: 'folder-manage', permissionLevel: 'manage' },
+    ]);
+
+    await expect(service.listRootFolders(user)).resolves.toEqual([
+      { id: 'folder-view', name: '可檢視' },
+      { id: 'folder-manage', name: '可管理' },
+    ]);
+    expect(permissionFindMany).toHaveBeenCalledTimes(1);
+    expect(resolveEffectiveLevel).not.toHaveBeenCalled();
+  });
+
+  it('管理員列出頂層資料夾時不需要查詢個別權限', async () => {
+    folderFindMany.mockResolvedValue([{ id: 'folder-1', name: '頂層資料夾' }]);
+
+    await expect(service.listRootFolders({ id: 'admin-1', roles: ['admin'] })).resolves.toEqual([
+      { id: 'folder-1', name: '頂層資料夾' },
+    ]);
+    expect(permissionFindMany).not.toHaveBeenCalled();
+  });
+
+  it('getWithContents 每個資源只解析一次權限，並從同一等級計算操作能力', async () => {
     const result = await service.getWithContents(user, 'folder-1', null);
 
     expect(resolveEffectiveLevel).toHaveBeenCalledTimes(3);

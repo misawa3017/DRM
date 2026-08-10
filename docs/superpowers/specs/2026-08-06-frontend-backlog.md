@@ -29,7 +29,7 @@
 ## 3. 技術債（不影響功能，效能/健壯性微調）
 
 - [x] **下載檔名的非 ASCII 處理**——2026-08-10 完成：下載回應同時提供 ASCII fallback 與 RFC 5987 `filename*=UTF-8''...`，中文檔名可正確解碼，並過濾可能影響 header 結構的字元
-- [ ] **`listRootFolders` 是 N+1 查詢**——對非 admin 使用者，每個頂層資料夾都要單獨查一次權限；資料夾數量多時會變慢，可以用一次 `permission.findMany` 取代
+- [x] **`listRootFolders` 是 N+1 查詢**——2026-08-10 完成：非管理員改以一次 `permission.findMany` 取得所有頂層資料夾的直接授權後篩選，管理員維持直接列出全部
 - [ ] **`Navbar` 的 `/whoami` 抓取沒有 `AbortController`，失敗時靜默隱藏使用者資訊區塊**——沒有任何錯誤提示
 - [ ] **Blob 下載的記憶體/瀏覽器相容性**——目前用同步 `URL.revokeObjectURL`，在 Firefox/Safari 偶爾不穩定；且整個檔案會先讀進記憶體（後端允許最大 200MB 上傳）
 - [ ] **e2e 測試會在資料庫留下殘留 fixture 資料**——`file-management-flow.e2e-spec.ts` 等測試每次執行都會建立新的資料夾/文件/物件儲存內容，沒有清理（跟其他既有 e2e 測試檔案是一致的既有模式，這次沒有特別處理）
