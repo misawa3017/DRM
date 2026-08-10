@@ -99,6 +99,29 @@ describe('FolderView', () => {
     );
   });
 
+  it('空資料夾依編輯權限顯示建立內容提示', async () => {
+    vi.mocked(getFolder).mockResolvedValue({
+      id: 'folder-1',
+      name: 'Finance',
+      parentId: null,
+      createdBy: 'u',
+      createdAt: '',
+      children: [],
+      documents: [],
+      canManage: false,
+      canEdit: true,
+    });
+
+    renderWithProviders(<FolderView />, { route: '/folders/folder-1', path: '/folders/:id' });
+
+    await waitFor(() => expect(screen.getByTestId('empty-child-folders')).toBeInTheDocument());
+    expect(screen.getByText('這裡還沒有子資料夾')).toBeInTheDocument();
+    expect(screen.getByText('可使用上方按鈕建立第一個子資料夾')).toBeInTheDocument();
+    expect(screen.getByTestId('empty-documents')).toBeInTheDocument();
+    expect(screen.getByText('這裡還沒有文件')).toBeInTheDocument();
+    expect(screen.getByText('可使用上方按鈕上傳第一份文件')).toBeInTheDocument();
+  });
+
   it('allows a manager to update the inherited watermark setting', async () => {
     vi.mocked(getFolder).mockResolvedValue({
       id: 'folder-1',

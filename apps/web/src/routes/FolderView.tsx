@@ -361,36 +361,62 @@ export function FolderView() {
       <h2 className="mb-2 text-sm font-semibold uppercase tracking-wide text-muted-foreground">
         子資料夾
       </h2>
-      <div className="mb-8 overflow-x-auto rounded-lg border bg-background">
-        <Table>
-          <TableBody>
-            {folder.children.map((child) => (
-              <FolderRow key={child.id} folder={child} onChanged={invalidate} />
-            ))}
-          </TableBody>
-        </Table>
-      </div>
+      {folder.children.length === 0 ? (
+        <div
+          className="mb-8 rounded-lg border border-dashed bg-background px-4 py-8 text-center text-muted-foreground"
+          data-testid="empty-child-folders"
+        >
+          <Folder className="mx-auto mb-2 h-7 w-7 opacity-40" />
+          <p className="text-sm font-medium text-foreground">這裡還沒有子資料夾</p>
+          <p className="mt-1 text-xs">
+            {folder.canEdit ? '可使用上方按鈕建立第一個子資料夾' : '目前沒有可瀏覽的子資料夾'}
+          </p>
+        </div>
+      ) : (
+        <div className="mb-8 overflow-x-auto rounded-lg border bg-background">
+          <Table>
+            <TableBody>
+              {folder.children.map((child) => (
+                <FolderRow key={child.id} folder={child} onChanged={invalidate} />
+              ))}
+            </TableBody>
+          </Table>
+        </div>
+      )}
 
       <h2 className="mb-2 text-sm font-semibold uppercase tracking-wide text-muted-foreground">
         文件
       </h2>
-      <div className="overflow-x-auto rounded-lg border bg-background">
-        <Table>
-          <TableHeader>
-            <TableRow>
-              <TableHead>名稱</TableHead>
-              <TableHead>上傳者</TableHead>
-              <TableHead className="hidden sm:table-cell">目前版本</TableHead>
-              <TableHead />
-            </TableRow>
-          </TableHeader>
-          <TableBody>
-            {folder.documents.map((document) => (
-              <DocumentRow key={document.id} document={document} onChanged={invalidate} />
-            ))}
-          </TableBody>
-        </Table>
-      </div>
+      {folder.documents.length === 0 ? (
+        <div
+          className="rounded-lg border border-dashed bg-background px-4 py-8 text-center text-muted-foreground"
+          data-testid="empty-documents"
+        >
+          <FileText className="mx-auto mb-2 h-7 w-7 opacity-40" />
+          <p className="text-sm font-medium text-foreground">這裡還沒有文件</p>
+          <p className="mt-1 text-xs">
+            {folder.canEdit ? '可使用上方按鈕上傳第一份文件' : '目前沒有可瀏覽的文件'}
+          </p>
+        </div>
+      ) : (
+        <div className="overflow-x-auto rounded-lg border bg-background">
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead>名稱</TableHead>
+                <TableHead>上傳者</TableHead>
+                <TableHead className="hidden sm:table-cell">目前版本</TableHead>
+                <TableHead />
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {folder.documents.map((document) => (
+                <DocumentRow key={document.id} document={document} onChanged={invalidate} />
+              ))}
+            </TableBody>
+          </Table>
+        </div>
+      )}
     </div>
   );
 }
