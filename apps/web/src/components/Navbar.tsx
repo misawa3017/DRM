@@ -17,6 +17,7 @@ export function Navbar() {
   const navigate = useNavigate();
   const accessToken = auth.user?.access_token ?? '';
   const [whoami, setWhoami] = useState<WhoAmI | null>(null);
+  const [whoamiError, setWhoamiError] = useState<string | null>(null);
   const [crumb, setCrumb] = useState<ReactNode>(null);
   const [searchInput, setSearchInput] = useState('');
 
@@ -28,15 +29,29 @@ export function Navbar() {
 
   useEffect(() => {
     if (!accessToken) return;
-    fetch(`${import.meta.env.VITE_API_BASE_URL}/whoami`, {
-      headers: { Authorization: `Bearer ${accessToken}` },
-    })
-      .then((res) => {
-        if (!res.ok) throw new Error(`Request failed: ${res.status}`);
-        return res.json();
-      })
-      .then(setWhoami)
-      .catch(() => setWhoami(null));
+    const controller = new AbortController();
+
+    void (async () => {
+      try {
+        const response = await fetch(`${import.meta.env.VITE_API_BASE_URL}/whoami`, {
+          headers: { Authorization: `Bearer ${accessToken}` },
+          signal: controller.signal,
+        });
+        if (!response.ok) throw new Error(`Request failed: ${response.status}`);
+        const user = (await response.json()) as WhoAmI;
+        if (!controller.signal.aborted) {
+          setWhoami(user);
+          setWhoamiError(null);
+        }
+      } catch {
+        if (!controller.signal.aborted) {
+          setWhoami(null);
+          setWhoamiError('無法載入使用者資訊');
+        }
+      }
+    })();
+
+    return () => controller.abort();
   }, [accessToken]);
 
   const contextValue = useMemo(() => ({ crumb, setCrumb }), [crumb, setCrumb]);
@@ -112,8 +127,15 @@ export function Navbar() {
               >
                 {whoami.roles.join(', ')}
               </span>
-              <span className="hidden lg:inline" data-testid="navbar-username">{whoami.displayName}</span>
+              <span className="hidden lg:inline" data-testid="navbar-username">
+                {whoami.displayName}
+              </span>
             </>
+          )}
+          {whoamiError && (
+            <span className="text-xs text-primary-foreground/80" data-testid="navbar-user-error">
+              {whoamiError}
+            </span>
           )}
           <button
             onClick={() => auth.signoutRedirect()}

@@ -74,6 +74,30 @@ describe('Navbar', () => {
     expect(screen.getByTestId('navbar-roles')).toHaveTextContent('admin');
   });
 
+  it('shows an error message when user information cannot be loaded', async () => {
+    vi.mocked(fetch).mockResolvedValue({ ok: false, status: 503 } as Response);
+
+    renderNavbar();
+
+    await waitFor(() =>
+      expect(screen.getByTestId('navbar-user-error')).toHaveTextContent('無法載入使用者資訊'),
+    );
+    expect(screen.queryByTestId('navbar-username')).not.toBeInTheDocument();
+  });
+
+  it('aborts the user-information request when the navbar unmounts', () => {
+    let requestSignal: AbortSignal | undefined;
+    vi.mocked(fetch).mockImplementation((_input, init) => {
+      requestSignal = init?.signal as AbortSignal | undefined;
+      return new Promise<Response>(() => undefined);
+    });
+
+    const { unmount } = renderNavbar();
+    unmount();
+
+    expect(requestSignal?.aborted).toBe(true);
+  });
+
   it('renders a crumb set by a child route inside the navbar-crumb slot', async () => {
     renderNavbar(<CrumbSettingChild />);
 
