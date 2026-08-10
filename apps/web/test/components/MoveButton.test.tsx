@@ -5,6 +5,7 @@ import { useAuth } from 'react-oidc-context';
 import { MoveButton } from '../../src/components/MoveButton';
 import { listRootFolders, getFolder, moveFolder } from '../../src/api/folders';
 import { moveDocument } from '../../src/api/documents';
+import { ApiError } from '../../src/api/client';
 
 vi.mock('react-oidc-context', () => ({ useAuth: vi.fn() }));
 vi.mock('../../src/api/folders', () => ({
@@ -107,7 +108,7 @@ describe('MoveButton', () => {
     await waitFor(() => expect(moveDocument).toHaveBeenCalledWith('d1', 'f2', 'fake-token'));
   });
 
-  it('shows a friendly error message when the move fails', async () => {
+  it('shows the move-specific message when the destination is invalid', async () => {
     vi.mocked(listRootFolders).mockResolvedValue([
       { id: 'f2', name: 'Destination', parentId: null, createdBy: 'u', createdAt: '' },
     ]);
@@ -122,7 +123,7 @@ describe('MoveButton', () => {
       canManage: true,
       canEdit: true,
     });
-    vi.mocked(moveFolder).mockRejectedValue(new Error('boom'));
+    vi.mocked(moveFolder).mockRejectedValue(new ApiError(400, 'invalid destination'));
 
     renderMoveButton();
 
@@ -133,6 +134,6 @@ describe('MoveButton', () => {
     fireEvent.click(screen.getByTestId('pick-current-folder'));
 
     await waitFor(() => expect(screen.getByTestId('resource-picker-error')).toBeInTheDocument());
-    expect(screen.getByTestId('resource-picker-error')).toHaveTextContent('發生錯誤，請稍後再試');
+    expect(screen.getByTestId('resource-picker-error')).toHaveTextContent('無法移動到這個位置');
   });
 });

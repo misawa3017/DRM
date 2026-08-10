@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { apiFetch, ApiError, friendlyErrorMessage } from '../../src/api/client';
+import { apiFetch, ApiError, friendlyErrorMessage, moveErrorMessage } from '../../src/api/client';
 
 describe('apiFetch', () => {
   beforeEach(() => {
@@ -28,8 +28,8 @@ describe('apiFetch', () => {
 });
 
 describe('friendlyErrorMessage', () => {
-  it('maps 400 to a cannot-move message', () => {
-    expect(friendlyErrorMessage(new ApiError(400, 'x'))).toBe('無法移動到這個位置');
+  it('maps 400 to a generic invalid-request message', () => {
+    expect(friendlyErrorMessage(new ApiError(400, 'x'))).toBe('請求內容有誤，請檢查後再試');
   });
 
   it('maps 403 to a permission message', () => {
@@ -46,5 +46,15 @@ describe('friendlyErrorMessage', () => {
 
   it('falls back to a generic message for unknown errors', () => {
     expect(friendlyErrorMessage(new Error('boom'))).toBe('發生錯誤，請稍後再試');
+  });
+});
+
+describe('moveErrorMessage', () => {
+  it('uses the move-specific message for a 400 response', () => {
+    expect(moveErrorMessage(new ApiError(400, 'x'))).toBe('無法移動到這個位置');
+  });
+
+  it('retains shared mappings for non-400 responses', () => {
+    expect(moveErrorMessage(new ApiError(403, 'x'))).toContain('權限');
   });
 });

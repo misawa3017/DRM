@@ -23,7 +23,7 @@
 ## 4. rename/move/delete 分支的最終審查中新發現、刻意延後的項目
 
 - [x] **軟刪除沒有滲透到權限管理功能**——2026-08-10 完成：已刪除資源不再出現在全域權限列表，資源權限的查詢、授權與撤銷端點統一回傳 404，ACL 亦不再解析已刪除資源的直接或繼承權限
-- [ ] **`friendlyErrorMessage` 的 400 訊息太窄**——`apps/web/src/api/client.ts` 新增的 400 分支寫死「無法移動到這個位置」，但 400 也會被病毒掃描拒絕上傳、「file is required」、「group principals not supported」等情境共用，導致這些情境也顯示搬移相關的錯誤文字。應該做成搬移專用的 helper 或讓呼叫端可以覆蓋預設文字
+- [x] **`friendlyErrorMessage` 的 400 訊息太窄**——2026-08-10 完成：全域 400 改用通用的請求內容錯誤提示，搬移操作改由 `moveErrorMessage` 顯示專用訊息
 - [ ] **`getWithContents` 的 ACL 查詢數翻倍**——為了同時算出每個子項目的 `canManage` 和 `canEdit`，現在對每個子資料夾/文件都各自呼叫兩次 `acl.can`；可以改成呼叫一次 `resolveLevel` 再用 `LEVEL_ORDER` 比較兩次，效能不影響正確性，純屬微調
 
 ## 3. 技術債（不影響功能，效能/健壯性微調）

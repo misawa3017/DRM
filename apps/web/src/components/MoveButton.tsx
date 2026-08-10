@@ -5,7 +5,7 @@ import { FolderInput } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { moveFolder, type FolderSummary } from '../api/folders';
 import { moveDocument, type DocumentDetail } from '../api/documents';
-import { friendlyErrorMessage } from '../api/client';
+import { moveErrorMessage } from '../api/client';
 import { ResourcePicker } from './ResourcePicker';
 
 interface MoveButtonProps {
@@ -29,7 +29,7 @@ export function MoveButton({ resourceType, resourceId, onMoved }: MoveButtonProp
       setPickerOpen(false);
       onMoved();
     },
-    onError: (err) => setError(friendlyErrorMessage(err)),
+    onError: (err) => setError(moveErrorMessage(err)),
   });
 
   return (
