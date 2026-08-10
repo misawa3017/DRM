@@ -11,3 +11,4 @@ secrets/
 # mkcert (see tls-setup-report.md / README for instructions) rather than commit.
 traefik/certs/
 .superpowers/
+.scannerwork/

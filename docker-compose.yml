@@ -76,6 +76,68 @@ services:
       retries: 10
     restart: unless-stopped
 
+  sonar-postgres:
+    # SonarQube 使用獨立資料庫，避免分析資料與 DRM 業務資料互相影響。
+    image: postgres:16-alpine
+    profiles: ["quality"]
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: sonar
+    volumes:
+      - sonar_postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d sonar"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  sonarqube:
+    # 分析服務只在 quality profile 啟動；儀表板只綁定 loopback，避免首次預設帳號暴露。
+    image: sonarqube:community
+    profiles: ["quality"]
+    restart: unless-stopped
+    stop_grace_period: 1m
+    environment:
+      SONAR_JDBC_URL: jdbc:postgresql://sonar-postgres:5432/sonar
+      SONAR_JDBC_USERNAME: ${POSTGRES_USER}
+      SONAR_JDBC_PASSWORD: ${POSTGRES_PASSWORD}
+    ports:
+      - "127.0.0.1:9002:9000"
+    volumes:
+      - sonarqube_data:/opt/sonarqube/data
+      - sonarqube_extensions:/opt/sonarqube/extensions
+      - sonarqube_logs:/opt/sonarqube/logs
+    depends_on:
+      sonar-postgres:
+        condition: service_healthy
+    healthcheck:
+      # 映像內建 bash；Web listener 啟動後才允許 scanner 開始連線。
+      test: ["CMD-SHELL", "bash -c 'echo > /dev/tcp/127.0.0.1/9000'"]
+      interval: 10s
+      timeout: 5s
+      retries: 30
+      start_period: 60s
+    ulimits:
+      nofile:
+        soft: 65536
+        hard: 65536
+
+  sonar-scanner:
+    # 以一次性容器掃描原始碼，Token 僅從執行環境帶入，絕不寫進 repository。
+    image: sonarsource/sonar-scanner-cli:latest
+    profiles: ["quality"]
+    environment:
+      SONAR_HOST_URL: http://sonarqube:9000
+      SONAR_TOKEN: ${SONAR_TOKEN:-}
+    volumes:
+      - ./:/usr/src
+      - sonar_scanner_cache:/opt/sonar-scanner/.sonar/cache
+    depends_on:
+      sonarqube:
+        condition: service_healthy
+
   keycloak:
     image: quay.io/keycloak/keycloak:25.0
     restart: unless-stopped
@@ -445,3 +507,8 @@ volumes:
   minio_data:
   redis_data:
   clamav_data:
+  sonar_postgres_data:
+  sonarqube_data:
+  sonarqube_extensions:
+  sonarqube_logs:
+  sonar_scanner_cache:

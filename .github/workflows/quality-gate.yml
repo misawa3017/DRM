@@ -1,0 +1,43 @@
+name: 品質閘門
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  test-and-sonar:
+    # 自架 SonarQube 只監聽 Docker 主機 loopback，因此 runner 必須部署於同一台主機。
+    runs-on: self-hosted
+    timeout-minutes: 20
+    steps:
+      - name: 取得完整 Git 歷史
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: 安裝 Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+
+      - name: 啟用 Corepack
+        run: corepack enable
+
+      - name: 安裝相依套件
+        run: pnpm install --frozen-lockfile
+
+      - name: 執行 API 測試
+        run: pnpm --filter api test -- --runInBand
+
+      - name: 執行前端測試
+        run: pnpm --filter web test
+
+      - name: 啟動 SonarQube
+        run: pnpm sonar:up
+
+      - name: 執行 SonarQube Quality Gate
+        env:
+          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+        run: pnpm sonar:scan
