@@ -94,7 +94,7 @@ services:
       retries: 20
 
   sonarqube:
-    # 分析服務只在 quality profile 啟動；儀表板只綁定 loopback，避免首次預設帳號暴露。
+    # 分析服務只在 quality profile 啟動；儀表板僅綁定指定的內網位址。
     image: sonarqube:community
     profiles: ["quality"]
     restart: unless-stopped
@@ -104,7 +104,7 @@ services:
       SONAR_JDBC_USERNAME: ${POSTGRES_USER}
       SONAR_JDBC_PASSWORD: ${POSTGRES_PASSWORD}
     ports:
-      - "127.0.0.1:9002:9000"
+      - "192.168.200.31:9002:9000"
     volumes:
       - sonarqube_data:/opt/sonarqube/data
       - sonarqube_extensions:/opt/sonarqube/extensions

@@ -5,7 +5,7 @@
 ## 架構
 
 - `sonar-postgres`：SonarQube 專用 PostgreSQL，與 DRM 業務資料庫分離。
-- `sonarqube`：分析結果與 Quality Gate 儀表板，只綁定 Docker 主機的 `127.0.0.1:9002`。
+- `sonarqube`：分析結果與 Quality Gate 儀表板，綁定 Docker 主機內網位址 `192.168.200.31:9002`。
 - `sonar-scanner`：一次性掃描容器，以 `pnpm sonar:scan` 執行。
 - `sonar-project.properties`：定義專案識別、掃描範圍與等待 Quality Gate 的規則。
 
@@ -27,7 +27,7 @@ sudo sysctl --system
 pnpm sonar:up
 ```
 
-首次啟動完成後，在 Docker 主機開啟 `http://127.0.0.1:9002`。預設帳密是 `admin` / `admin`，首次登入時必須立即更改密碼。不要將 9002 連接埠公開到網際網路；若 CI runner 不在同一台主機，須先透過 VPN 或受驗證的反向代理提供安全連線。
+首次啟動完成後，從內網開啟 `http://192.168.200.31:9002`。預設帳密是 `admin` / `admin`，首次登入時必須立即更改密碼。不要將 9002 連接埠公開到網際網路；若 CI runner 不在同一台主機，須先透過 VPN 或受驗證的反向代理提供安全連線。
 
 ## 建立專案與 Token
 
@@ -37,7 +37,7 @@ pnpm sonar:up
 4. 在 Docker 主機註冊 GitHub self-hosted runner，並確保 runner 帳號能執行 `docker compose`。
 5. GitHub 的 **Settings → Branches** 為 `main` 建立 branch protection，將 `品質閘門 / test-and-sonar` 設為必須通過的 status check。
 
-GitHub hosted runner 無法連入此 Compose 內、僅監聽 loopback 的 SonarQube，因此 workflow 明確使用 `self-hosted` runner。若改用外部 SonarQube Server，才可改為 GitHub hosted runner，並將 `SONAR_HOST_URL` 改為該受 TLS 保護的網址。
+GitHub hosted runner 無法直接連入內網 SonarQube，因此 workflow 明確使用 `self-hosted` runner。若改用外部 SonarQube Server，才可改為 GitHub hosted runner，並將 `SONAR_HOST_URL` 改為該受 TLS 保護的網址。
 
 ## 日常開發流程
 
