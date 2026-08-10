@@ -71,10 +71,8 @@ export class SearchService {
     return results.slice(0, SEARCH_RESULT_LIMIT);
   }
 
-  // Mirrors PermissionsService.resolveFolderPath exactly (ancestor path, "Root" prefix,
-  // excludes the resource's own name) — kept as its own small copy here rather than a
-  // shared helper, matching this codebase's convention of small per-module logic over
-  // cross-module extraction for something this size.
+  // 與 PermissionsService.resolveFolderPath 維持相同格式：包含 Root 與祖先路徑，
+  // 但不包含資源本身名稱。這段邏輯規模很小，因此保留在模組內，避免為此增加跨模組耦合。
   private async resolveFolderPath(folderId: string | null): Promise<string> {
     const names: string[] = [];
     let currentId = folderId;

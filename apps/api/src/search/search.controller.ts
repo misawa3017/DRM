@@ -19,6 +19,9 @@ export class SearchController {
   @Get('search')
   async search(@Req() req: AuthenticatedRequest, @Query('q') q?: string) {
     const user = await this.usersService.upsertFromToken(req.user);
-    return this.searchService.search({ id: user.id, roles: req.user.roles }, q ?? '');
+    return this.searchService.search(
+      { id: user.id, roles: req.user.roles },
+      typeof q === 'string' ? q : '',
+    );
   }
 }
