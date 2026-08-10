@@ -164,7 +164,7 @@ function DocumentRow({
           </p>
         )}
       </TableCell>
-      <TableCell>
+      <TableCell className="hidden sm:table-cell">
         {document.currentVersion ? `v${document.currentVersion.versionNumber}` : '—'}
       </TableCell>
       <TableCell className="w-0 whitespace-nowrap">
@@ -261,8 +261,8 @@ export function FolderView() {
   if (!folder) return null;
 
   return (
-    <div className="mx-auto max-w-4xl px-6 py-8">
-      <div className="mb-6 flex items-center justify-between gap-3">
+    <div className="mx-auto max-w-4xl px-4 py-5 sm:px-6 sm:py-8">
+      <div className="mb-6 flex flex-col items-stretch gap-3 sm:flex-row sm:items-center sm:justify-between">
         {folder.canEdit ? (
           <InlineEditableName
             value={folder.name}
@@ -274,7 +274,7 @@ export function FolderView() {
         ) : (
           <h1 className="text-xl font-bold">{folder.name}</h1>
         )}
-        <div className="flex gap-2">
+        <div className="flex flex-wrap gap-2">
           {folder.canEdit && (
             <>
               <CreateFolderDialog parentId={folder.id} />
@@ -349,7 +349,7 @@ export function FolderView() {
       <h2 className="mb-2 text-sm font-semibold uppercase tracking-wide text-muted-foreground">
         子資料夾
       </h2>
-      <div className="mb-8 overflow-hidden rounded-lg border bg-background">
+      <div className="mb-8 overflow-x-auto rounded-lg border bg-background">
         <Table>
           <TableBody>
             {folder.children.map((child) => (
@@ -362,12 +362,12 @@ export function FolderView() {
       <h2 className="mb-2 text-sm font-semibold uppercase tracking-wide text-muted-foreground">
         文件
       </h2>
-      <div className="overflow-hidden rounded-lg border bg-background">
+      <div className="overflow-x-auto rounded-lg border bg-background">
         <Table>
           <TableHeader>
             <TableRow>
               <TableHead>名稱</TableHead>
-              <TableHead>目前版本</TableHead>
+              <TableHead className="hidden sm:table-cell">目前版本</TableHead>
               <TableHead />
             </TableRow>
           </TableHeader>

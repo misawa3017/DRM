@@ -42,7 +42,7 @@ export function Navbar() {
 
   return (
     <NavbarBreadcrumbContext.Provider value={contextValue}>
-      <header className="flex items-center justify-between gap-4 bg-primary px-6 py-3 text-primary-foreground">
+      <header className="flex flex-wrap items-center gap-3 bg-primary px-4 py-3 text-primary-foreground sm:px-6 lg:flex-nowrap lg:gap-4">
         <Link
           to="/"
           className="flex shrink-0 items-center gap-2 text-base font-semibold"
@@ -53,7 +53,7 @@ export function Navbar() {
           </span>
           DRM
         </Link>
-        <nav className="flex shrink-0 gap-4 text-sm">
+        <nav className="order-2 flex shrink-0 gap-3 text-sm sm:gap-4 lg:order-none">
           <NavLink
             to="/"
             end
@@ -73,7 +73,7 @@ export function Navbar() {
           </NavLink>
         </nav>
 
-        <div className="flex w-56 shrink-0 items-center gap-1.5 rounded-md bg-primary-foreground/10 px-2.5 py-1.5">
+        <div className="order-4 flex w-full items-center gap-1.5 rounded-md bg-primary-foreground/10 px-2.5 py-2 sm:order-5 lg:order-none lg:w-56 lg:shrink-0 lg:py-1.5">
           <button
             type="button"
             aria-label="搜尋"
@@ -95,22 +95,22 @@ export function Navbar() {
         </div>
 
         <div
-          className="flex min-w-0 flex-1 items-center justify-center gap-1 text-sm"
+          className="order-5 hidden min-w-0 w-full items-center justify-start gap-1 overflow-hidden text-sm sm:flex lg:order-none lg:w-auto lg:flex-1 lg:justify-center"
           data-testid="navbar-crumb"
         >
           {crumb}
         </div>
 
-        <div className="flex shrink-0 items-center gap-3 text-sm">
+        <div className="order-3 ml-auto flex shrink-0 items-center gap-2 text-sm lg:order-none lg:gap-3">
           {whoami && (
             <>
               <span
-                className="rounded-full bg-primary-foreground/15 px-2.5 py-0.5 text-xs"
+                className="hidden rounded-full bg-primary-foreground/15 px-2.5 py-0.5 text-xs xl:inline"
                 data-testid="navbar-roles"
               >
                 {whoami.roles.join(', ')}
               </span>
-              <span data-testid="navbar-username">{whoami.displayName}</span>
+              <span className="hidden lg:inline" data-testid="navbar-username">{whoami.displayName}</span>
             </>
           )}
           <button

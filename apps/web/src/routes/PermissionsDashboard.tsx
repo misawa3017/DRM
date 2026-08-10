@@ -61,10 +61,10 @@ export function PermissionsDashboard() {
     : entries;
 
   return (
-    <div className="mx-auto max-w-4xl px-6 py-8">
+    <div className="mx-auto max-w-4xl px-4 py-5 sm:px-6 sm:py-8">
       <h1 className="mb-6 text-xl font-bold">權限管理</h1>
 
-      <div className="mb-4 flex items-center gap-2">
+      <div className="mb-4 flex flex-col items-stretch gap-2 sm:flex-row sm:items-center">
         <div className="relative flex-1">
           <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
           <input
@@ -104,7 +104,7 @@ export function PermissionsDashboard() {
       <p className="mb-2 text-xs text-muted-foreground">
         僅列出你可以管理的資源（即你擁有 manage 權限、能再授權給其他人的資源）。若某項資源只授予你檢視、下載或編輯權限，不會出現在這裡。
       </p>
-      <div className="mb-8 overflow-hidden rounded-lg border bg-background">
+      <div className="mb-8 overflow-x-auto rounded-lg border bg-background">
         <PermissionsTable
           entries={filtered}
           showResourceColumn={true}

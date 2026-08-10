@@ -30,12 +30,12 @@ export function FolderPermissions() {
   if (query.isError) return <p data-testid="error">{friendlyErrorMessage(query.error)}</p>;
 
   return (
-    <div className="mx-auto max-w-4xl px-6 py-8">
+    <div className="mx-auto max-w-4xl px-4 py-5 sm:px-6 sm:py-8">
       <h1 className="mb-6 text-xl font-bold">權限管理</h1>
       <h2 className="mb-2 text-sm font-semibold uppercase tracking-wide text-muted-foreground">
         現有授權
       </h2>
-      <div className="mb-8 overflow-hidden rounded-lg border bg-background">
+      <div className="mb-8 overflow-x-auto rounded-lg border bg-background">
         <PermissionsTable entries={query.data ?? []} showResourceColumn={false} onRevoke={handleRevoke} />
       </div>
       <h2 className="mb-2 text-sm font-semibold uppercase tracking-wide text-muted-foreground">

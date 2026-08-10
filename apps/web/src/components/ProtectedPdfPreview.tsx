@@ -13,7 +13,7 @@ function PdfFrame({ blob }: { blob: Blob }) {
     <iframe
       title="受保護的 PDF 預覽"
       src={`${url}#toolbar=0&navpanes=0`}
-      className="h-[70vh] min-h-[520px] w-full bg-muted"
+      className="h-[65dvh] min-h-[360px] w-full bg-muted sm:min-h-[520px]"
       onContextMenu={(event) => event.preventDefault()}
     />
   );
@@ -36,7 +36,7 @@ export function ProtectedPdfPreview({
 
   return (
     <section className="mb-8 overflow-hidden rounded-lg border bg-background">
-      <div className="flex items-center justify-between gap-3 border-b px-5 py-4">
+      <div className="flex flex-col items-stretch gap-3 border-b px-4 py-4 sm:flex-row sm:items-center sm:justify-between sm:px-5">
         <div>
           <h2 className="font-semibold">站內預覽</h2>
           <p className="text-xs text-muted-foreground">預覽內容由伺服器即時套用 DRM 浮水印</p>

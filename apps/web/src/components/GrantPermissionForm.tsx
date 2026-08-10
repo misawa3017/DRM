@@ -75,7 +75,7 @@ export function GrantPermissionForm({ fixedResource, onGranted }: GrantPermissio
   });
 
   return (
-    <div className="rounded-lg border bg-background p-5">
+    <div className="rounded-lg border bg-background p-4 sm:p-5">
       <h3 className="text-sm font-bold">授權存取權限</h3>
       <p className="mb-4 text-xs text-muted-foreground">搜尋使用者，選擇要授予的權限層級</p>
 
@@ -83,7 +83,7 @@ export function GrantPermissionForm({ fixedResource, onGranted }: GrantPermissio
         <div className="mb-4">
           <label className="mb-1.5 block text-xs font-semibold text-muted-foreground">資源</label>
           <div
-            className={`flex items-center gap-2 rounded-md border px-3 py-2 ${
+            className={`flex flex-col items-stretch gap-2 rounded-md border px-3 py-2 sm:flex-row sm:items-center ${
               pickedResource ? 'border-primary/40' : 'border-dashed'
             }`}
           >
@@ -94,7 +94,7 @@ export function GrantPermissionForm({ fixedResource, onGranted }: GrantPermissio
             <Button
               variant="outline"
               size="sm"
-              className="ml-auto"
+              className="sm:ml-auto"
               data-testid="open-resource-picker"
               onClick={() => setPickerOpen(true)}
             >
@@ -114,7 +114,7 @@ export function GrantPermissionForm({ fixedResource, onGranted }: GrantPermissio
 
       <div className="mb-4">
         <label className="mb-1.5 block text-xs font-semibold text-muted-foreground">使用者</label>
-        <div className="flex gap-2">
+        <div className="flex flex-col gap-2 sm:flex-row">
           <div className="relative flex-1">
             <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
             <input
@@ -190,7 +190,7 @@ export function GrantPermissionForm({ fixedResource, onGranted }: GrantPermissio
 
       <div className="mb-5">
         <label className="mb-1.5 block text-xs font-semibold text-muted-foreground">權限層級</label>
-        <div className="grid grid-cols-4 gap-2" role="radiogroup" aria-label="權限層級">
+        <div className="grid grid-cols-2 gap-2 sm:grid-cols-4" role="radiogroup" aria-label="權限層級">
           {LEVEL_OPTIONS.map((opt) => (
             <button
               key={opt.value}

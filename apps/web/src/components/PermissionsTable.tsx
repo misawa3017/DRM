@@ -23,7 +23,7 @@ interface PermissionsTableProps {
 
 export function PermissionsTable({ entries, showResourceColumn, onRevoke }: PermissionsTableProps) {
   return (
-    <Table>
+    <Table className="min-w-[720px]">
       <TableHeader>
         <TableRow>
           {showResourceColumn && <TableHead>資源</TableHead>}

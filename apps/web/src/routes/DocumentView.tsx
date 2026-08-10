@@ -208,10 +208,10 @@ export function DocumentView() {
   if (!doc) return <p data-testid="loading">Loading...</p>;
 
   return (
-    <div className="mx-auto max-w-4xl px-6 py-8">
+    <div className="mx-auto max-w-4xl px-4 py-5 sm:px-6 sm:py-8">
       <div className="mb-6 overflow-hidden rounded-lg border bg-background">
-        <div className="flex items-center justify-between gap-3 border-b px-5 py-4">
-          <h1 className="flex items-center gap-2 text-lg font-semibold">
+        <div className="flex flex-col items-stretch gap-3 border-b px-4 py-4 sm:flex-row sm:items-center sm:justify-between sm:px-5">
+          <h1 className="flex min-w-0 items-center gap-2 break-words text-lg font-semibold">
             <FileText className="h-5 w-5 text-muted-foreground" />
             {doc.canEdit ? (
               <InlineEditableName
@@ -224,7 +224,7 @@ export function DocumentView() {
               doc.name
             )}
           </h1>
-          <div className="flex gap-2">
+          <div className="flex flex-wrap gap-2">
             <Button data-testid="download-current" onClick={() => handleDownload()}>
               下載目前版本
             </Button>
@@ -297,8 +297,8 @@ export function DocumentView() {
         <p data-testid="versions-error">{friendlyErrorMessage(versionsQuery.error)}</p>
       )}
       {versionsQuery.data && (
-        <div className="overflow-hidden rounded-lg border bg-background">
-          <Table>
+        <div className="overflow-x-auto rounded-lg border bg-background">
+          <Table className="min-w-[640px]">
             <TableHeader>
               <TableRow>
                 <TableHead>版本</TableHead>

@@ -18,8 +18,8 @@ export function Search() {
   });
 
   return (
-    <div className="mx-auto max-w-4xl px-6 py-8">
-      <h1 className="mb-6 text-xl font-bold">搜尋{query ? `：${query}` : ''}</h1>
+    <div className="mx-auto max-w-4xl px-4 py-5 sm:px-6 sm:py-8">
+      <h1 className="mb-6 break-words text-xl font-bold">搜尋{query ? `：${query}` : ''}</h1>
 
       {!query.trim() && <p className="text-muted-foreground">請輸入關鍵字搜尋</p>}
 
@@ -49,9 +49,9 @@ export function Search() {
                 ) : (
                   <FileText className="h-4 w-4 shrink-0 text-muted-foreground" />
                 )}
-                <span>
-                  <span className="block text-sm font-medium">{item.name}</span>
-                  <span className="block text-xs text-muted-foreground">{item.path}</span>
+                <span className="min-w-0">
+                  <span className="block break-words text-sm font-medium">{item.name}</span>
+                  <span className="block break-all text-xs text-muted-foreground">{item.path}</span>
                 </span>
               </Link>
             </li>

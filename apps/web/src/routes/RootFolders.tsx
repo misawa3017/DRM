@@ -32,14 +32,14 @@ export function RootFolders() {
   const folders = query.data ?? [];
 
   return (
-    <div className="mx-auto max-w-4xl px-6 py-8">
+    <div className="mx-auto max-w-4xl px-4 py-5 sm:px-6 sm:py-8">
       <div className="mb-6 flex items-center justify-between gap-3">
         <h1 className="text-xl font-bold">資料夾</h1>
         {isAdmin && <CreateFolderDialog parentId={null} />}
       </div>
       {folders.length === 0 ? (
         <div
-          className="rounded-lg border bg-background p-12 text-center text-muted-foreground"
+          className="rounded-lg border bg-background px-4 py-10 text-center text-muted-foreground sm:p-12"
           data-testid="empty"
         >
           <Folder className="mx-auto mb-3 h-8 w-8 text-muted-foreground/40" />
