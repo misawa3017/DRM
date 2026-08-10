@@ -1,6 +1,12 @@
-import { BadRequestException, ConflictException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
+import {
+  BadRequestException,
+  ConflictException,
+  ForbiddenException,
+  Injectable,
+  NotFoundException,
+} from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
-import { AclService } from '../acl/acl.service';
+import { AclService, hasRequiredLevel } from '../acl/acl.service';
 import { AuditService } from '../audit/audit.service';
 
 interface AuthenticatedUser {
@@ -55,7 +61,12 @@ export class FoldersService {
     return folders.filter((_, index) => allowed[index]);
   }
 
-  async create(user: AuthenticatedUser, name: string, parentId: string | null, ipAddress: string | null) {
+  async create(
+    user: AuthenticatedUser,
+    name: string,
+    parentId: string | null,
+    ipAddress: string | null,
+  ) {
     if (parentId === null || parentId === undefined) {
       if (!user.roles.includes('admin')) {
         throw new ForbiddenException('Only admins can create root-level folders');
@@ -89,8 +100,8 @@ export class FoldersService {
   }
 
   async getWithContents(user: AuthenticatedUser, id: string, ipAddress: string | null) {
-    const allowed = await this.acl.can(user, 'folder', id, 'view');
-    if (!allowed) {
+    const folderLevel = await this.acl.resolveEffectiveLevel(user, 'folder', id);
+    if (!hasRequiredLevel(folderLevel, 'view')) {
       throw new ForbiddenException('You do not have view access to this folder');
     }
 
@@ -117,25 +128,27 @@ export class FoldersService {
       ),
     ];
 
+    // 每個子項目只解析一次有效權限，再同時計算 canManage/canEdit，避免 ACL 查詢翻倍。
     // Each child's own canManage/canEdit — not just the folder being viewed
     // — so the frontend can gate affordances per row. GET
     // /folders/:id/permissions requires 'manage', a higher bar than the
     // 'view' access that gets a caller into this method at all, so a caller
     // can see a child without being allowed to mutate it. canEdit is the
     // lower bar that actually gates rename/move/delete.
-    const [canManage, canEdit, childrenCanManage, childrenCanEdit, documentsCanManage, documentsCanEdit, uploaders] =
-      await Promise.all([
-        this.acl.can(user, 'folder', id, 'manage'),
-        this.acl.can(user, 'folder', id, 'edit'),
-        Promise.all(folder.children.map((c) => this.acl.can(user, 'folder', c.id, 'manage'))),
-        Promise.all(folder.children.map((c) => this.acl.can(user, 'folder', c.id, 'edit'))),
-        Promise.all(folder.documents.map((d) => this.acl.can(user, 'document', d.id, 'manage'))),
-        Promise.all(folder.documents.map((d) => this.acl.can(user, 'document', d.id, 'edit'))),
-        this.prisma.user.findMany({
-          where: { id: { in: uploaderIds } },
-          select: { id: true, displayName: true, email: true },
-        }),
-      ]);
+    const [childrenLevels, documentLevels, uploaders] = await Promise.all([
+      Promise.all(
+        folder.children.map((child) => this.acl.resolveEffectiveLevel(user, 'folder', child.id)),
+      ),
+      Promise.all(
+        folder.documents.map((document) =>
+          this.acl.resolveEffectiveLevel(user, 'document', document.id),
+        ),
+      ),
+      this.prisma.user.findMany({
+        where: { id: { in: uploaderIds } },
+        select: { id: true, displayName: true, email: true },
+      }),
+    ]);
     const uploaderById = new Map(uploaders.map((uploader) => [uploader.id, uploader]));
 
     await this.audit.recordSafely({
@@ -148,20 +161,18 @@ export class FoldersService {
 
     return {
       ...folder,
-      canManage,
-      canEdit,
+      canManage: hasRequiredLevel(folderLevel, 'manage'),
+      canEdit: hasRequiredLevel(folderLevel, 'edit'),
       children: folder.children.map((c, i) => ({
         ...c,
-        canManage: childrenCanManage[i],
-        canEdit: childrenCanEdit[i],
+        canManage: hasRequiredLevel(childrenLevels[i] ?? null, 'manage'),
+        canEdit: hasRequiredLevel(childrenLevels[i] ?? null, 'edit'),
       })),
       documents: folder.documents.map((d, i) => ({
         ...d,
-        uploader: d.currentVersion
-          ? uploaderById.get(d.currentVersion.uploadedBy) ?? null
-          : null,
-        canManage: documentsCanManage[i],
-        canEdit: documentsCanEdit[i],
+        uploader: d.currentVersion ? (uploaderById.get(d.currentVersion.uploadedBy) ?? null) : null,
+        canManage: hasRequiredLevel(documentLevels[i] ?? null, 'manage'),
+        canEdit: hasRequiredLevel(documentLevels[i] ?? null, 'edit'),
       })),
     };
   }
@@ -273,8 +284,14 @@ export class FoldersService {
     while (queue.length > 0) {
       const current = queue.shift() as string;
       const [children, documents] = await Promise.all([
-        this.prisma.folder.findMany({ where: { parentId: current, deletedAt: null }, select: { id: true } }),
-        this.prisma.document.findMany({ where: { folderId: current, deletedAt: null }, select: { id: true } }),
+        this.prisma.folder.findMany({
+          where: { parentId: current, deletedAt: null },
+          select: { id: true },
+        }),
+        this.prisma.document.findMany({
+          where: { folderId: current, deletedAt: null },
+          select: { id: true },
+        }),
       ]);
       for (const child of children) {
         folderIds.push(child.id);

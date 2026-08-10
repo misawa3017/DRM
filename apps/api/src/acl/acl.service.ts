@@ -9,6 +9,13 @@ const LEVEL_ORDER: Record<PermissionLevel, number> = {
   manage: 4,
 };
 
+export function hasRequiredLevel(
+  level: PermissionLevel | null,
+  required: PermissionLevel,
+): boolean {
+  return level !== null && LEVEL_ORDER[level] >= LEVEL_ORDER[required];
+}
+
 const MAX_FOLDER_DEPTH = 100;
 
 interface AuthenticatedUser {
@@ -37,14 +44,19 @@ export class AclService {
     resourceId: string,
     required: PermissionLevel,
   ): Promise<boolean> {
+    const level = await this.resolveEffectiveLevel(user, resourceType, resourceId);
+    return hasRequiredLevel(level, required);
+  }
+
+  async resolveEffectiveLevel(
+    user: AuthenticatedUser,
+    resourceType: ResourceType,
+    resourceId: string,
+  ): Promise<PermissionLevel | null> {
     if (user.roles.includes('admin')) {
-      return true;
+      return 'manage';
     }
-    const level = await this.resolveLevel(user.id, resourceType, resourceId);
-    if (!level) {
-      return false;
-    }
-    return LEVEL_ORDER[level] >= LEVEL_ORDER[required];
+    return this.resolveLevel(user.id, resourceType, resourceId);
   }
 
   async resolveLevel(
