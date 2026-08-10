@@ -9,9 +9,11 @@ import { PermissionsModule } from './permissions/permissions.module';
 import { SearchModule } from './search/search.module';
 import { AuditModule } from './audit/audit.module';
 import { JobsModule } from './jobs/jobs.module';
+import { ScheduleModule } from '@nestjs/schedule';
 
 @Module({
   imports: [
+    ScheduleModule.forRoot(),
     PrismaModule,
     AuthModule,
     UsersModule,

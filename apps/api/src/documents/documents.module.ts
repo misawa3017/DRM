@@ -9,6 +9,8 @@ import { AclModule } from '../acl/acl.module';
 import { StorageModule } from '../storage/storage.module';
 import { UsersModule } from '../users/users.module';
 import { AuditModule } from '../audit/audit.module';
+import { DocumentPolicyService } from './document-policy.service';
+import { WatermarkService } from './watermark.service';
 
 @Module({
   imports: [
@@ -25,7 +27,13 @@ import { AuditModule } from '../audit/audit.module';
     BullModule.registerQueue({ name: QUEUE_DOCUMENT_CONVERSION }),
   ],
   controllers: [DocumentsController],
-  providers: [DocumentsService, VirusScanService, ConversionEventsListener],
-  exports: [DocumentsService],
+  providers: [
+    DocumentsService,
+    VirusScanService,
+    ConversionEventsListener,
+    DocumentPolicyService,
+    WatermarkService,
+  ],
+  exports: [DocumentsService, DocumentPolicyService],
 })
 export class DocumentsModule {}

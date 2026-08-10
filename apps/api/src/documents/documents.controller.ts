@@ -22,6 +22,9 @@ import { DocumentsService } from './documents.service';
 import { UsersService } from '../users/users.service';
 import { CreateDocumentDto } from './dto/create-document.dto';
 import { UpdateDocumentDto } from './dto/update-document.dto';
+import { UpdateExpirationDto } from './dto/update-expiration.dto';
+import { UpdateWatermarkDto } from './dto/update-watermark.dto';
+import { DocumentPolicyService } from './document-policy.service';
 
 interface AuthenticatedRequest extends Request {
   user: { sub: string; email: string; name: string; roles: string[] };
@@ -35,6 +38,7 @@ export class DocumentsController {
   constructor(
     private readonly documentsService: DocumentsService,
     private readonly usersService: UsersService,
+    private readonly policyService: DocumentPolicyService,
   ) {}
 
   @Post()
@@ -98,6 +102,36 @@ export class DocumentsController {
     await this.documentsService.delete({ id: user.id, roles: req.user.roles }, id, req.ip ?? null);
   }
 
+  @Patch(':id/expiration')
+  async updateExpiration(
+    @Req() req: AuthenticatedRequest,
+    @Param('id') id: string,
+    @Body() body: UpdateExpirationDto,
+  ) {
+    const user = await this.usersService.upsertFromToken(req.user);
+    return this.policyService.updateExpiration(
+      { id: user.id, roles: req.user.roles },
+      id,
+      body.expiresAt,
+      req.ip ?? null,
+    );
+  }
+
+  @Patch(':id/watermark')
+  async updateWatermark(
+    @Req() req: AuthenticatedRequest,
+    @Param('id') id: string,
+    @Body() body: UpdateWatermarkDto,
+  ) {
+    const user = await this.usersService.upsertFromToken(req.user);
+    return this.policyService.updateDocumentWatermark(
+      { id: user.id, roles: req.user.roles },
+      id,
+      body.watermarkEnabled,
+      req.ip ?? null,
+    );
+  }
+
   @Get(':id/versions')
   async listVersions(@Req() req: AuthenticatedRequest, @Param('id') id: string) {
     const user = await this.usersService.upsertFromToken(req.user);
@@ -119,7 +153,7 @@ export class DocumentsController {
   ) {
     const user = await this.usersService.upsertFromToken(req.user);
     const { stream, mimeType, fileName } = await this.documentsService.getDownloadStream(
-      { id: user.id, roles: req.user.roles },
+      { id: user.id, roles: req.user.roles, email: user.email },
       id,
       versionId,
       req.ip ?? null,

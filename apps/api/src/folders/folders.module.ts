@@ -4,9 +4,10 @@ import { FoldersService } from './folders.service';
 import { AclModule } from '../acl/acl.module';
 import { UsersModule } from '../users/users.module';
 import { AuditModule } from '../audit/audit.module';
+import { DocumentsModule } from '../documents/documents.module';
 
 @Module({
-  imports: [AclModule, UsersModule, AuditModule],
+  imports: [AclModule, UsersModule, AuditModule, DocumentsModule],
   controllers: [FoldersController],
   providers: [FoldersService],
   exports: [FoldersService],

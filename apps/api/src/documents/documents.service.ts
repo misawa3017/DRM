@@ -2,6 +2,7 @@ import {
   BadRequestException,
   ConflictException,
   ForbiddenException,
+  HttpException,
   Injectable,
   Logger,
   NotFoundException,
@@ -22,10 +23,16 @@ import {
   VirusScanSizeLimitError,
   VirusScanService,
 } from './virus-scan.service';
+import { DocumentPolicyService } from './document-policy.service';
+import { WatermarkService } from './watermark.service';
 
 interface AuthenticatedUser {
   id: string;
   roles: string[];
+}
+
+interface DownloadingUser extends AuthenticatedUser {
+  email: string;
 }
 
 interface UploadedFile {
@@ -59,6 +66,8 @@ export class DocumentsService {
     private readonly storage: StorageService,
     private readonly audit: AuditService,
     private readonly virusScan: VirusScanService,
+    private readonly policy: DocumentPolicyService,
+    private readonly watermark: WatermarkService,
     @InjectQueue(QUEUE_DOCUMENT_CONVERSION)
     private readonly conversionQueue: Queue<ConversionJobData>,
   ) {}
@@ -363,6 +372,7 @@ export class DocumentsService {
     if (!document || document.deletedAt) {
       throw new NotFoundException('Document not found');
     }
+    this.policy.assertActive(document);
 
     // The Document row already exists here, so audit the rejection against it.
     await this.rejectIfInfected(file, user.id, 'document', documentId, ipAddress);
@@ -429,6 +439,7 @@ export class DocumentsService {
     if (!document || document.deletedAt) {
       throw new NotFoundException('Document not found');
     }
+    this.policy.assertActive(document);
     return this.prisma.documentVersion.findMany({
       where: { documentId },
       orderBy: { versionNumber: 'desc' },
@@ -447,6 +458,7 @@ export class DocumentsService {
     if (!document || document.deletedAt) {
       throw new NotFoundException('Document not found');
     }
+    this.policy.assertActive(document);
 
     await this.audit.recordSafely({
       actorId: user.id,
@@ -471,7 +483,7 @@ export class DocumentsService {
   }
 
   async getDownloadStream(
-    user: AuthenticatedUser,
+    user: DownloadingUser,
     documentId: string,
     versionId: string | undefined,
     ipAddress: string | null,
@@ -484,6 +496,7 @@ export class DocumentsService {
     if (!document || document.deletedAt) {
       throw new NotFoundException('Document not found');
     }
+    this.policy.assertActive(document);
 
     const version = versionId
       ? await this.prisma.documentVersion.findFirstOrThrow({
@@ -507,7 +520,30 @@ export class DocumentsService {
       details: { versionId: version.id },
     });
 
-    const stream = await this.storage.getObjectStream(version.objectKey);
-    return { stream, mimeType: version.mimeType, fileName: version.id };
+    const watermarkEnabled = await this.policy.resolveWatermarkEnabled(documentId);
+    if (!watermarkEnabled) {
+      const stream = await this.storage.getObjectStream(version.objectKey);
+      return { stream, mimeType: version.mimeType, fileName: version.id };
+    }
+
+    let pdfObjectKey: string | null = null;
+    if (version.mimeType === 'application/pdf') {
+      pdfObjectKey = version.objectKey;
+    } else if (OFFICE_MIME_TYPES.has(version.mimeType)) {
+      if (!version.previewObjectKey) {
+        throw new HttpException('Document preview is not ready', 425);
+      }
+      pdfObjectKey = version.previewObjectKey;
+    }
+
+    if (!pdfObjectKey) {
+      const stream = await this.storage.getObjectStream(version.objectKey);
+      return { stream, mimeType: version.mimeType, fileName: version.id };
+    }
+
+    const source = await this.storage.getObjectStream(pdfObjectKey);
+    const text = `${user.email} | ${new Date().toISOString()} | ${ipAddress ?? 'unknown-ip'}`;
+    const stream = await this.watermark.apply(source, text);
+    return { stream, mimeType: 'application/pdf', fileName: `${version.id}.pdf` };
   }
 }

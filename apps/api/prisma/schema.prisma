@@ -48,9 +48,15 @@ model Folder {
   createdAt DateTime   @default(now())
   updatedAt DateTime   @updatedAt
   deletedAt DateTime?
+  watermarkEnabled Boolean?
 
   @@index([parentId])
   @@map("folders")
+}
+
+enum DocumentStatus {
+  active
+  expired
 }
 
 model Document {
@@ -65,8 +71,12 @@ model Document {
   createdAt        DateTime          @default(now())
   updatedAt        DateTime          @updatedAt
   deletedAt        DateTime?
+  expiresAt        DateTime?
+  status           DocumentStatus    @default(active)
+  watermarkEnabled Boolean?
 
   @@index([folderId])
+  @@index([status, expiresAt])
   @@map("documents")
 }
 
@@ -117,6 +127,10 @@ enum AuditAction {
   document_rename
   document_move
   document_delete
+  document_expired
+  document_expiry_updated
+  document_watermark_updated
+  folder_watermark_updated
   permission_grant
   permission_revoke
   virus_detected

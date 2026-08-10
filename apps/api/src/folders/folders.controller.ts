@@ -5,6 +5,8 @@ import { FoldersService } from './folders.service';
 import { UsersService } from '../users/users.service';
 import { CreateFolderDto } from './dto/create-folder.dto';
 import { UpdateFolderDto } from './dto/update-folder.dto';
+import { UpdateWatermarkDto } from '../documents/dto/update-watermark.dto';
+import { DocumentPolicyService } from '../documents/document-policy.service';
 
 interface AuthenticatedRequest extends Request {
   user: { sub: string; email: string; name: string; roles: string[] };
@@ -16,6 +18,7 @@ export class FoldersController {
   constructor(
     private readonly foldersService: FoldersService,
     private readonly usersService: UsersService,
+    private readonly policyService: DocumentPolicyService,
   ) {}
 
   @Get()
@@ -54,6 +57,21 @@ export class FoldersController {
   async get(@Req() req: AuthenticatedRequest, @Param('id') id: string) {
     const user = await this.usersService.upsertFromToken(req.user);
     return this.foldersService.getWithContents({ id: user.id, roles: req.user.roles }, id, req.ip ?? null);
+  }
+
+  @Patch(':id/watermark')
+  async updateWatermark(
+    @Req() req: AuthenticatedRequest,
+    @Param('id') id: string,
+    @Body() body: UpdateWatermarkDto,
+  ) {
+    const user = await this.usersService.upsertFromToken(req.user);
+    return this.policyService.updateFolderWatermark(
+      { id: user.id, roles: req.user.roles },
+      id,
+      body.watermarkEnabled,
+      req.ip ?? null,
+    );
   }
 
   @Delete(':id')
