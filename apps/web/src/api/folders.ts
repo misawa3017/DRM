@@ -14,6 +14,11 @@ export interface DocumentSummary {
   id: string;
   name: string;
   currentVersion: { id: string; versionNumber: number; sizeBytes: number; mimeType: string } | null;
+  uploader?: {
+    id: string;
+    displayName: string;
+    email: string;
+  } | null;
 }
 
 export interface FolderChildSummary extends FolderSummary {

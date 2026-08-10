@@ -18,6 +18,10 @@ interface TokenResponse {
 interface FolderResponse {
   id: string;
   name: string;
+  documents?: Array<{
+    id: string;
+    uploader: { displayName: string; email: string } | null;
+  }>;
 }
 
 interface DocumentVersionResponse {
@@ -131,6 +135,13 @@ describe('File management full flow (e2e)', () => {
     });
     expect(createRes.status).toBe(201);
     const documentId = createRes.data.id;
+
+    const folderContents = await axios.get<FolderResponse>(
+      `${API_BASE_URL}/folders/${folderId}`,
+      { headers: authHeader },
+    );
+    expect(folderContents.data.documents?.[0].uploader?.displayName.length).toBeGreaterThan(0);
+    expect(folderContents.data.documents?.[0].uploader?.email).toContain('@');
 
     const metadataRes = await axios.get<DocumentResponse>(`${API_BASE_URL}/documents/${documentId}`, {
       headers: authHeader,

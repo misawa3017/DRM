@@ -164,6 +164,18 @@ function DocumentRow({
           </p>
         )}
       </TableCell>
+      <TableCell>
+        {document.uploader ? (
+          <>
+            <span className="block font-medium">{document.uploader.displayName}</span>
+            <span className="hidden text-xs text-muted-foreground sm:block">
+              {document.uploader.email}
+            </span>
+          </>
+        ) : (
+          <span className="text-muted-foreground">—</span>
+        )}
+      </TableCell>
       <TableCell className="hidden sm:table-cell">
         {document.currentVersion ? `v${document.currentVersion.versionNumber}` : '—'}
       </TableCell>
@@ -367,6 +379,7 @@ export function FolderView() {
           <TableHeader>
             <TableRow>
               <TableHead>名稱</TableHead>
+              <TableHead>上傳者</TableHead>
               <TableHead className="hidden sm:table-cell">目前版本</TableHead>
               <TableHead />
             </TableRow>

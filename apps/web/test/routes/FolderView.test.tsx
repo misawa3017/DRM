@@ -50,7 +50,18 @@ describe('FolderView', () => {
         },
       ],
       documents: [
-        { id: 'doc-1', name: 'report.pdf', currentVersion: null, canManage: false, canEdit: false },
+        {
+          id: 'doc-1',
+          name: 'report.pdf',
+          currentVersion: null,
+          uploader: {
+            id: 'user-1',
+            displayName: '王小明',
+            email: 'ming@example.com',
+          },
+          canManage: false,
+          canEdit: false,
+        },
       ],
       canManage: false,
       canEdit: false,
@@ -60,6 +71,8 @@ describe('FolderView', () => {
 
     await waitFor(() => expect(screen.getByRole('link', { name: 'Q1' })).toBeInTheDocument());
     expect(screen.getByRole('link', { name: 'report.pdf' })).toBeInTheDocument();
+    expect(screen.getByText('王小明')).toBeInTheDocument();
+    expect(screen.getByText('ming@example.com')).toBeInTheDocument();
     expect(getFolder).toHaveBeenCalledWith('folder-1', 'fake-token');
   });
 

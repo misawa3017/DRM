@@ -109,13 +109,21 @@ export class FoldersService {
       throw new NotFoundException('Folder not found');
     }
 
+    const uploaderIds = [
+      ...new Set(
+        folder.documents.flatMap((document) =>
+          document.currentVersion ? [document.currentVersion.uploadedBy] : [],
+        ),
+      ),
+    ];
+
     // Each child's own canManage/canEdit — not just the folder being viewed
     // — so the frontend can gate affordances per row. GET
     // /folders/:id/permissions requires 'manage', a higher bar than the
     // 'view' access that gets a caller into this method at all, so a caller
     // can see a child without being allowed to mutate it. canEdit is the
     // lower bar that actually gates rename/move/delete.
-    const [canManage, canEdit, childrenCanManage, childrenCanEdit, documentsCanManage, documentsCanEdit] =
+    const [canManage, canEdit, childrenCanManage, childrenCanEdit, documentsCanManage, documentsCanEdit, uploaders] =
       await Promise.all([
         this.acl.can(user, 'folder', id, 'manage'),
         this.acl.can(user, 'folder', id, 'edit'),
@@ -123,7 +131,12 @@ export class FoldersService {
         Promise.all(folder.children.map((c) => this.acl.can(user, 'folder', c.id, 'edit'))),
         Promise.all(folder.documents.map((d) => this.acl.can(user, 'document', d.id, 'manage'))),
         Promise.all(folder.documents.map((d) => this.acl.can(user, 'document', d.id, 'edit'))),
+        this.prisma.user.findMany({
+          where: { id: { in: uploaderIds } },
+          select: { id: true, displayName: true, email: true },
+        }),
       ]);
+    const uploaderById = new Map(uploaders.map((uploader) => [uploader.id, uploader]));
 
     await this.audit.recordSafely({
       actorId: user.id,
@@ -144,6 +157,9 @@ export class FoldersService {
       })),
       documents: folder.documents.map((d, i) => ({
         ...d,
+        uploader: d.currentVersion
+          ? uploaderById.get(d.currentVersion.uploadedBy) ?? null
+          : null,
         canManage: documentsCanManage[i],
         canEdit: documentsCanEdit[i],
       })),
