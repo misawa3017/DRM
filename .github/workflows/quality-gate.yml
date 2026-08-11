@@ -28,6 +28,9 @@ jobs:
       - name: 安裝相依套件
         run: pnpm install --frozen-lockfile
 
+      - name: 產生 Prisma Client
+        run: pnpm --filter api exec prisma generate
+
       - name: 執行 API 測試
         run: pnpm --filter api test -- --runInBand
 
