@@ -20,7 +20,9 @@ jobs:
       - name: 安裝 Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: 24
+          # Prisma 5.22 在 Node 24 無法正確產生 Prisma Client；使用目前
+          # 支援且仍維護中的 Node 22 LTS，確保 enum 與 Json null 型別產生。
+          node-version: 22
 
       - name: 啟用 Corepack
         run: corepack enable
