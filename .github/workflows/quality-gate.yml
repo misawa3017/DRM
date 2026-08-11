@@ -34,10 +34,10 @@ jobs:
         run: pnpm --filter api exec prisma generate
 
       - name: 執行 API 測試
-        run: pnpm --filter api test -- --runInBand
+        run: pnpm --filter api test:coverage
 
       - name: 執行前端測試
-        run: pnpm --filter web test
+        run: pnpm --filter web test:coverage
 
       - name: 執行 SonarQube Cloud Quality Gate
         uses: SonarSource/sonarqube-scan-action@v7
