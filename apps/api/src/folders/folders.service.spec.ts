@@ -6,17 +6,25 @@ import { FoldersService } from './folders.service';
 describe('FoldersService', () => {
   const folderFindUnique = jest.fn();
   const folderFindMany = jest.fn();
+  const folderFindFirst = jest.fn();
+  const folderUpdate = jest.fn();
   const permissionFindMany = jest.fn();
   const userFindMany = jest.fn();
   const resolveEffectiveLevel = jest.fn();
+  const can = jest.fn();
   const recordSafely = jest.fn();
 
   const prisma = {
-    folder: { findUnique: folderFindUnique, findMany: folderFindMany },
+    folder: {
+      findUnique: folderFindUnique,
+      findMany: folderFindMany,
+      findFirst: folderFindFirst,
+      update: folderUpdate,
+    },
     permission: { findMany: permissionFindMany },
     user: { findMany: userFindMany },
   } as unknown as PrismaService;
-  const acl = { resolveEffectiveLevel } as unknown as AclService;
+  const acl = { resolveEffectiveLevel, can } as unknown as AclService;
   const audit = { recordSafely } as unknown as AuditService;
   const service = new FoldersService(prisma, acl, audit);
   const user = { id: 'user-1', roles: ['employee'] };
@@ -45,6 +53,9 @@ describe('FoldersService', () => {
       .mockResolvedValueOnce('edit')
       .mockResolvedValueOnce('view');
     recordSafely.mockResolvedValue(undefined);
+    can.mockResolvedValue(true);
+    folderFindFirst.mockResolvedValue(null);
+    folderUpdate.mockResolvedValue({ id: 'folder-1', name: '目前資料夾', parentId: 'parent-1' });
   });
 
   it('以單次權限查詢篩選可見的頂層資料夾', async () => {
@@ -88,5 +99,47 @@ describe('FoldersService', () => {
       children: [{ canManage: false, canEdit: true }],
       documents: [{ canManage: false, canEdit: false }],
     });
+  });
+
+  it('重新命名時保留父資料夾並記錄重新命名稽核', async () => {
+    folderFindUnique.mockResolvedValue({
+      id: 'folder-1',
+      name: '舊名稱',
+      parentId: 'parent-1',
+      deletedAt: null,
+    });
+    folderUpdate.mockResolvedValue({ id: 'folder-1', name: '新名稱', parentId: 'parent-1' });
+
+    await expect(service.update(user, 'folder-1', { name: '新名稱' }, '127.0.0.1')).resolves.toEqual({
+      id: 'folder-1',
+      name: '新名稱',
+      parentId: 'parent-1',
+    });
+
+    expect(recordSafely).toHaveBeenCalledWith(expect.objectContaining({
+      action: 'folder_rename',
+      details: { oldName: '舊名稱', newName: '新名稱' },
+    }));
+  });
+
+  it('移動時驗證目的地、排除子樹並記錄移動稽核', async () => {
+    folderFindUnique
+      .mockResolvedValueOnce({ id: 'folder-1', name: '目前資料夾', parentId: 'parent-1', deletedAt: null })
+      .mockResolvedValueOnce({ id: 'destination-1', name: '目的地', parentId: 'parent-2', deletedAt: null });
+    folderFindMany.mockResolvedValue([]);
+    folderUpdate.mockResolvedValue({ id: 'folder-1', name: '目前資料夾', parentId: 'destination-1' });
+
+    await service.update(user, 'folder-1', { parentId: 'destination-1' }, null);
+
+    expect(can).toHaveBeenNthCalledWith(1, user, 'folder', 'folder-1', 'edit');
+    expect(can).toHaveBeenNthCalledWith(2, user, 'folder', 'destination-1', 'edit');
+    expect(folderUpdate).toHaveBeenCalledWith({
+      where: { id: 'folder-1' },
+      data: { name: '目前資料夾', parentId: 'destination-1' },
+    });
+    expect(recordSafely).toHaveBeenCalledWith(expect.objectContaining({
+      action: 'folder_move',
+      details: { oldParentId: 'parent-1', newParentId: 'destination-1' },
+    }));
   });
 });

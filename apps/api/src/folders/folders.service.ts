@@ -14,6 +14,18 @@ interface AuthenticatedUser {
   roles: string[];
 }
 
+interface FolderChanges {
+  name?: string;
+  parentId?: string | null;
+}
+
+interface ExistingFolder {
+  id: string;
+  name: string;
+  parentId: string | null;
+  deletedAt: Date | null;
+}
+
 @Injectable()
 export class FoldersService {
   constructor(
@@ -212,10 +224,67 @@ export class FoldersService {
     return result;
   }
 
+  private async resolveNewParentId(
+    user: AuthenticatedUser,
+    folder: ExistingFolder,
+    parentId: string | null | undefined,
+  ): Promise<string | null> {
+    if (parentId === undefined) {
+      return folder.parentId;
+    }
+    if (parentId === null) {
+      throw new BadRequestException('parentId cannot be null');
+    }
+    if (folder.parentId === null) {
+      throw new BadRequestException('Cannot move a top-level folder');
+    }
+    const destinationAllowed = await this.acl.can(user, 'folder', parentId, 'edit');
+    if (!destinationAllowed) {
+      throw new ForbiddenException('You do not have edit access to the destination folder');
+    }
+    const destination = await this.prisma.folder.findUnique({ where: { id: parentId } });
+    if (!destination || destination.deletedAt) {
+      throw new NotFoundException('Destination folder not found');
+    }
+    const descendantIds = await this.collectDescendantFolderIds(folder.id);
+    if (parentId === folder.id || descendantIds.includes(parentId)) {
+      throw new BadRequestException('Cannot move a folder into itself or one of its own descendants');
+    }
+    return parentId;
+  }
+
+  private async recordUpdateAudit(
+    user: AuthenticatedUser,
+    folder: ExistingFolder,
+    changes: FolderChanges,
+    ipAddress: string | null,
+  ): Promise<void> {
+    if (changes.name !== undefined && changes.name !== folder.name) {
+      await this.audit.recordSafely({
+        actorId: user.id,
+        action: 'folder_rename',
+        resourceType: 'folder',
+        resourceId: folder.id,
+        ipAddress,
+        details: { oldName: folder.name, newName: changes.name },
+      });
+    }
+    if (changes.parentId !== undefined && changes.parentId !== folder.parentId) {
+      await this.audit.recordSafely({
+        actorId: user.id,
+        action: 'folder_move',
+        resourceType: 'folder',
+        resourceId: folder.id,
+        ipAddress,
+        details: { oldParentId: folder.parentId ?? '', newParentId: changes.parentId ?? '' },
+      });
+    }
+  }
+
   async update(
     user: AuthenticatedUser,
     id: string,
-    changes: { name?: string; parentId?: string },
+    changes: FolderChanges,
     ipAddress: string | null,
   ) {
     const allowed = await this.acl.can(user, 'folder', id, 'edit');
@@ -228,30 +297,7 @@ export class FoldersService {
       throw new NotFoundException('Folder not found');
     }
 
-    let newParentId = folder.parentId;
-    if (changes.parentId !== undefined) {
-      if (changes.parentId === null) {
-        throw new BadRequestException('parentId cannot be null');
-      }
-      if (folder.parentId === null) {
-        throw new BadRequestException('Cannot move a top-level folder');
-      }
-      const destinationAllowed = await this.acl.can(user, 'folder', changes.parentId, 'edit');
-      if (!destinationAllowed) {
-        throw new ForbiddenException('You do not have edit access to the destination folder');
-      }
-      const destination = await this.prisma.folder.findUnique({ where: { id: changes.parentId } });
-      if (!destination || destination.deletedAt) {
-        throw new NotFoundException('Destination folder not found');
-      }
-      const descendantIds = await this.collectDescendantFolderIds(id);
-      if (changes.parentId === id || descendantIds.includes(changes.parentId)) {
-        throw new BadRequestException(
-          'Cannot move a folder into itself or one of its own descendants',
-        );
-      }
-      newParentId = changes.parentId;
-    }
+    const newParentId = await this.resolveNewParentId(user, folder, changes.parentId);
 
     const newName = changes.name ?? folder.name;
     if (changes.name !== undefined || changes.parentId !== undefined) {
@@ -263,26 +309,7 @@ export class FoldersService {
       data: { name: newName, parentId: newParentId },
     });
 
-    if (changes.name !== undefined && changes.name !== folder.name) {
-      await this.audit.recordSafely({
-        actorId: user.id,
-        action: 'folder_rename',
-        resourceType: 'folder',
-        resourceId: id,
-        ipAddress,
-        details: { oldName: folder.name, newName: changes.name },
-      });
-    }
-    if (changes.parentId !== undefined && changes.parentId !== folder.parentId) {
-      await this.audit.recordSafely({
-        actorId: user.id,
-        action: 'folder_move',
-        resourceType: 'folder',
-        resourceId: id,
-        ipAddress,
-        details: { oldParentId: folder.parentId ?? '', newParentId: changes.parentId },
-      });
-    }
+    await this.recordUpdateAudit(user, folder, changes, ipAddress);
 
     return updated;
   }
