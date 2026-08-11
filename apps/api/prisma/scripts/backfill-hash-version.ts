@@ -65,7 +65,7 @@
  *   DATABASE_URL=postgresql://user:pass@host:port/db \
  *     pnpm --filter api exec ts-node prisma/scripts/backfill-hash-version.ts
  */
-import { PrismaClient, AuditAction, ResourceType } from '@prisma/client';
+import { PrismaClient, AuditAction, AuditLog, ResourceType } from '@prisma/client';
 import { createHash } from 'crypto';
 
 interface RowForHashing {
@@ -102,7 +102,7 @@ function computeHashV0(row: RowForHashing): string {
 // (including the flaw -- this format must be reproduced as-is, not fixed).
 function computeHashV1(row: RowForHashing): string {
   const serializedDetails = Object.keys(row.details ?? {})
-    .sort()
+    .sort((a, b) => a.localeCompare(b))
     .map((k) => `${k}=${row.details![k]}`)
     .join(',');
 
@@ -125,7 +125,7 @@ function computeHashV1(row: RowForHashing): string {
 // Mirrors AuditService.computeHash's CURRENT_HASH_VERSION branch exactly.
 function computeHashV2(row: RowForHashing): string {
   const serializedDetails = Object.keys(row.details ?? {})
-    .sort()
+    .sort((a, b) => a.localeCompare(b))
     .map((k) => `${JSON.stringify(k)}:${JSON.stringify(row.details![k])}`)
     .join(',');
 
@@ -158,6 +158,36 @@ const KNOWN_FORMATS: { version: number; compute: (row: RowForHashing) => string 
 
 const DEFAULT_BACKFILL_BATCH_SIZE = Number(process.env.AUDIT_BACKFILL_BATCH_SIZE) || 10000;
 
+function toRowForHashing(row: AuditLog): RowForHashing {
+  return {
+    id: row.id,
+    actorId: row.actorId,
+    action: row.action,
+    resourceType: row.resourceType,
+    resourceId: row.resourceId,
+    ipAddress: row.ipAddress,
+    createdAt: row.createdAt,
+    prevHash: row.prevHash,
+    details: row.details as Record<string, string> | null,
+  };
+}
+
+async function reconcileHashVersion(prisma: PrismaClient, row: AuditLog): Promise<'already-correct' | 'relabeled' | 'unmatched'> {
+  const rowForHashing = toRowForHashing(row);
+  const currentFormat = KNOWN_FORMATS.find((format) => format.version === row.hashVersion);
+  if (currentFormat?.compute(rowForHashing) === row.hash) return 'already-correct';
+
+  const matchingFormat = KNOWN_FORMATS.find((format) => format.compute(rowForHashing) === row.hash);
+  if (!matchingFormat) return 'unmatched';
+
+  await prisma.auditLog.update({
+    where: { id: row.id },
+    data: { hashVersion: matchingFormat.version },
+  });
+  console.log(`  relabeled ${row.id}: hashVersion ${row.hashVersion} -> ${matchingFormat.version}`);
+  return 'relabeled';
+}
+
 async function main(): Promise<void> {
   const prisma = new PrismaClient();
   const batchSize = DEFAULT_BACKFILL_BATCH_SIZE;
@@ -184,49 +214,16 @@ async function main(): Promise<void> {
 
       for (const row of rows) {
         checked++;
-        const rowForHashing: RowForHashing = {
-          id: row.id,
-          actorId: row.actorId,
-          action: row.action,
-          resourceType: row.resourceType,
-          resourceId: row.resourceId,
-          ipAddress: row.ipAddress,
-          createdAt: row.createdAt,
-          prevHash: row.prevHash,
-          details: row.details as Record<string, string> | null,
-        };
-
-        // Fast path: if the row's stored hash matches its own current label,
-        // it's already correct -- confirm and move on without considering a
-        // relabel (see the KNOWN_FORMATS comment on why no other format
-        // could also match).
-        const currentFormat = KNOWN_FORMATS.find((f) => f.version === row.hashVersion);
-        if (currentFormat && currentFormat.compute(rowForHashing) === row.hash) {
+        const result = await reconcileHashVersion(prisma, row);
+        if (result === 'already-correct') {
           alreadyCorrect++;
           continue;
         }
-
-        // The row's current label doesn't reproduce its stored hash -- try
-        // every known format to find the one that actually does.
-        const match = KNOWN_FORMATS.find((f) => f.compute(rowForHashing) === row.hash);
-
-        if (!match) {
-          // Stop immediately -- this row matched none of the known hash
-          // formats, which means either genuine tampering or an unhandled
-          // hash format change this script hasn't been taught about. Either
-          // way it needs a human, not a guess, so no further rows (which
-          // could include later, otherwise-legitimate relabels) are
-          // written past this point.
+        if (result === 'unmatched') {
           unmatchedId = row.id;
           break;
         }
-
-        await prisma.auditLog.update({
-          where: { id: row.id },
-          data: { hashVersion: match.version },
-        });
         relabeled++;
-        console.log(`  relabeled ${row.id}: hashVersion ${row.hashVersion} -> ${match.version}`);
       }
 
       if (unmatchedId !== undefined) {

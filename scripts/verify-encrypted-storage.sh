@@ -99,7 +99,13 @@ echo "Setting default SSE-KMS encryption on the bucket..."
 mc encrypt set sse-kms drm-default-key local/documents
 
 echo "Uploading a test object..."
-echo "phase 2a verification $(date -u +%FT%TZ)" > "$WORKDIR/verify-test.txt"
+# 每次執行都產生不同內容，讓輸出可清楚證明上傳前明文與 MinIO 解密後
+# 回傳的內容相同。SSE-KMS 不會透過 S3 API 回傳密文；加密表示僅存在
+# MinIO 的內部資料卷中。
+PLAINTEXT_CONTENT="phase 2a verification $(date -u +%FT%TZ)"
+printf '%s\n' "$PLAINTEXT_CONTENT" > "$WORKDIR/verify-test.txt"
+echo "Plaintext before upload:"
+cat "$WORKDIR/verify-test.txt"
 mc cp "$WORKDIR/verify-test.txt" local/documents/verify-test.txt
 
 echo "Confirming the object reports server-side encryption..."
@@ -118,9 +124,46 @@ echo "$STAT_OUTPUT" | grep -q "drm-default-key" || {
   exit 1
 }
 
+# 直接檢查 MinIO 磁碟上的物件資料，而非 S3 API 回應；後者會先將 SSE-KMS
+# 物件解密才回傳給客戶端。此版 MinIO 使用 UUID 路徑而非 S3 object key，
+# 因此依修改時間選取剛建立的目錄。小物件內嵌於 xl.meta，較大物件則使用
+# part.* 檔案，兩種格式的 payload 都已加密。以十六進位顯示原始 bytes，
+# 並確認其中任一位置都找不到完整明文的 byte 序列。
+echo "Inspecting the raw ciphertext stored in MinIO's data volume..."
+PLAINTEXT_HEX=$(od -An -v -tx1 "$WORKDIR/verify-test.txt" | tr -d '[:space:]')
+RAW_OBJECT_DIR=$(docker compose exec -T minio /bin/sh -c \
+  'ls -td /data/documents/* | head -n 1')
+test -n "$RAW_OBJECT_DIR" || {
+  echo "FAIL: could not locate MinIO's raw directory for the test object" >&2
+  exit 1
+}
+if ! CIPHERTEXT_HEX=$(docker compose exec -T -e "RAW_OBJECT_DIR=$RAW_OBJECT_DIR" minio /bin/sh -c '
+  found=0
+  for file in "$RAW_OBJECT_DIR"/* "$RAW_OBJECT_DIR"/*/* "$RAW_OBJECT_DIR"/*/*/* "$RAW_OBJECT_DIR"/*/*/*/*; do
+    if [[ -f "$file" ]]; then
+      od -An -v -tx1 "$file"
+      found=1
+    fi
+  done
+  [[ "$found" -eq 1 ]]
+' | tr -d '[:space:]'); then
+  echo "FAIL: could not read MinIO's raw on-disk data for the test object" >&2
+  exit 1
+fi
+if [[ "$CIPHERTEXT_HEX" == *"$PLAINTEXT_HEX"* ]]; then
+  echo "FAIL: MinIO's raw object payload unexpectedly contains the plaintext" >&2
+  exit 1
+fi
+echo "Raw MinIO object directory: $RAW_OBJECT_DIR"
+echo "Raw MinIO storage bytes (hex; first 128 bytes):"
+printf '%s\n' "$CIPHERTEXT_HEX" | fold -w 64 | head -n 4
+echo "  confirmed: the raw payload does not contain the uploaded plaintext bytes"
+
 echo "Downloading and verifying content round-trips correctly..."
 mc cat local/documents/verify-test.txt > "$WORKDIR/verify-test-downloaded.txt"
 diff "$WORKDIR/verify-test.txt" "$WORKDIR/verify-test-downloaded.txt"
+echo "Plaintext after MinIO decrypts and returns the object:"
+cat "$WORKDIR/verify-test-downloaded.txt"
 
 echo "Cleaning up test object..."
 mc rm local/documents/verify-test.txt
@@ -147,7 +190,11 @@ echo "phase 2b scope verification $(date -u +%FT%TZ)" > "$WORKDIR/scope-test.txt
 mcapi cp "$WORKDIR/scope-test.txt" apiuser/documents/scope-test.txt
 
 echo "Listing 'documents' via scoped credential..."
-mcapi ls apiuser/documents/ | grep -q "scope-test.txt" || {
+# 不可在此直接 pipe 到 `grep -q`：啟用 `pipefail` 時，grep 找到匹配即結束，
+# mc 若仍在輸出清單會收到 SIGPIPE／「broken pipe」。先完整收集 mc 輸出，
+# 才不會把成功的清單操作誤判為授權失敗。
+DOCUMENTS_LISTING=$(mcapi ls apiuser/documents/)
+echo "$DOCUMENTS_LISTING" | grep -q "scope-test.txt" || {
   echo "FAIL: scoped credential could not list its own upload in 'documents'" >&2
   exit 1
 }

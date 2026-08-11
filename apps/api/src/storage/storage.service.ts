@@ -1,5 +1,10 @@
 import { Injectable } from '@nestjs/common';
-import { S3Client, PutObjectCommand, GetObjectCommand } from '@aws-sdk/client-s3';
+import {
+  S3Client,
+  PutObjectCommand,
+  GetObjectCommand,
+  DeleteObjectsCommand,
+} from '@aws-sdk/client-s3';
 import type { Readable } from 'stream';
 
 @Injectable()
@@ -36,5 +41,20 @@ export class StorageService {
       new GetObjectCommand({ Bucket: this.bucket, Key: key }),
     );
     return result.Body as Readable;
+  }
+
+  async deleteObjects(keys: string[]): Promise<void> {
+    // S3 DeleteObjects accepts at most 1,000 keys per request.
+    for (let start = 0; start < keys.length; start += 1000) {
+      const result = await this.client.send(
+        new DeleteObjectsCommand({
+          Bucket: this.bucket,
+          Delete: { Objects: keys.slice(start, start + 1000).map((Key) => ({ Key })), Quiet: true },
+        }),
+      );
+      if (result.Errors && result.Errors.length > 0) {
+        throw new Error(`Failed to permanently delete ${result.Errors.length} storage object(s)`);
+      }
+    }
   }
 }

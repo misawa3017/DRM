@@ -129,6 +129,10 @@ enum AuditAction {
   document_rename
   document_move
   document_delete
+  folder_restore
+  document_restore
+  folder_purge
+  document_purge
   document_expired
   document_expiry_updated
   document_watermark_updated

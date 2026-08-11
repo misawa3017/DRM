@@ -21,7 +21,7 @@ docker run --rm --network drm_default -v "$WORKDIR:$WORKDIR" curlimages/curl:lat
   -o "$WORKDIR/output.pdf"
 
 echo "Confirming the output is a real PDF..."
-if [ "$(head -c 4 "$WORKDIR/output.pdf")" != "%PDF" ]; then
+if [[ "$(head -c 4 "$WORKDIR/output.pdf")" != "%PDF" ]]; then
   echo "FAIL: output does not start with the PDF magic bytes" >&2
   exit 1
 fi

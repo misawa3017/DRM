@@ -4,7 +4,7 @@ set -euo pipefail
 OUT_DIR="secrets/kes"
 mkdir -p "$OUT_DIR"
 
-if [ -f "$OUT_DIR/kes-server.cert" ] && [ -f "$OUT_DIR/minio-client.cert" ]; then
+if [[ -f "$OUT_DIR/kes-server.cert" && -f "$OUT_DIR/minio-client.cert" ]]; then
   echo "Certs already exist in $OUT_DIR — skipping generation (delete the directory to regenerate)."
 else
   # -addext "basicConstraints=critical,CA:FALSE" is required on both certs:

@@ -12,6 +12,7 @@ import { PermissionsDashboard } from './routes/PermissionsDashboard';
 import { FolderPermissions } from './routes/FolderPermissions';
 import { DocumentPermissions } from './routes/DocumentPermissions';
 import { Search } from './routes/Search';
+import { Trash } from './routes/Trash';
 
 function AuthScreen({ children }: { children: ReactNode }) {
   return (
@@ -66,6 +67,7 @@ export default function App() {
           <Route path="/documents/:id/permissions" element={<DocumentPermissions />} />
           <Route path="/permissions" element={<PermissionsDashboard />} />
           <Route path="/search" element={<Search />} />
+          <Route path="/trash" element={<Trash />} />
         </Route>
       </Routes>
     </BrowserRouter>

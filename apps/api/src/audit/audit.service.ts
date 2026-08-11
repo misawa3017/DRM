@@ -125,34 +125,7 @@ export class AuditService {
       }
 
       for (const row of rows) {
-        if (row.prevHash !== expectedPrevHash) {
-          return { valid: false, brokenAtId: row.id };
-        }
-        // hashVersion 0 rows predate the `details` column entirely (see the
-        // comment in computeHash's v0 branch) — they can never legitimately
-        // carry a non-null `details`, since the v0 hash input never included
-        // it. If one does, the hash still recomputes fine (v0's input string
-        // never references `details`), so without this check an attacker
-        // with DB write access could attach/alter `details` on any legacy
-        // v0 row and verifyChain would keep reporting it valid. Catch that
-        // here, before hash recomputation, rather than relying on the hash
-        // itself to notice.
-        if (row.hashVersion === LEGACY_HASH_VERSION_V0 && row.details !== null) {
-          return { valid: false, brokenAtId: row.id };
-        }
-        const recomputed = this.computeHash({
-          hashVersion: row.hashVersion,
-          id: row.id,
-          actorId: row.actorId,
-          action: row.action,
-          resourceType: row.resourceType,
-          resourceId: row.resourceId,
-          ipAddress: row.ipAddress,
-          createdAt: row.createdAt,
-          prevHash: row.prevHash,
-          details: row.details as Record<string, string> | null,
-        });
-        if (recomputed !== row.hash) {
+        if (!this.isValidChainRow(row, expectedPrevHash)) {
           return { valid: false, brokenAtId: row.id };
         }
         expectedPrevHash = row.hash;
@@ -173,6 +146,27 @@ export class AuditService {
       where: { resourceType, resourceId },
       orderBy: { sequence: 'asc' },
     });
+  }
+
+  private isValidChainRow(row: AuditLog, expectedPrevHash: string | null): boolean {
+    if (row.prevHash !== expectedPrevHash) return false;
+
+    // hashVersion 0 的雜湊輸入不包含 details；因此任何非 null 的 details
+    // 都代表資料遭到竄改，即使重新計算雜湊仍可能一致。
+    if (row.hashVersion === LEGACY_HASH_VERSION_V0 && row.details !== null) return false;
+
+    return this.computeHash({
+      hashVersion: row.hashVersion,
+      id: row.id,
+      actorId: row.actorId,
+      action: row.action,
+      resourceType: row.resourceType,
+      resourceId: row.resourceId,
+      ipAddress: row.ipAddress,
+      createdAt: row.createdAt,
+      prevHash: row.prevHash,
+      details: row.details as Record<string, string> | null,
+    }) === row.hash;
   }
 
   private computeHash(input: HashInput): string {
@@ -213,7 +207,7 @@ export class AuditService {
     // new writes under version 1.
     if (input.hashVersion === LEGACY_HASH_VERSION_V1) {
       const serializedDetails = Object.keys(input.details ?? {})
-        .sort()
+        .sort((a, b) => a.localeCompare(b))
         .map((k) => `${k}=${input.details![k]}`)
         .join(',');
 
@@ -240,7 +234,7 @@ export class AuditService {
     // can never produce the same serialized string (unlike the bare
     // `key=value` concatenation used by version 1).
     const serializedDetails = Object.keys(input.details ?? {})
-      .sort()
+      .sort((a, b) => a.localeCompare(b))
       .map((k) => `${JSON.stringify(k)}:${JSON.stringify(input.details![k])}`)
       .join(',');
 

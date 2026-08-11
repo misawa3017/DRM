@@ -17,7 +17,7 @@ source .env
 # guarantees) rather than hard-failing on a missing local dev CA.
 MKCERT_CAROOT="${MKCERT_CAROOT:-$(command -v mkcert >/dev/null 2>&1 && mkcert -CAROOT 2>/dev/null || true)}"
 MKCERT_CAROOT="${MKCERT_CAROOT:-$HOME/.local/share/mkcert}"
-if [ -f "$MKCERT_CAROOT/rootCA.pem" ]; then
+if [[ -f "$MKCERT_CAROOT/rootCA.pem" ]]; then
   CURL_TLS_ARGS=(--cacert "$MKCERT_CAROOT/rootCA.pem")
 else
   echo "WARNING: mkcert root CA not found at $MKCERT_CAROOT/rootCA.pem -- falling back to curl -k (no TLS verification) for this smoke test" >&2
@@ -28,7 +28,7 @@ check() {
   local url=$1
   local code
   code=$(curl -s "${CURL_TLS_ARGS[@]}" -o /dev/null -w '%{http_code}' "$url")
-  if [ "$code" != "200" ]; then
+  if [[ "$code" != "200" ]]; then
     echo "FAIL: $url returned $code"
     exit 1
   fi
@@ -53,7 +53,7 @@ check_container_state() {
   local expected=$3
   local actual
   actual=$(docker compose ps --format "{{.$field}}" "$service")
-  if [ "$actual" != "$expected" ]; then
+  if [[ "$actual" != "$expected" ]]; then
     echo "FAIL: $service $field is '$actual', expected '$expected'" >&2
     exit 1
   fi

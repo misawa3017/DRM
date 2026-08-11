@@ -8,8 +8,8 @@ on:
 
 jobs:
   test-and-sonar:
-    # 自架 SonarQube 只監聽 Docker 主機 loopback，因此 runner 必須部署於同一台主機。
-    runs-on: self-hosted
+    # SonarQube Cloud 由 GitHub hosted runner 透過 HTTPS 連線，不需維護地端 runner。
+    runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
       - name: 取得完整 Git 歷史
@@ -34,10 +34,7 @@ jobs:
       - name: 執行前端測試
         run: pnpm --filter web test
 
-      - name: 啟動 SonarQube
-        run: pnpm sonar:up
-
-      - name: 執行 SonarQube Quality Gate
+      - name: 執行 SonarQube Cloud Quality Gate
+        uses: SonarSource/sonarqube-scan-action@v7
         env:
           SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
-        run: pnpm sonar:scan

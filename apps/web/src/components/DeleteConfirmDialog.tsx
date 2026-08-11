@@ -8,6 +8,9 @@ interface DeleteConfirmDialogProps {
   onConfirm: () => void;
   isDeleting?: boolean;
   error?: string | null;
+  title?: string;
+  description?: string;
+  confirmLabel?: string;
 }
 
 export function DeleteConfirmDialog({
@@ -17,15 +20,18 @@ export function DeleteConfirmDialog({
   onConfirm,
   isDeleting,
   error,
+  title,
+  description,
+  confirmLabel = '刪除',
 }: DeleteConfirmDialogProps) {
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent>
         <DialogHeader>
-          <DialogTitle>刪除「{resourceName}」？</DialogTitle>
+          <DialogTitle>{title ? title.replace('{name}', resourceName) : `刪除「${resourceName}」？`}</DialogTitle>
         </DialogHeader>
         <p className="text-sm text-muted-foreground">
-          刪除後這個項目就不會再出現在清單裡，目前介面上還沒有提供還原功能。
+          {description ?? '刪除後這個項目會移至垃圾桶，可由管理員還原或永久清除。'}
         </p>
         {error && (
           <p className="text-sm text-destructive" data-testid="delete-confirm-error">
@@ -42,7 +48,7 @@ export function DeleteConfirmDialog({
             disabled={isDeleting}
             onClick={onConfirm}
           >
-            刪除
+            {confirmLabel}
           </Button>
         </DialogFooter>
       </DialogContent>

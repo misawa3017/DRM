@@ -20,7 +20,7 @@ source .env
 # scripts/smoke-test.sh / scripts/backup.sh.
 MKCERT_CAROOT="${MKCERT_CAROOT:-$(command -v mkcert >/dev/null 2>&1 && mkcert -CAROOT 2>/dev/null || true)}"
 MKCERT_CAROOT="${MKCERT_CAROOT:-$HOME/.local/share/mkcert}"
-if [ -f "$MKCERT_CAROOT/rootCA.pem" ]; then
+if [[ -f "$MKCERT_CAROOT/rootCA.pem" ]]; then
   CURL_TLS_ARGS=(--cacert "$MKCERT_CAROOT/rootCA.pem")
 else
   echo "WARNING: mkcert root CA not found at $MKCERT_CAROOT/rootCA.pem -- falling back to curl -k (no TLS verification) for the post-restore health check" >&2
@@ -37,7 +37,7 @@ gpg --batch --yes --pinentry-mode loopback --passphrase-file "$PASSPHRASE_FILE" 
   --decrypt "$ENCRYPTED_FILE" | tar xf - -C "$RESTORE_ROOT"
 
 BACKUP_DIR=$(find "$RESTORE_ROOT" -mindepth 1 -maxdepth 1 -type d | head -1)
-if [ -z "$BACKUP_DIR" ]; then
+if [[ -z "$BACKUP_DIR" ]]; then
   echo "FAIL: decrypted archive did not contain the expected dated directory" >&2
   exit 1
 fi
@@ -49,7 +49,7 @@ echo "Verifying checksums..."
   || { echo "FAIL: checksum verification failed, refusing to restore from a possibly corrupt backup" >&2; exit 1; }
 
 read -r -p "This will STOP the stack and OVERWRITE minio_data/openbao_data/openbao_init/openbao_approle/keycloak_data and the Postgres database. Type 'yes' to continue: " CONFIRM
-[ "$CONFIRM" = "yes" ] || { echo "Aborted."; exit 1; }
+[[ "$CONFIRM" = "yes" ]] || { echo "Aborted."; exit 1; }
 
 echo "Stopping the stack..."
 docker compose down
@@ -62,7 +62,7 @@ restore_volume() {
   # tars it with gzip).
   local short_name="$1" tar_file="$2" tar_flags="${3:-xzf}" full_name
   full_name=$(docker volume ls --filter "label=com.docker.compose.volume=${short_name}" --format '{{.Name}}' | head -1)
-  if [ -z "$full_name" ]; then
+  if [[ -z "$full_name" ]]; then
     echo "FAIL: could not find volume for ${short_name} -- run 'docker compose up -d && docker compose down' once on a fresh host first so compose creates the named volumes" >&2
     exit 1
   fi
@@ -96,7 +96,7 @@ for i in $(seq 1 30); do
   if docker compose exec -T postgres pg_isready -U "$POSTGRES_USER" >/dev/null 2>&1; then
     break
   fi
-  if [ "$i" = 30 ]; then
+  if [[ "$i" = 30 ]]; then
     echo "FAIL: postgres did not become ready within 60s" >&2
     exit 1
   fi
@@ -128,7 +128,7 @@ for i in $(seq 1 500); do
   if curl -sf "${CURL_TLS_ARGS[@]}" "https://api.${DRM_BASE_DOMAIN}/health" >/dev/null 2>&1; then
     break
   fi
-  if [ "$i" = 500 ]; then
+  if [[ "$i" = 500 ]]; then
     echo "FAIL: api did not respond healthy within 1000s of restart" >&2
     exit 1
   fi

@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import { Link, NavLink, Outlet, useNavigate } from 'react-router-dom';
 import { useAuth } from 'react-oidc-context';
-import { Folder, Search } from 'lucide-react';
+import { Folder, Search, Trash2 } from 'lucide-react';
 import { NavbarBreadcrumbContext } from '../lib/navbarBreadcrumb';
 import { ThemeToggle } from './ThemeToggle';
 
@@ -87,6 +87,16 @@ export function Navbar() {
           >
             權限管理
           </NavLink>
+          {whoami?.roles.includes('admin') && (
+            <NavLink
+              to="/trash"
+              className={({ isActive }) =>
+                isActive ? 'font-semibold text-white' : 'text-primary-foreground/75'
+              }
+            >
+              <span className="inline-flex items-center gap-1"><Trash2 className="h-3.5 w-3.5" />垃圾桶</span>
+            </NavLink>
+          )}
         </nav>
 
         <div className="order-4 flex w-full items-center gap-1.5 rounded-md bg-primary-foreground/10 px-2.5 py-2 sm:order-5 lg:order-none lg:w-56 lg:shrink-0 lg:py-1.5">

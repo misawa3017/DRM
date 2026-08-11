@@ -10,6 +10,7 @@ import { SearchModule } from './search/search.module';
 import { AuditModule } from './audit/audit.module';
 import { JobsModule } from './jobs/jobs.module';
 import { ScheduleModule } from '@nestjs/schedule';
+import { TrashModule } from './trash/trash.module';
 
 @Module({
   imports: [
@@ -23,6 +24,7 @@ import { ScheduleModule } from '@nestjs/schedule';
     SearchModule,
     AuditModule,
     JobsModule,
+    TrashModule,
   ],
   controllers: [HealthController],
 })

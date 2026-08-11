@@ -37,7 +37,7 @@ source scripts/lib/backup-notify.sh
 # scripts/smoke-test.sh.
 MKCERT_CAROOT="${MKCERT_CAROOT:-$(command -v mkcert >/dev/null 2>&1 && mkcert -CAROOT 2>/dev/null || true)}"
 MKCERT_CAROOT="${MKCERT_CAROOT:-$HOME/.local/share/mkcert}"
-if [ -f "$MKCERT_CAROOT/rootCA.pem" ]; then
+if [[ -f "$MKCERT_CAROOT/rootCA.pem" ]]; then
   CURL_TLS_ARGS=(--cacert "$MKCERT_CAROOT/rootCA.pem")
 else
   # log() isn't defined until later in this file; this guard runs before
@@ -56,7 +56,7 @@ fi
 # above).
 for retention_var in BACKUP_LOCAL_RETENTION_DAYS BACKUP_RETENTION_DAYS; do
   retention_value="${!retention_var}"
-  if ! [[ "$retention_value" =~ ^[0-9]+$ ]] || [ "$retention_value" -lt 1 ]; then
+  if ! [[ "$retention_value" =~ ^[0-9]+$ ]] || [[ "$retention_value" -lt 1 ]]; then
     echo "FAIL: $retention_var must be a positive integer (got: $retention_value)" >&2
     exit 1
   fi
@@ -116,7 +116,7 @@ resolve_volume() {
   # subshell) call fail() itself.
   local short_name="$1" full_name
   full_name=$(docker volume ls --filter "label=com.docker.compose.volume=${short_name}" --format '{{.Name}}' | head -1)
-  if [ -z "$full_name" ]; then
+  if [[ -z "$full_name" ]]; then
     return 1
   fi
   echo "$full_name"
@@ -143,7 +143,7 @@ fi
 
 STACK_STOPPED=0
 restore_stack() {
-  if [ "$STACK_STOPPED" = "1" ]; then
+  if [[ "$STACK_STOPPED" = "1" ]]; then
     log "restoring api/worker/keycloak after backup (or after failure)"
     if docker compose up -d --no-deps api worker keycloak; then
       STACK_STOPPED=0
@@ -171,7 +171,7 @@ restore_stack() {
 # which previously left the plaintext Postgres dump / OpenBao unseal key /
 # everything else sitting on disk forever.
 cleanup_staging() {
-  if [ -n "${STAGING_DIR:-}" ] && [ -d "$STAGING_DIR" ]; then
+  if [[ -n "${STAGING_DIR:-}" && -d "$STAGING_DIR" ]]; then
     rm -rf "$STAGING_DIR"
   fi
 }
@@ -197,7 +197,7 @@ on_exit() {
   local exit_code=$?
   restore_stack
   cleanup_staging
-  if [ "$exit_code" != "0" ] && [ "$NOTIFIED_FAILURE" = "0" ]; then
+  if [[ "$exit_code" != "0" && "$NOTIFIED_FAILURE" = "0" ]]; then
     log "FAIL: unhandled exit (status $exit_code)"
     notify_failure "unhandled-exit" "backup.sh exited with status $exit_code, see $LOG_FILE."$'\n\nLast log lines:\n'"$(tail -n 10 "$LOG_FILE" 2>/dev/null)" \
       || log "notify_failure itself failed"
@@ -272,7 +272,7 @@ for i in $(seq 1 30); do
   fi
   sleep 2
 done
-if [ "$API_HEALTHY" = "0" ]; then
+if [[ "$API_HEALTHY" = "0" ]]; then
   log "WARNING: api did not respond healthy within 60s of restart -- backup data is already safe, but the live service may need manual attention"
   notify_failure "post-restart-health-check" "api did not respond healthy within 60s of restart; backup itself continues."$'\n\nLast log lines:\n'"$(tail -n 10 "$LOG_FILE" 2>/dev/null)" \
     || log "notify_failure itself failed"
