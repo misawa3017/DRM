@@ -2,7 +2,7 @@ import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { describe, expect, it, vi } from 'vitest';
 import { DocumentShareManager } from '../../src/components/DocumentShareManager';
-import { createDocumentShare, listDocumentShares } from '../../src/api/shares';
+import { createDocumentShare, listDocumentShares, updateDocumentShare } from '../../src/api/shares';
 import { searchUsers } from '../../src/api/users';
 
 vi.mock('../../src/api/shares', () => ({
@@ -55,5 +55,31 @@ describe('DocumentShareManager', () => {
     fireEvent.click(screen.getByRole('button', { name: '限時分享' }));
     expect(screen.getByRole('button', { name: '建立分享' })).toBeDisabled();
     expect(screen.getByText('請先從搜尋結果選擇收件者')).toBeInTheDocument();
+  });
+
+  it('可將既有分享從唯讀改為可編輯', async () => {
+    vi.mocked(listDocumentShares).mockResolvedValue([{
+      id: 'share-1',
+      recipientId: 'user-2',
+      createdBy: 'user-1',
+      accessLevel: 'view',
+      expiresAt: '2026-08-14T00:00:00.000Z',
+      revokedAt: null,
+      maskRules: null,
+      recipient: { id: 'user-2', displayName: '王小明', email: 'ming@example.com' },
+      createdAt: '2026-08-13T00:00:00.000Z',
+    }]);
+    vi.mocked(updateDocumentShare).mockResolvedValue({} as never);
+    renderManager();
+
+    fireEvent.click(screen.getByRole('button', { name: '限時分享' }));
+    await waitFor(() => expect(screen.getByRole('button', { name: '改為可編輯' })).toBeInTheDocument());
+    fireEvent.click(screen.getByRole('button', { name: '改為可編輯' }));
+
+    await waitFor(() => expect(updateDocumentShare).toHaveBeenCalledWith(
+      'share-1',
+      { accessLevel: 'edit' },
+      'token',
+    ));
   });
 });

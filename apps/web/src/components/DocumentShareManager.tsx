@@ -96,6 +96,11 @@ export function DocumentShareManager({ documentId, mimeType, accessToken }: Docu
     mutationFn: (shareId: string) => updateDocumentShare(shareId, { durationHours: 24 }, accessToken),
     onSuccess: () => void queryClient.invalidateQueries({ queryKey: ['documentShares', documentId] }),
   });
+  const changeAccess = useMutation({
+    mutationFn: ({ shareId, accessLevel: nextAccessLevel }: { shareId: string; accessLevel: ShareAccessLevel }) =>
+      updateDocumentShare(shareId, { accessLevel: nextAccessLevel }, accessToken),
+    onSuccess: () => void queryClient.invalidateQueries({ queryKey: ['documentShares', documentId] }),
+  });
   const isXlsx = mimeType === XLSX_MIME;
   const addRule = () => {
     if (!ruleSheet.trim() || !ruleHeader.trim()) return;
@@ -131,7 +136,7 @@ export function DocumentShareManager({ documentId, mimeType, accessToken }: Docu
             {create.isError && <p className="text-sm text-destructive">{shareErrorMessage(create.error)}</p>}
             <div className="flex flex-col items-end gap-1"><Button disabled={!recipient || create.isPending} onClick={() => create.mutate()}>{create.isPending ? '建立中…' : '建立分享'}</Button>{!recipient && <span className="text-xs text-muted-foreground">請先從搜尋結果選擇收件者</span>}</div>
           </section>
-          <section className="mt-5"><h3 className="mb-3 font-medium">已建立的分享</h3>{shares.isLoading && <p className="text-sm text-muted-foreground">載入中…</p>}{shares.isError && <p className="text-sm text-destructive">{friendlyErrorMessage(shares.error)}</p>}<div className="space-y-2">{shares.data?.map((share) => <div key={share.id} className="flex flex-col gap-2 rounded-md border p-3 text-sm sm:flex-row sm:items-center"><div className="min-w-0 flex-1"><div className="font-medium">{share.recipient ? `${share.recipient.displayName}（${share.recipient.email}）` : '帳號已不存在'}</div><div>{share.accessLevel === 'edit' ? '可編輯' : '唯讀'}・到期：{formatDate(share.expiresAt)}</div><div className="text-xs text-muted-foreground">{share.revokedAt ? `已撤銷：${formatDate(share.revokedAt)}` : share.maskRules?.length ? `已遮蔽 ${share.maskRules.length} 個欄位` : '未遮蔽'}</div></div>{!share.revokedAt && <div className="flex gap-2"><Button size="sm" variant="outline" disabled={extend.isPending} onClick={() => extend.mutate(share.id)}>延長 24 小時</Button><Button size="sm" variant="destructive" disabled={revoke.isPending} onClick={() => revoke.mutate(share.id)}>撤銷</Button></div>}</div>)}{shares.data?.length === 0 && <p className="text-sm text-muted-foreground">尚未建立分享。</p>}</div></section>
+          <section className="mt-5"><h3 className="mb-3 font-medium">已建立的分享</h3>{shares.isLoading && <p className="text-sm text-muted-foreground">載入中…</p>}{shares.isError && <p className="text-sm text-destructive">{friendlyErrorMessage(shares.error)}</p>}<div className="space-y-2">{shares.data?.map((share) => <div key={share.id} className="flex flex-col gap-2 rounded-md border p-3 text-sm sm:flex-row sm:items-center"><div className="min-w-0 flex-1"><div className="font-medium">{share.recipient ? `${share.recipient.displayName}（${share.recipient.email}）` : '帳號已不存在'}</div><div>{share.accessLevel === 'edit' ? '可編輯' : '唯讀'}・到期：{formatDate(share.expiresAt)}</div><div className="text-xs text-muted-foreground">{share.revokedAt ? `已撤銷：${formatDate(share.revokedAt)}` : share.maskRules?.length ? `已遮蔽 ${share.maskRules.length} 個欄位` : '未遮蔽'}</div></div>{!share.revokedAt && <div className="flex flex-wrap gap-2"><Button size="sm" variant="outline" disabled={changeAccess.isPending} onClick={() => changeAccess.mutate({ shareId: share.id, accessLevel: share.accessLevel === 'view' ? 'edit' : 'view' })}>{share.accessLevel === 'view' ? '改為可編輯' : '改為唯讀'}</Button><Button size="sm" variant="outline" disabled={extend.isPending} onClick={() => extend.mutate(share.id)}>延長 24 小時</Button><Button size="sm" variant="destructive" disabled={revoke.isPending} onClick={() => revoke.mutate(share.id)}>撤銷</Button></div>}</div>)}{shares.data?.length === 0 && <p className="text-sm text-muted-foreground">尚未建立分享。</p>}</div></section>
         </>}
       </DialogContent>
     </Dialog>
