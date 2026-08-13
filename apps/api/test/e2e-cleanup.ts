@@ -1,7 +1,10 @@
 import { DeleteObjectsCommand, S3Client } from '@aws-sdk/client-s3';
 import type { PrismaClient } from '@prisma/client';
 
-/** 清除指定測試資料夾及其文件、版本與 MinIO 物件，絕不依名稱做廣泛刪除。 */
+/**
+ * 清除指定測試資料夾及其文件、版本與 MinIO 物件，絕不依名稱做廣泛刪除。
+ * 稽核紀錄刻意保留：AuditLog 是雜湊鏈，刪除其中任一列會破壞不可竄改性。
+ */
 export async function cleanupTestFolders(
   prisma: PrismaClient,
   storage: S3Client,
@@ -29,14 +32,6 @@ export async function cleanupTestFolders(
     );
   }
   await prisma.$transaction([
-    prisma.auditLog.deleteMany({
-      where: {
-        OR: [
-          { resourceType: 'folder', resourceId: { in: folderIds } },
-          { resourceType: 'document', resourceId: { in: documentIds } },
-        ],
-      },
-    }),
     prisma.permission.deleteMany({
       where: {
         OR: [

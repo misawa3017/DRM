@@ -2,7 +2,7 @@ import { DeleteObjectsCommand, S3Client } from '@aws-sdk/client-s3';
 import { cleanupTestFolders } from './e2e-cleanup';
 
 describe('cleanupTestFolders', () => {
-  it('只清除指定資料夾的資料列、稽核紀錄與物件', async () => {
+  it('只清除指定資料夾的資料列與物件，保留稽核鏈', async () => {
     const storage = { send: jest.fn().mockResolvedValue({}) } as unknown as S3Client;
     const transaction = jest.fn().mockResolvedValue([]);
     const prisma = {
@@ -15,7 +15,6 @@ describe('cleanupTestFolders', () => {
         updateMany: jest.fn(),
         deleteMany: jest.fn(),
       },
-      auditLog: { deleteMany: jest.fn() },
       permission: { deleteMany: jest.fn() },
       documentVersion: { deleteMany: jest.fn() },
       folder: { deleteMany: jest.fn() },
@@ -26,14 +25,6 @@ describe('cleanupTestFolders', () => {
 
     expect(storage.send).toHaveBeenCalledWith(expect.any(DeleteObjectsCommand));
     expect(transaction).toHaveBeenCalledTimes(1);
-    expect(prisma.auditLog.deleteMany).toHaveBeenCalledWith({
-      where: {
-        OR: [
-          { resourceType: 'folder', resourceId: { in: ['folder-1'] } },
-          { resourceType: 'document', resourceId: { in: ['doc-1'] } },
-        ],
-      },
-    });
     expect(prisma.folder.deleteMany).toHaveBeenCalledWith({ where: { id: { in: ['folder-1'] } } });
   });
 
