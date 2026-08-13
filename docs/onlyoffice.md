@@ -12,6 +12,8 @@ ONLYOFFICE_JWT_SECRET=請填入高熵隨機密鑰
 
 啟動服務後，OnlyOffice 透過 `https://office.<網域>` 供瀏覽器載入；文件服務在 Docker 內部以短效授權 URL 連到 API 讀取檔案與回呼儲存，因此不依賴內網 TLS 開發憑證的信任鏈。
 
+若使用 mkcert，憑證的 SAN 必須包含 `office.<網域>`。重建憑證後請執行 `docker compose restart traefik`，並將 mkcert 根憑證安裝到使用者電腦的信任根憑證存放區；不可只在瀏覽器略過憑證警告。
+
 ## 暫存資料保護
 
 OnlyOffice 的工作階段快取設定為容器 `tmpfs`，容器重啟時會清除。生產主機仍須採用全碟加密，並限制 Docker 主機與 OnlyOffice 容器的管理權限；網頁 Excel 編輯時，文件內容必然會在受控服務的記憶體中解密處理。
