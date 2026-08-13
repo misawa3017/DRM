@@ -162,7 +162,9 @@ export class SharesService {
       throw new BadRequestException('OnlyOffice editing is currently supported only for .xlsx documents');
     }
     await this.audit.recordSafely({ actorId: user.id, action: 'document_share_access' as never, resourceType: 'document', resourceId: share.documentId, ipAddress, details: { shareId, access: 'editor_open' } });
-    const baseUrl = process.env.API_PUBLIC_URL;
+    // 文件 URL 與 callback URL 僅由 OnlyOffice 容器使用；在 Compose 內走
+    // 隔離的 API 服務名稱，避免文件服務必須信任內網 TLS 開發憑證。
+    const baseUrl = process.env.ONLYOFFICE_API_URL ?? process.env.API_PUBLIC_URL;
     const documentServerUrl = process.env.ONLYOFFICE_URL;
     if (!baseUrl || !documentServerUrl) throw new BadRequestException('OnlyOffice is not configured');
     const token = this.createEditorToken(share.id, user.id);

@@ -10,7 +10,7 @@
 ONLYOFFICE_JWT_SECRET=請填入高熵隨機密鑰
 ```
 
-啟動服務後，OnlyOffice 透過 `https://office.<網域>` 存取；API 使用 `https://api.<網域>` 作為回呼與檔案傳送位置。
+啟動服務後，OnlyOffice 透過 `https://office.<網域>` 供瀏覽器載入；文件服務在 Docker 內部以短效授權 URL 連到 API 讀取檔案與回呼儲存，因此不依賴內網 TLS 開發憑證的信任鏈。
 
 ## 暫存資料保護
 

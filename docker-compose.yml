@@ -163,6 +163,8 @@ services:
       # OnlyOffice 僅經 API 的短效授權 URL 取得文件，沒有 MinIO/KES 憑證。
       ONLYOFFICE_URL: https://office.${DRM_BASE_DOMAIN}
       API_PUBLIC_URL: https://api.${DRM_BASE_DOMAIN}
+      # 僅供 OnlyOffice 取得文件與回呼儲存使用，永不提供給瀏覽器。
+      ONLYOFFICE_API_URL: http://api:3000
       ONLYOFFICE_JWT_SECRET: ${ONLYOFFICE_JWT_SECRET}
     depends_on:
       postgres:
@@ -232,10 +234,6 @@ services:
       JWT_ENABLED: "true"
       JWT_SECRET: ${ONLYOFFICE_JWT_SECRET}
       JWT_HEADER: AuthorizationJwt
-    # 文件服務需以公開 API URL 讀取受控文件與回呼儲存；將該網域導向
-    # Docker 主機的 Traefik，避免容器依賴外部 DNS 是否有內網 split-horizon 紀錄。
-    extra_hosts:
-      - "api.${DRM_BASE_DOMAIN}:host-gateway"
     labels:
       - traefik.enable=true
       - traefik.http.routers.onlyoffice.rule=Host(`office.${DRM_BASE_DOMAIN}`)
