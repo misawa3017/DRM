@@ -19,6 +19,8 @@ import axios from 'axios';
 import FormData from 'form-data';
 import { PrismaClient } from '@prisma/client';
 import { StorageService } from '../src/storage/storage.service';
+import { S3Client } from '@aws-sdk/client-s3';
+import { cleanupTestFolders } from './e2e-cleanup';
 
 const KEYCLOAK_TOKEN_URL = 'https://auth.drm.apower.lan/realms/drm/protocol/openid-connect/token';
 const API_BASE_URL = 'https://api.drm.apower.lan';
@@ -56,9 +58,21 @@ describe('Document conversion pipeline (e2e)', () => {
     datasources: { db: { url: 'postgresql://drm:drm_dev_password@localhost:5433/drm' } },
   });
   const storage = new StorageService();
+  const cleanupStorage = new S3Client({
+    endpoint: 'http://127.0.0.1:9000',
+    region: 'us-east-1',
+    forcePathStyle: true,
+    credentials: {
+      accessKeyId: process.env.MINIO_API_ACCESS_KEY ?? '',
+      secretAccessKey: process.env.MINIO_API_SECRET_KEY ?? '',
+    },
+  });
+  const folderIds: string[] = [];
 
   afterAll(async () => {
+    await cleanupTestFolders(prisma, cleanupStorage, folderIds);
     await prisma.$disconnect();
+    cleanupStorage.destroy();
   });
 
   it('enqueues and completes a conversion for an Office-mimetype upload, populating previewObjectKey with a real PDF', async () => {
@@ -70,6 +84,7 @@ describe('Document conversion pipeline (e2e)', () => {
       { name: `conversion-test-${Date.now()}` },
       { headers: authHeader },
     );
+    folderIds.push(folderRes.data.id);
 
     const form = new FormData();
     form.append('folderId', folderRes.data.id);
@@ -79,8 +94,7 @@ describe('Document conversion pipeline (e2e)', () => {
       Buffer.from('plain text content, declared as a Word document for this test'),
       {
         filename: 'test.docx',
-        contentType:
-          'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+        contentType: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
       },
     );
 
@@ -137,6 +151,7 @@ describe('Document conversion pipeline (e2e)', () => {
       { name: `no-conversion-test-${Date.now()}` },
       { headers: authHeader },
     );
+    folderIds.push(folderRes.data.id);
 
     const form = new FormData();
     form.append('folderId', folderRes.data.id);

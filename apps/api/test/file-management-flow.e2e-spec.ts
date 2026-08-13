@@ -1,10 +1,11 @@
 import axios from 'axios';
 import FormData from 'form-data';
-import { DeleteObjectsCommand, S3Client } from '@aws-sdk/client-s3';
+import { S3Client } from '@aws-sdk/client-s3';
 import { PrismaClient } from '@prisma/client';
 import { randomUUID } from 'crypto';
 import { config } from 'dotenv';
 import { resolve } from 'path';
+import { cleanupTestFolders } from './e2e-cleanup';
 
 config({ path: resolve(__dirname, '../../../.env') });
 
@@ -66,43 +67,7 @@ describe('File management full flow (e2e)', () => {
 
   afterAll(async () => {
     if (folderId) {
-      const documents = await prisma.document.findMany({
-        where: { folderId },
-        include: { versions: true },
-      });
-      const documentIds = documents.map((document) => document.id);
-      const objectKeys = documents.flatMap((document) =>
-        document.versions.flatMap((version) =>
-          version.previewObjectKey
-            ? [version.objectKey, version.previewObjectKey]
-            : [version.objectKey],
-        ),
-      );
-      await prisma.$transaction([
-        prisma.permission.deleteMany({
-          where: {
-            OR: [
-              { resourceType: 'folder', resourceId: folderId },
-              { resourceType: 'document', resourceId: { in: documentIds } },
-            ],
-          },
-        }),
-        prisma.document.updateMany({
-          where: { id: { in: documentIds } },
-          data: { currentVersionId: null },
-        }),
-        prisma.documentVersion.deleteMany({ where: { documentId: { in: documentIds } } }),
-        prisma.document.deleteMany({ where: { id: { in: documentIds } } }),
-        prisma.folder.delete({ where: { id: folderId } }),
-      ]);
-      if (objectKeys.length > 0) {
-        await storage.send(
-          new DeleteObjectsCommand({
-            Bucket: 'documents',
-            Delete: { Objects: objectKeys.map((Key) => ({ Key })) },
-          }),
-        );
-      }
+      await cleanupTestFolders(prisma, storage, [folderId]);
     }
     await prisma.$disconnect();
     storage.destroy();
@@ -136,16 +101,18 @@ describe('File management full flow (e2e)', () => {
     expect(createRes.status).toBe(201);
     const documentId = createRes.data.id;
 
-    const folderContents = await axios.get<FolderResponse>(
-      `${API_BASE_URL}/folders/${folderId}`,
-      { headers: authHeader },
-    );
+    const folderContents = await axios.get<FolderResponse>(`${API_BASE_URL}/folders/${folderId}`, {
+      headers: authHeader,
+    });
     expect(folderContents.data.documents?.[0].uploader?.displayName.length).toBeGreaterThan(0);
     expect(folderContents.data.documents?.[0].uploader?.email).toContain('@');
 
-    const metadataRes = await axios.get<DocumentResponse>(`${API_BASE_URL}/documents/${documentId}`, {
-      headers: authHeader,
-    });
+    const metadataRes = await axios.get<DocumentResponse>(
+      `${API_BASE_URL}/documents/${documentId}`,
+      {
+        headers: authHeader,
+      },
+    );
     expect(metadataRes.data.name).toBe('flow-test.txt');
 
     const versionsRes = await axios.get<DocumentVersionResponse[]>(
@@ -156,10 +123,13 @@ describe('File management full flow (e2e)', () => {
     expect(versionsRes.data[0].uploader?.displayName.length).toBeGreaterThan(0);
     expect(versionsRes.data[0].uploader?.email).toContain('@');
 
-    const downloadRes = await axios.get<string>(`${API_BASE_URL}/documents/${documentId}/download`, {
-      headers: authHeader,
-      responseType: 'text',
-    });
+    const downloadRes = await axios.get<string>(
+      `${API_BASE_URL}/documents/${documentId}/download`,
+      {
+        headers: authHeader,
+        responseType: 'text',
+      },
+    );
     expect(downloadRes.data).toBe(content);
   });
 });
