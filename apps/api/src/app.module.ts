@@ -11,6 +11,7 @@ import { AuditModule } from './audit/audit.module';
 import { JobsModule } from './jobs/jobs.module';
 import { ScheduleModule } from '@nestjs/schedule';
 import { TrashModule } from './trash/trash.module';
+import { SharesModule } from './shares/shares.module';
 
 @Module({
   imports: [
@@ -25,6 +26,7 @@ import { TrashModule } from './trash/trash.module';
     AuditModule,
     JobsModule,
     TrashModule,
+    SharesModule,
   ],
   controllers: [HealthController],
 })

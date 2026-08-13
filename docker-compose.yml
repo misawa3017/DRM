@@ -160,6 +160,10 @@ services:
       # service below, reachable over the internal Docker network only.
       CLAMAV_HOST: clamav
       CLAMAV_PORT: 3310
+      # OnlyOffice 僅經 API 的短效授權 URL 取得文件，沒有 MinIO/KES 憑證。
+      ONLYOFFICE_URL: https://office.${DRM_BASE_DOMAIN}
+      API_PUBLIC_URL: https://api.${DRM_BASE_DOMAIN}
+      ONLYOFFICE_JWT_SECRET: ${ONLYOFFICE_JWT_SECRET}
     depends_on:
       postgres:
         condition: service_healthy
@@ -218,6 +222,24 @@ services:
       timeout: 5s
       retries: 20
     restart: unless-stopped
+
+  onlyoffice:
+    # 文件服務沒有 MinIO、PostgreSQL 或 OpenBao 憑證；僅能從 API 的受控 URL
+    # 取得有效分享的內容。其暫存區必須位於主機加密磁碟，並由維運排程清理。
+    image: onlyoffice/documentserver:8.3.1
+    restart: unless-stopped
+    environment:
+      JWT_ENABLED: "true"
+      JWT_SECRET: ${ONLYOFFICE_JWT_SECRET}
+      JWT_HEADER: AuthorizationJwt
+    labels:
+      - traefik.enable=true
+      - traefik.http.routers.onlyoffice.rule=Host(`office.${DRM_BASE_DOMAIN}`)
+      - traefik.http.routers.onlyoffice.entrypoints=websecure
+      - traefik.http.routers.onlyoffice.tls=true
+      - traefik.http.services.onlyoffice.loadbalancer.server.port=80
+    tmpfs:
+      - /var/lib/onlyoffice/documentserver/App_Data/cache/files:rw,noexec,nosuid,size=1g
 
   clamav:
     # Phase 4A: virus-scanning daemon, consumed over the internal Docker

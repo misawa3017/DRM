@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import { Link, NavLink, Outlet, useNavigate } from 'react-router-dom';
 import { useAuth } from 'react-oidc-context';
-import { Folder, Search, Trash2 } from 'lucide-react';
+import { Folder, Search, Share2, Trash2 } from 'lucide-react';
 import { NavbarBreadcrumbContext } from '../lib/navbarBreadcrumb';
 import { ThemeToggle } from './ThemeToggle';
 
@@ -86,6 +86,12 @@ export function Navbar() {
             }
           >
             權限管理
+          </NavLink>
+          <NavLink
+            to="/shares"
+            className={({ isActive }) => isActive ? 'font-semibold text-white' : 'text-primary-foreground/75'}
+          >
+            <span className="inline-flex items-center gap-1"><Share2 className="h-3.5 w-3.5" />我的分享</span>
           </NavLink>
           {whoami?.roles.includes('admin') && (
             <NavLink

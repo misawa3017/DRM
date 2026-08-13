@@ -60,6 +60,11 @@ enum DocumentStatus {
   expired
 }
 
+enum ShareAccessLevel {
+  view
+  edit
+}
+
 model Document {
   id               String            @id @default(uuid())
   folderId         String
@@ -76,10 +81,31 @@ model Document {
   status           DocumentStatus    @default(active)
   watermarkEnabled Boolean?
   watermarkTemplate String?
+  shares           DocumentShare[]
 
   @@index([folderId])
   @@index([status, expiresAt])
   @@map("documents")
+}
+
+model DocumentShare {
+  id               String           @id @default(uuid())
+  documentId       String
+  document         Document         @relation(fields: [documentId], references: [id])
+  recipientId      String
+  createdBy        String
+  accessLevel      ShareAccessLevel
+  expiresAt        DateTime
+  revokedAt        DateTime?
+  maskRules        Json?
+  maskedObjectKey  String?
+  sourceVersionId  String?
+  createdAt        DateTime         @default(now())
+  updatedAt        DateTime         @updatedAt
+
+  @@index([recipientId, expiresAt])
+  @@index([documentId])
+  @@map("document_shares")
 }
 
 model DocumentVersion {
@@ -139,6 +165,10 @@ enum AuditAction {
   folder_watermark_updated
   permission_grant
   permission_revoke
+  document_share_create
+  document_share_update
+  document_share_revoke
+  document_share_access
   virus_detected
 }
 

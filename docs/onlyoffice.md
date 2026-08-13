@@ -1,0 +1,24 @@
+# OnlyOffice 限時分享部署說明
+
+限時 Excel 分享使用 OnlyOffice Document Server 提供網頁編輯。OnlyOffice 不會取得 MinIO、KES 或 OpenBao 憑證；文件只會經 API 的短效 HMAC 授權 URL 傳送。
+
+## 必要設定
+
+在部署主機的既有 `.env` 手動新增下列值，請使用至少 32 位元組的隨機字串，且不得提交至 Git：
+
+```dotenv
+ONLYOFFICE_JWT_SECRET=請填入高熵隨機密鑰
+```
+
+啟動服務後，OnlyOffice 透過 `https://office.<網域>` 存取；API 使用 `https://api.<網域>` 作為回呼與檔案傳送位置。
+
+## 暫存資料保護
+
+OnlyOffice 的工作階段快取設定為容器 `tmpfs`，容器重啟時會清除。生產主機仍須採用全碟加密，並限制 Docker 主機與 OnlyOffice 容器的管理權限；網頁 Excel 編輯時，文件內容必然會在受控服務的記憶體中解密處理。
+
+## 受控儲存行為
+
+- 原始文件與分享遮蔽副本都儲存在 MinIO SSE-KMS。
+- 有遮蔽規則的分享，OnlyOffice 只取得遮蔽副本。
+- 收件人儲存編輯結果時，會形成該分享專屬副本，不會覆寫原始含個資文件。
+- 到期或撤銷後，下載、編輯器取檔與儲存回呼都會被 API 拒絕。
