@@ -48,4 +48,12 @@ describe('DocumentShareManager', () => {
     fireEvent.click(screen.getByRole('button', { name: '限時分享' }));
     expect(screen.getByText('限時分享目前僅支援 .xlsx Excel 檔案。')).toBeInTheDocument();
   });
+
+  it('尚未從搜尋結果選擇收件者時會說明按鈕停用原因', () => {
+    vi.mocked(listDocumentShares).mockResolvedValue([]);
+    renderManager();
+    fireEvent.click(screen.getByRole('button', { name: '限時分享' }));
+    expect(screen.getByRole('button', { name: '建立分享' })).toBeDisabled();
+    expect(screen.getByText('請先從搜尋結果選擇收件者')).toBeInTheDocument();
+  });
 });
