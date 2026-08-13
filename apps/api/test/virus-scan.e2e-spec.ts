@@ -1,5 +1,12 @@
 import axios from 'axios';
 import FormData from 'form-data';
+import { S3Client } from '@aws-sdk/client-s3';
+import { PrismaClient } from '@prisma/client';
+import { config } from 'dotenv';
+import { resolve } from 'path';
+import { cleanupTestFolders } from './e2e-cleanup';
+
+config({ path: resolve(__dirname, '../../../.env') });
 
 const KEYCLOAK_TOKEN_URL = 'https://auth.drm.apower.lan/realms/drm/protocol/openid-connect/token';
 const API_BASE_URL = 'https://api.drm.apower.lan';
@@ -43,6 +50,26 @@ const EICAR_BASE64 =
   'WDVPIVAlQEFQWzRcUFpYNTQoUF4pN0NDKTd9JEVJQ0FSLVNUQU5EQVJELUFOVElWSVJVUy1URVNULUZJTEUhJEgrSCo=';
 
 describe('Virus scanning on upload (e2e)', () => {
+  const prisma = new PrismaClient({
+    datasources: { db: { url: 'postgresql://drm:drm_dev_password@localhost:5433/drm' } },
+  });
+  const storage = new S3Client({
+    endpoint: 'http://127.0.0.1:9000',
+    region: 'us-east-1',
+    forcePathStyle: true,
+    credentials: {
+      accessKeyId: process.env.MINIO_API_ACCESS_KEY ?? '',
+      secretAccessKey: process.env.MINIO_API_SECRET_KEY ?? '',
+    },
+  });
+  const folderIds: string[] = [];
+
+  afterAll(async () => {
+    await cleanupTestFolders(prisma, storage, folderIds);
+    await prisma.$disconnect();
+    storage.destroy();
+  });
+
   it('rejects an infected upload before any storage or DB write, and audits it', async () => {
     const adminToken = await getToken('testadmin', 'testadminpass');
     const authHeader = { Authorization: `Bearer ${adminToken}` };
@@ -53,6 +80,7 @@ describe('Virus scanning on upload (e2e)', () => {
       { headers: authHeader },
     );
     const folderId = folderRes.data.id;
+    folderIds.push(folderId);
 
     const infected = Buffer.from(EICAR_BASE64, 'base64');
     const form = new FormData();
@@ -68,9 +96,12 @@ describe('Virus scanning on upload (e2e)', () => {
 
     // No Document row (and therefore no DocumentVersion / MinIO object) was
     // ever created: the folder's `documents` list stays empty.
-    const folderContentsRes = await axios.get<FolderResponse>(`${API_BASE_URL}/folders/${folderId}`, {
-      headers: authHeader,
-    });
+    const folderContentsRes = await axios.get<FolderResponse>(
+      `${API_BASE_URL}/folders/${folderId}`,
+      {
+        headers: authHeader,
+      },
+    );
     expect(folderContentsRes.data.documents).toHaveLength(0);
 
     // The rejection is still audited, deliberately, as a named exception to
@@ -99,6 +130,7 @@ describe('Virus scanning on upload (e2e)', () => {
       { name: `virus-scan-clean-${Date.now()}` },
       { headers: authHeader },
     );
+    folderIds.push(folderRes.data.id);
 
     const form = new FormData();
     form.append('folderId', folderRes.data.id);
@@ -127,6 +159,7 @@ describe('Virus scanning on upload (e2e)', () => {
       { name: `virus-scan-addversion-test-${Date.now()}` },
       { headers: authHeader },
     );
+    folderIds.push(folderRes.data.id);
 
     const cleanForm = new FormData();
     cleanForm.append('folderId', folderRes.data.id);
