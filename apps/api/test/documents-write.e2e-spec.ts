@@ -389,7 +389,7 @@ describe('Documents write path (e2e)', () => {
     ).rejects.toMatchObject({ response: { status: 403 } });
   });
 
-  it('POST /documents/:id/versions rejects an upload to a soft-deleted document', async () => {
+  it('POST /documents/:id/versions fail-closed rejects an upload to a soft-deleted document', async () => {
     const adminToken = await getToken('testadmin', 'testadminpass');
     const employeeToken = await getToken('testuser', 'testpass');
     const folderRes = await axios.post<{ id: string }>(
@@ -424,6 +424,6 @@ describe('Documents write path (e2e)', () => {
       axios.post(`${API_BASE_URL}/documents/${documentId}/versions`, versionForm, {
         headers: { Authorization: `Bearer ${employeeToken}`, ...versionForm.getHeaders() },
       }),
-    ).rejects.toMatchObject({ response: { status: 404 } });
+    ).rejects.toMatchObject({ response: { status: 403 } });
   });
 });
