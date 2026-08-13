@@ -3,9 +3,10 @@ import FormData from 'form-data';
 import { randomUUID } from 'crypto';
 import { resolve } from 'path';
 import { config } from 'dotenv';
-import { DeleteObjectsCommand, S3Client } from '@aws-sdk/client-s3';
+import { S3Client } from '@aws-sdk/client-s3';
 import { PDFDocument } from 'pdf-lib';
 import { PrismaClient } from '@prisma/client';
+import { cleanupTestFolders } from './e2e-cleanup';
 
 config({ path: resolve(__dirname, '../../../.env') });
 
@@ -39,8 +40,7 @@ describe('浮水印與到期控制 (e2e)', () => {
       secretAccessKey: process.env.MINIO_API_SECRET_KEY ?? '',
     },
   });
-  const objectKeys = new Set<string>();
-  let folderId: string;
+  let folderId: string | undefined;
   let token: string;
 
   beforeAll(async () => {
@@ -64,42 +64,7 @@ describe('浮水印與到期控制 (e2e)', () => {
   });
 
   afterAll(async () => {
-    const documents = await prisma.document.findMany({
-      where: { folderId },
-      include: { versions: true },
-    });
-    for (const document of documents) {
-      for (const version of document.versions) {
-        objectKeys.add(version.objectKey);
-        if (version.previewObjectKey) objectKeys.add(version.previewObjectKey);
-      }
-    }
-    const documentIds = documents.map((document) => document.id);
-    await prisma.$transaction([
-      prisma.permission.deleteMany({
-        where: {
-          OR: [
-            { resourceType: 'folder', resourceId: folderId },
-            { resourceType: 'document', resourceId: { in: documentIds } },
-          ],
-        },
-      }),
-      prisma.document.updateMany({
-        where: { id: { in: documentIds } },
-        data: { currentVersionId: null },
-      }),
-      prisma.documentVersion.deleteMany({ where: { documentId: { in: documentIds } } }),
-      prisma.document.deleteMany({ where: { id: { in: documentIds } } }),
-      prisma.folder.delete({ where: { id: folderId } }),
-    ]);
-    if (objectKeys.size > 0) {
-      await storage.send(
-        new DeleteObjectsCommand({
-          Bucket: 'documents',
-          Delete: { Objects: [...objectKeys].map((Key) => ({ Key })) },
-        }),
-      );
-    }
+    if (folderId) await cleanupTestFolders(prisma, storage, [folderId]);
     await prisma.$disconnect();
     storage.destroy();
   });
@@ -116,7 +81,6 @@ describe('浮水印與到期控制 (e2e)', () => {
     const created = await axios.post<DocumentResponse>(`${API_BASE_URL}/documents`, form, {
       headers: { Authorization: `Bearer ${token}`, ...form.getHeaders() },
     });
-    objectKeys.add(created.data.currentVersion.objectKey);
 
     const protectedDownload = await axios.get<ArrayBuffer>(
       `${API_BASE_URL}/documents/${created.data.id}/download`,
@@ -156,7 +120,7 @@ describe('浮水印與到期控制 (e2e)', () => {
   });
 
   it('已到期文件回傳 410，管理者延長後可重新啟用', async () => {
-    const document = await prisma.document.findFirstOrThrow({ where: { folderId } });
+    const document = await prisma.document.findFirstOrThrow({ where: { folderId: folderId! } });
     await prisma.document.update({
       where: { id: document.id },
       data: { status: 'expired', expiresAt: new Date(Date.now() - 60_000) },
@@ -180,7 +144,7 @@ describe('浮水印與到期控制 (e2e)', () => {
     const documentId = randomUUID();
     const versionId = randomUUID();
     await prisma.document.create({
-      data: { id: documentId, folderId, name: 'pending.docx', createdBy: 'seed' },
+      data: { id: documentId, folderId: folderId!, name: 'pending.docx', createdBy: 'seed' },
     });
     await prisma.documentVersion.create({
       data: {
