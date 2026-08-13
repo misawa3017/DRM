@@ -8,15 +8,10 @@
 # and watched for changes (--providers.file.watch=true).
 #
 # certFile/keyFile below are IN-CONTAINER paths -- traefik/certs on the
-# host is bind-mounted to /certs:ro in the traefik service. The cert is
-# an mkcert-issued, locally-trusted (once the mkcert root CA is imported
-# into your OS/browser trust store) leaf certificate covering every public service hostname.
-# *.drm.apower.lan hostnames. traefik/certs/ is gitignored (machine-
-# specific, regenerate with: mkcert -cert-file traefik/certs/drm-apower-lan.pem
-# -key-file traefik/certs/drm-apower-lan-key.pem app.drm.apower.lan
-# api.drm.apower.lan auth.drm.apower.lan storage.drm.apower.lan
-# office.drm.apower.lan).
+# host is bind-mounted to /certs:ro in the traefik service. Certificate
+# chain and private key are issued/managed by the internal CA and remain
+# gitignored on the deployment host.
 tls:
   certificates:
-    - certFile: /certs/drm-apower-lan.pem
-      keyFile: /certs/drm-apower-lan-key.pem
+    - certFile: /certs/drm.apower.lan.bundle.pem
+      keyFile: /certs/drm.apower.lan-key.pem
