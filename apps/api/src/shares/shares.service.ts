@@ -11,7 +11,8 @@ import type { UpdateDocumentShareDto } from './dto/update-document-share.dto';
 
 interface AuthenticatedUser { id: string; roles: string[] }
 interface DownloadingUser extends AuthenticatedUser { email: string }
-interface DocumentShare { id: string; documentId: string; recipientId: string; createdBy: string; accessLevel: 'view' | 'edit'; expiresAt: Date; revokedAt: Date | null; maskRules: unknown; maskedObjectKey: string | null; sourceVersionId: string | null; updatedAt: Date }
+interface DocumentShare { id: string; documentId: string; recipientId: string; createdBy: string; accessLevel: 'view' | 'edit'; expiresAt: Date; revokedAt: Date | null; maskRules: unknown; maskedObjectKey: string | null; sourceVersionId: string | null; createdAt: Date; updatedAt: Date }
+interface SharedRecipient { id: string; displayName: string; email: string }
 const XLSX_MIME = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
 
 @Injectable()
@@ -87,10 +88,13 @@ export class SharesService {
   async create(user: AuthenticatedUser, documentId: string, dto: CreateDocumentShareDto, ipAddress: string | null) {
     await this.assertManager(user, documentId);
     const [document, recipient] = await Promise.all([
-      this.prisma.document.findFirst({ where: { id: documentId, deletedAt: null } }),
+      this.prisma.document.findFirst({ where: { id: documentId, deletedAt: null }, include: { currentVersion: true } }),
       this.prisma.user.findUnique({ where: { id: dto.recipientId } }),
     ]);
     if (!document) throw new NotFoundException('Document not found');
+    if (document.currentVersion?.mimeType !== XLSX_MIME) {
+      throw new BadRequestException('Timed sharing is currently supported only for .xlsx documents');
+    }
     if (!recipient) throw new NotFoundException('Recipient not found');
     const rules = dto.maskRules ?? [];
     if (rules.length > 0 && await this.acl.resolveEffectiveLevel({ id: recipient.id, roles: [] }, 'document', documentId)) {
@@ -110,7 +114,14 @@ export class SharesService {
 
   async listForDocument(user: AuthenticatedUser, documentId: string) {
     await this.assertManager(user, documentId);
-    return this.shareRepository.findMany({ where: { documentId }, orderBy: { createdAt: 'desc' } });
+    const shares = await this.shareRepository.findMany({ where: { documentId }, orderBy: { createdAt: 'desc' } });
+    const recipientIds = [...new Set(shares.map((share) => share.recipientId))];
+    const recipients = await this.prisma.user.findMany({
+      where: { id: { in: recipientIds } },
+      select: { id: true, displayName: true, email: true },
+    });
+    const recipientById = new Map<string, SharedRecipient>(recipients.map((recipient) => [recipient.id, recipient]));
+    return shares.map((share) => ({ ...share, recipient: recipientById.get(share.recipientId) ?? null }));
   }
 
   async listReceived(user: AuthenticatedUser) {
@@ -145,8 +156,11 @@ export class SharesService {
 
   async getEditorConfig(user: DownloadingUser, shareId: string, ipAddress: string | null) {
     const share = await this.assertActiveShare(user.id, shareId);
-    const document = await this.prisma.document.findFirst({ where: { id: share.documentId, deletedAt: null }, select: { name: true } });
+    const document = await this.prisma.document.findFirst({ where: { id: share.documentId, deletedAt: null }, include: { currentVersion: true } });
     if (!document) throw new NotFoundException('Document not found');
+    if (document.currentVersion?.mimeType !== XLSX_MIME) {
+      throw new BadRequestException('OnlyOffice editing is currently supported only for .xlsx documents');
+    }
     await this.audit.recordSafely({ actorId: user.id, action: 'document_share_access' as never, resourceType: 'document', resourceId: share.documentId, ipAddress, details: { shareId, access: 'editor_open' } });
     const baseUrl = process.env.API_PUBLIC_URL;
     const documentServerUrl = process.env.ONLYOFFICE_URL;
@@ -187,10 +201,26 @@ export class SharesService {
     // OnlyOffice status 2/6 indicates a completed save. Other statuses are acknowledgements
     // and must not alter the current shared copy.
     if ((body.status !== 2 && body.status !== 6) || !body.url) return { error: 0 };
-    const response = await fetch(body.url);
+    const documentServerUrl = process.env.ONLYOFFICE_URL;
+    if (!documentServerUrl) throw new BadRequestException('OnlyOffice is not configured');
+    let savedFileUrl: URL;
+    try {
+      savedFileUrl = new URL(body.url);
+    } catch {
+      throw new BadRequestException('OnlyOffice returned an invalid saved-document URL');
+    }
+    const trustedDocumentServer = new URL(documentServerUrl);
+    if (savedFileUrl.protocol !== trustedDocumentServer.protocol || savedFileUrl.host !== trustedDocumentServer.host) {
+      throw new ForbiddenException('OnlyOffice returned an untrusted saved-document URL');
+    }
+    const response = await fetch(savedFileUrl, { signal: AbortSignal.timeout(30_000) });
     if (!response.ok) throw new BadRequestException('OnlyOffice could not provide the saved document');
+    const contentLength = Number(response.headers.get('content-length') ?? '0');
+    if (contentLength > 100 * 1024 * 1024) throw new BadRequestException('Saved document is too large');
+    const savedBuffer = Buffer.from(await response.arrayBuffer());
+    if (savedBuffer.length > 100 * 1024 * 1024) throw new BadRequestException('Saved document is too large');
     const key = `shares/${share.documentId}/${share.id}/${randomUUID()}.xlsx`;
-    await this.storage.putObject(key, Buffer.from(await response.arrayBuffer()), XLSX_MIME);
+    await this.storage.putObject(key, savedBuffer, XLSX_MIME);
     await this.shareRepository.update({ where: { id: share.id }, data: { maskedObjectKey: key } });
     await this.audit.recordSafely({ actorId: recipientId, action: 'document_share_access' as never, resourceType: 'document', resourceId: share.documentId, ipAddress: null, details: { shareId, access: 'onlyoffice_save' } });
     return { error: 0 };

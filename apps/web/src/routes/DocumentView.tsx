@@ -30,6 +30,7 @@ import { MoveButton } from '../components/MoveButton';
 import { WatermarkSetting } from '../components/WatermarkSetting';
 import { ProtectedPdfPreview } from '../components/ProtectedPdfPreview';
 import { Breadcrumb } from '../components/Breadcrumb';
+import { DocumentShareManager } from '../components/DocumentShareManager';
 import { useSetNavbarCrumb } from '../lib/navbarBreadcrumb';
 
 const PREVIEWABLE_MIME_TYPES = new Set([
@@ -269,6 +270,9 @@ export function DocumentView() {
                   onConfirm={() => deleteMutation.mutate()}
                 />
               </>
+            )}
+            {doc.canManage && (
+              <DocumentShareManager documentId={documentId} mimeType={doc.currentVersion?.mimeType} accessToken={accessToken} />
             )}
             {doc.canManage && (
               <Link

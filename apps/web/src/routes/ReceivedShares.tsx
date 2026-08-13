@@ -10,7 +10,17 @@ export function ReceivedShares() {
   const navigate = useNavigate();
   const accessToken = auth.user?.access_token ?? '';
   const query = useQuery({ queryKey: ['receivedShares'], queryFn: () => listReceivedShares(accessToken) });
-  const download = useMutation({ mutationFn: (shareId: string) => downloadSharedDocument(shareId, accessToken) });
+  const download = useMutation({
+    mutationFn: (shareId: string) => downloadSharedDocument(shareId, accessToken),
+    onSuccess: (blob) => {
+      const url = URL.createObjectURL(blob);
+      const link = window.document.createElement('a');
+      link.href = url;
+      link.download = 'shared-document.xlsx';
+      link.click();
+      URL.revokeObjectURL(url);
+    },
+  });
 
   if (query.isLoading) return <p className="p-6">載入分享中...</p>;
   if (query.isError) return <p className="p-6 text-destructive">{friendlyErrorMessage(query.error)}</p>;
