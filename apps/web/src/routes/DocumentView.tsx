@@ -32,6 +32,7 @@ import { ProtectedPdfPreview } from '../components/ProtectedPdfPreview';
 import { Breadcrumb } from '../components/Breadcrumb';
 import { DocumentShareManager } from '../components/DocumentShareManager';
 import { useSetNavbarCrumb } from '../lib/navbarBreadcrumb';
+import { triggerBlobDownload } from '../lib/download';
 
 const PREVIEWABLE_MIME_TYPES = new Set([
   'application/pdf',
@@ -205,12 +206,7 @@ export function DocumentView() {
     setDownloadError(null);
     try {
       const { blob, fileName } = await downloadDocument(documentId, versionId, accessToken);
-      const url = URL.createObjectURL(blob);
-      const link = window.document.createElement('a');
-      link.href = url;
-      link.download = fileName;
-      link.click();
-      URL.revokeObjectURL(url);
+      triggerBlobDownload(blob, fileName);
     } catch (error) {
       setDownloadError(friendlyErrorMessage(error));
     }

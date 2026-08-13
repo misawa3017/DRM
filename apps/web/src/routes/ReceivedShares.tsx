@@ -4,6 +4,7 @@ import { Button } from '@/components/ui/button';
 import { useNavigate } from 'react-router-dom';
 import { downloadSharedDocument, listReceivedShares } from '../api/shares';
 import { friendlyErrorMessage } from '../api/client';
+import { triggerBlobDownload } from '../lib/download';
 
 export function ReceivedShares() {
   const auth = useAuth();
@@ -13,12 +14,7 @@ export function ReceivedShares() {
   const download = useMutation({
     mutationFn: (shareId: string) => downloadSharedDocument(shareId, accessToken),
     onSuccess: (blob) => {
-      const url = URL.createObjectURL(blob);
-      const link = window.document.createElement('a');
-      link.href = url;
-      link.download = 'shared-document.xlsx';
-      link.click();
-      URL.revokeObjectURL(url);
+      triggerBlobDownload(blob, 'shared-document.xlsx');
     },
   });
 
