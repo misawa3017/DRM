@@ -232,6 +232,10 @@ services:
       JWT_ENABLED: "true"
       JWT_SECRET: ${ONLYOFFICE_JWT_SECRET}
       JWT_HEADER: AuthorizationJwt
+    # 文件服務需以公開 API URL 讀取受控文件與回呼儲存；將該網域導向
+    # Docker 主機的 Traefik，避免容器依賴外部 DNS 是否有內網 split-horizon 紀錄。
+    extra_hosts:
+      - "api.${DRM_BASE_DOMAIN}:host-gateway"
     labels:
       - traefik.enable=true
       - traefik.http.routers.onlyoffice.rule=Host(`office.${DRM_BASE_DOMAIN}`)
