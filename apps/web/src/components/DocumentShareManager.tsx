@@ -3,7 +3,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Search, ShieldOff, X } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
-import { friendlyErrorMessage } from '../api/client';
+import { ApiError, friendlyErrorMessage } from '../api/client';
 import {
   createDocumentShare,
   listDocumentShares,
@@ -25,6 +25,16 @@ const XLSX_MIME = 'application/vnd.openxmlformats-officedocument.spreadsheetml.s
 
 function formatDate(value: string) {
   return new Date(value).toLocaleString('zh-TW');
+}
+
+function shareErrorMessage(error: unknown): string {
+  if (error instanceof ApiError) {
+    if (error.message.startsWith('Worksheet not found:')) return `找不到工作表「${error.message.slice('Worksheet not found:'.length).trim()}」。請填寫 Excel 分頁的完整名稱。`;
+    if (error.message.startsWith('Column header not found:')) return `找不到欄位「${error.message.slice('Column header not found:'.length).trim()}」。欄位名稱必須與 Excel 第一列完全一致。`;
+    if (error.message.includes('Recipient already has document access')) return '收件者原本已具備這份文件的存取權限；請先到「權限」撤銷該權限，才能建立遮蔽分享。';
+    if (error.message.includes('Timed sharing is currently supported')) return '限時分享目前僅支援 .xlsx Excel 檔案。';
+  }
+  return friendlyErrorMessage(error);
 }
 
 export function DocumentShareManager({ documentId, mimeType, accessToken }: DocumentShareManagerProps) {
@@ -118,7 +128,7 @@ export function DocumentShareManager({ documentId, mimeType, accessToken }: Docu
               <label className="grid gap-1.5 text-sm"><span>有效時數（1–720）</span><input aria-label="有效時數" type="number" min="1" max="720" value={durationHours} onChange={(event) => setDurationHours(event.target.value)} className="h-10 rounded-md border bg-background px-3" /></label>
             </div>
             <fieldset className="grid gap-3 rounded-md border border-dashed p-3"><legend className="px-1 text-sm font-medium">個資欄位遮蔽（選填）</legend><p className="text-xs text-muted-foreground">請填 Excel 工作表名稱與第一列欄位名稱；建立時會驗證並生成獨立遮蔽副本。</p><div className="grid gap-2 sm:grid-cols-4"><input aria-label="工作表名稱" value={ruleSheet} onChange={(event) => setRuleSheet(event.target.value)} className="h-10 rounded-md border bg-background px-3" placeholder="工作表" /><input aria-label="欄位名稱" value={ruleHeader} onChange={(event) => setRuleHeader(event.target.value)} className="h-10 rounded-md border bg-background px-3" placeholder="第一列欄名" /><select aria-label="遮蔽方式" value={ruleMode} onChange={(event) => setRuleMode(event.target.value as MaskMode)} className="h-10 rounded-md border bg-background px-3"><option value="redact">完全遮蔽</option><option value="partial">部分隱碼</option></select><Button type="button" variant="outline" onClick={addRule} disabled={!ruleSheet.trim() || !ruleHeader.trim()}>新增欄位</Button></div>{rules.length > 0 && <ul className="space-y-1">{rules.map((rule, index) => <li key={`${rule.sheetName}-${rule.header}-${index}`} className="flex items-center gap-2 text-sm"><ShieldOff className="h-4 w-4 text-muted-foreground" />{rule.sheetName}／{rule.header}（{rule.mode === 'redact' ? '完全遮蔽' : '部分隱碼'}）<button type="button" aria-label={`移除 ${rule.header}`} className="ml-auto" onClick={() => setRules((current) => current.filter((_, ruleIndex) => ruleIndex !== index))}><X className="h-4 w-4" /></button></li>)}</ul>}</fieldset>
-            {create.isError && <p className="text-sm text-destructive">{create.error instanceof Error ? create.error.message : friendlyErrorMessage(create.error)}</p>}
+            {create.isError && <p className="text-sm text-destructive">{shareErrorMessage(create.error)}</p>}
             <div className="flex flex-col items-end gap-1"><Button disabled={!recipient || create.isPending} onClick={() => create.mutate()}>{create.isPending ? '建立中…' : '建立分享'}</Button>{!recipient && <span className="text-xs text-muted-foreground">請先從搜尋結果選擇收件者</span>}</div>
           </section>
           <section className="mt-5"><h3 className="mb-3 font-medium">已建立的分享</h3>{shares.isLoading && <p className="text-sm text-muted-foreground">載入中…</p>}{shares.isError && <p className="text-sm text-destructive">{friendlyErrorMessage(shares.error)}</p>}<div className="space-y-2">{shares.data?.map((share) => <div key={share.id} className="flex flex-col gap-2 rounded-md border p-3 text-sm sm:flex-row sm:items-center"><div className="min-w-0 flex-1"><div className="font-medium">{share.recipient ? `${share.recipient.displayName}（${share.recipient.email}）` : '帳號已不存在'}</div><div>{share.accessLevel === 'edit' ? '可編輯' : '唯讀'}・到期：{formatDate(share.expiresAt)}</div><div className="text-xs text-muted-foreground">{share.revokedAt ? `已撤銷：${formatDate(share.revokedAt)}` : share.maskRules?.length ? `已遮蔽 ${share.maskRules.length} 個欄位` : '未遮蔽'}</div></div>{!share.revokedAt && <div className="flex gap-2"><Button size="sm" variant="outline" disabled={extend.isPending} onClick={() => extend.mutate(share.id)}>延長 24 小時</Button><Button size="sm" variant="destructive" disabled={revoke.isPending} onClick={() => revoke.mutate(share.id)}>撤銷</Button></div>}</div>)}{shares.data?.length === 0 && <p className="text-sm text-muted-foreground">尚未建立分享。</p>}</div></section>

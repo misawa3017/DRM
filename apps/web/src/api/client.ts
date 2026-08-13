@@ -22,7 +22,14 @@ export async function apiFetch<T>(
   });
 
   if (!response.ok) {
-    throw new ApiError(response.status, `Request to ${path} failed with status ${response.status}`);
+    let message = `Request to ${path} failed with status ${response.status}`;
+    const contentType = response.headers?.get('content-type');
+    if (contentType?.includes('application/json')) {
+      const body = await response.json().catch(() => null) as { message?: string | string[] } | null;
+      if (typeof body?.message === 'string') message = body.message;
+      if (Array.isArray(body?.message)) message = body.message.join('、');
+    }
+    throw new ApiError(response.status, message);
   }
 
   const contentType = response.headers.get('content-type');

@@ -25,6 +25,20 @@ describe('apiFetch', () => {
 
     await expect(apiFetch('/folders', 'fake-token')).rejects.toMatchObject({ status: 403 });
   });
+
+  it('保留 API 回傳的驗證錯誤訊息', async () => {
+    vi.mocked(fetch).mockResolvedValue({
+      ok: false,
+      status: 400,
+      headers: new Headers({ 'content-type': 'application/json' }),
+      json: async () => ({ message: 'Worksheet not found: 人員資料' }),
+    } as Response);
+
+    await expect(apiFetch('/documents/doc-1/shares', 'fake-token')).rejects.toMatchObject({
+      status: 400,
+      message: 'Worksheet not found: 人員資料',
+    });
+  });
 });
 
 describe('friendlyErrorMessage', () => {
