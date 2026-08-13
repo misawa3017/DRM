@@ -2,6 +2,12 @@ import axios from 'axios';
 import FormData from 'form-data';
 import { PrismaClient } from '@prisma/client';
 import { randomUUID } from 'crypto';
+import { S3Client } from '@aws-sdk/client-s3';
+import { config } from 'dotenv';
+import { resolve } from 'path';
+import { cleanupTestFolders } from './e2e-cleanup';
+
+config({ path: resolve(__dirname, '../../../.env') });
 
 const KEYCLOAK_TOKEN_URL = 'https://auth.drm.apower.lan/realms/drm/protocol/openid-connect/token';
 const API_BASE_URL = 'https://api.drm.apower.lan';
@@ -37,6 +43,31 @@ describe('Documents write path (e2e)', () => {
   const prisma = new PrismaClient({
     datasources: { db: { url: 'postgresql://drm:drm_dev_password@localhost:5433/drm' } },
   });
+  const storage = new S3Client({
+    endpoint: 'http://127.0.0.1:9000',
+    region: 'us-east-1',
+    forcePathStyle: true,
+    credentials: {
+      accessKeyId: process.env.MINIO_API_ACCESS_KEY ?? '',
+      secretAccessKey: process.env.MINIO_API_SECRET_KEY ?? '',
+    },
+  });
+  const folderIds = new Set<string>();
+  const folderResponseInterceptor = axios.interceptors.response.use((response) => {
+    const url = response.config.url;
+    if (
+      response.config.method === 'post' &&
+      typeof url === 'string' &&
+      url === `${API_BASE_URL}/folders` &&
+      typeof response.data === 'object' &&
+      response.data !== null &&
+      'id' in response.data &&
+      typeof response.data.id === 'string'
+    ) {
+      folderIds.add(response.data.id);
+    }
+    return response;
+  });
 
   let testUserId: string;
 
@@ -49,7 +80,10 @@ describe('Documents write path (e2e)', () => {
   });
 
   afterAll(async () => {
+    axios.interceptors.response.eject(folderResponseInterceptor);
+    await cleanupTestFolders(prisma, storage, [...folderIds]);
     await prisma.$disconnect();
+    storage.destroy();
   });
 
   it('a user with edit access can upload a document and a new version', async () => {
