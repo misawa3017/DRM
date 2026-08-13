@@ -14,6 +14,8 @@ ONLYOFFICE_JWT_SECRET=請填入高熵隨機密鑰
 
 內部 CA 簽發的憑證 SAN 必須包含 `office.<網域>`。憑證鏈檔必須是「伺服器憑證後接中繼 CA」，私鑰只留在部署主機。重建憑證後請執行 `docker compose restart traefik`，並將 APOWER Root CA 安裝到所有使用者電腦的信任根憑證存放區；不可只在瀏覽器略過憑證警告。
 
+執行 API e2e 測試的主機也必須信任 APOWER Root CA。若未安裝至系統信任庫，可在執行測試前設定 `E2E_TLS_CA_FILE=/安全路徑/APOWER-Root-CA.pem`；此檔案只允許位於部署主機，禁止提交至 Git。
+
 ## 暫存資料保護
 
 OnlyOffice 的工作階段快取設定為容器 `tmpfs`，容器重啟時會清除。生產主機仍須採用全碟加密，並限制 Docker 主機與 OnlyOffice 容器的管理權限；網頁 Excel 編輯時，文件內容必然會在受控服務的記憶體中解密處理。
