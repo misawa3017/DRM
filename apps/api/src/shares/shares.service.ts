@@ -413,21 +413,7 @@ export class SharesService {
     // OnlyOffice status 2/6 indicates a completed save. Other statuses are acknowledgements
     // and must not alter the current shared copy.
     if ((body.status !== 2 && body.status !== 6) || !body.url) return { error: 0 };
-    const documentServerUrl = process.env.ONLYOFFICE_URL;
-    if (!documentServerUrl) throw new BadRequestException('OnlyOffice is not configured');
-    let savedFileUrl: URL;
-    try {
-      savedFileUrl = new URL(body.url);
-    } catch {
-      throw new BadRequestException('OnlyOffice returned an invalid saved-document URL');
-    }
-    const trustedDocumentServer = new URL(documentServerUrl);
-    if (
-      savedFileUrl.protocol !== trustedDocumentServer.protocol ||
-      savedFileUrl.host !== trustedDocumentServer.host
-    ) {
-      throw new ForbiddenException('OnlyOffice returned an untrusted saved-document URL');
-    }
+    const savedFileUrl = this.resolveOnlyOfficeSavedFileUrl(body.url);
     const response = await fetch(savedFileUrl, { signal: AbortSignal.timeout(30_000) });
     if (!response.ok)
       throw new BadRequestException('OnlyOffice could not provide the saved document');
@@ -481,6 +467,30 @@ export class SharesService {
     )
       throw new ForbiddenException('Editor token expired');
     return decoded.recipientId;
+  }
+
+  private resolveOnlyOfficeSavedFileUrl(url: string): URL {
+    const documentServerUrl = process.env.ONLYOFFICE_URL;
+    if (!documentServerUrl) throw new BadRequestException('OnlyOffice is not configured');
+    let savedFileUrl: URL;
+    try {
+      savedFileUrl = new URL(url);
+    } catch {
+      throw new BadRequestException('OnlyOffice returned an invalid saved-document URL');
+    }
+    const trustedDocumentServer = new URL(documentServerUrl);
+    if (
+      savedFileUrl.protocol !== trustedDocumentServer.protocol ||
+      savedFileUrl.host !== trustedDocumentServer.host
+    ) {
+      throw new ForbiddenException('OnlyOffice returned an untrusted saved-document URL');
+    }
+
+    const internalDocumentServerUrl = process.env.ONLYOFFICE_INTERNAL_URL ?? documentServerUrl;
+    return new URL(
+      `${savedFileUrl.pathname}${savedFileUrl.search}`,
+      internalDocumentServerUrl,
+    );
   }
 
   private verifyOnlyOfficeCallback(

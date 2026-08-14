@@ -165,6 +165,8 @@ services:
       API_PUBLIC_URL: https://api.${DRM_BASE_DOMAIN}
       # 僅供 OnlyOffice 取得文件與回呼儲存使用，永不提供給瀏覽器。
       ONLYOFFICE_API_URL: http://api:3000
+      # 僅供 API 從 OnlyOffice 取回已編輯的短效暫存檔，避開內部 CA 信任鏈。
+      ONLYOFFICE_INTERNAL_URL: http://onlyoffice
       ONLYOFFICE_JWT_SECRET: ${ONLYOFFICE_JWT_SECRET}
     depends_on:
       postgres:

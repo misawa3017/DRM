@@ -28,6 +28,7 @@ describe('SharesService OnlyOffice callback verification', () => {
       token: string,
       purpose: 'content' | 'callback',
     ) => string;
+    resolveOnlyOfficeSavedFileUrl: (url: string) => URL;
     verifyOnlyOfficeCallback: (
       id: string,
       body: { status?: number; url?: string; token?: string },
@@ -79,5 +80,17 @@ describe('SharesService OnlyOffice callback verification', () => {
     expect(() => verifier.verifyEditorToken(shareId, token, 'content')).toThrow(
       ForbiddenException,
     );
+  });
+
+  it('只接受公開 OnlyOffice 網域的儲存檔，並透過內部服務下載', () => {
+    process.env.ONLYOFFICE_URL = 'https://office.drm.apower.lan';
+    process.env.ONLYOFFICE_INTERNAL_URL = 'http://onlyoffice';
+
+    expect(
+      verifier.resolveOnlyOfficeSavedFileUrl('https://office.drm.apower.lan/cache/saved.xlsx?token=abc'),
+    ).toHaveProperty('href', 'http://onlyoffice/cache/saved.xlsx?token=abc');
+    expect(() =>
+      verifier.resolveOnlyOfficeSavedFileUrl('https://untrusted.example/cache/saved.xlsx'),
+    ).toThrow(ForbiddenException);
   });
 });
