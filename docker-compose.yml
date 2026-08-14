@@ -241,7 +241,10 @@ services:
       - traefik.http.routers.onlyoffice.rule=Host(`office.${DRM_BASE_DOMAIN}`)
       - traefik.http.routers.onlyoffice.entrypoints=websecure
       - traefik.http.routers.onlyoffice.tls=true
+      - traefik.http.routers.onlyoffice.middlewares=onlyoffice-forwarded-https
       - traefik.http.services.onlyoffice.loadbalancer.server.port=80
+      - traefik.http.middlewares.onlyoffice-forwarded-https.headers.customrequestheaders.X-Forwarded-Proto=https
+      - traefik.http.middlewares.onlyoffice-forwarded-https.headers.customresponseheaders.Content-Security-Policy=upgrade-insecure-requests
     tmpfs:
       - /var/lib/onlyoffice/documentserver/App_Data/cache/files:rw,noexec,nosuid,size=1g
 

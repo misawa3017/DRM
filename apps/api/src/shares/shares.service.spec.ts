@@ -42,7 +42,7 @@ describe('SharesService OnlyOffice callback verification', () => {
   it('接受 OnlyOffice 簽署且與回呼內容相符的 JWT', () => {
     const url = 'https://office.drm.apower.lan/cache/saved.xlsx';
     const token = createCallbackToken(
-      { key: `v4-${shareId}-123`, status: 2, url, exp: Math.floor(Date.now() / 1000) + 60 },
+      { key: `v5-${shareId}-123`, status: 2, url, exp: Math.floor(Date.now() / 1000) + 60 },
       secret,
     );
     expect(() =>
@@ -55,7 +55,7 @@ describe('SharesService OnlyOffice callback verification', () => {
       ForbiddenException,
     );
     const token = createCallbackToken(
-      { key: `v4-${shareId}-123`, status: 2, url: 'https://office.drm.apower.lan/cache/saved.xlsx' },
+      { key: `v5-${shareId}-123`, status: 2, url: 'https://office.drm.apower.lan/cache/saved.xlsx' },
       secret,
     );
     expect(() =>
