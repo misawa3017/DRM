@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Param, Post, Query, Res } from '@nestjs/common';
+import { Body, Controller, Get, HttpCode, HttpStatus, Param, Post, Query, Res } from '@nestjs/common';
 import type { Response } from 'express';
 import { SharesService } from './shares.service';
 import { createAttachmentContentDisposition } from '../documents/content-disposition';
@@ -22,6 +22,7 @@ export class SharesEditorController {
   }
 
   @Post(':shareId/onlyoffice/callback')
+  @HttpCode(HttpStatus.OK)
   async callback(
     @Param('shareId') shareId: string,
     @Query('editorToken') editorToken: string,
