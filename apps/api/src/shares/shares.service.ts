@@ -354,6 +354,8 @@ export class SharesService {
       },
       editorConfig: {
         mode: share.accessLevel === 'edit' ? 'edit' : 'view',
+        lang: 'zh-TW',
+        region: 'zh-TW',
         callbackUrl: `${baseUrl}/shares/${share.id}/onlyoffice/callback?editorToken=${callbackToken}`,
         user: { id: user.id, name: user.email },
       },
