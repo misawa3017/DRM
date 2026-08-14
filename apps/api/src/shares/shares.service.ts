@@ -41,6 +41,9 @@ interface SharedRecipient {
   email: string;
 }
 const XLSX_MIME = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
+// OnlyOffice 會依 document.key 快取 callback URL。變更回呼權杖格式時必須提升版本，
+// 避免重新開啟文件仍沿用舊工作階段中已到期的回呼權杖。
+const ONLYOFFICE_DOCUMENT_KEY_VERSION = 'v2';
 
 @Injectable()
 export class SharesService {
@@ -345,7 +348,7 @@ export class SharesService {
       documentType: 'spreadsheet',
       document: {
         fileType: 'xlsx',
-        key: `${share.id}-${share.updatedAt.getTime()}`,
+        key: `${ONLYOFFICE_DOCUMENT_KEY_VERSION}-${share.id}-${share.updatedAt.getTime()}`,
         title: document.name,
         url: `${baseUrl}/shares/${share.id}/content?editorToken=${contentToken}`,
       },
