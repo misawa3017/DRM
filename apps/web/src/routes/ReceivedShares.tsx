@@ -1,22 +1,33 @@
-import { useMutation, useQuery } from '@tanstack/react-query';
+import { useQuery } from '@tanstack/react-query';
+import { useState } from 'react';
 import { useAuth } from 'react-oidc-context';
 import { Button } from '@/components/ui/button';
 import { useNavigate } from 'react-router-dom';
-import { downloadSharedDocument, listReceivedShares } from '../api/shares';
+import { getSharedDocumentDownloadResponse, listReceivedShares, type ReceivedShare } from '../api/shares';
 import { friendlyErrorMessage } from '../api/client';
-import { triggerBlobDownload } from '../lib/download';
+import { downloadResponseToFile } from '../lib/download';
 
 export function ReceivedShares() {
   const auth = useAuth();
   const navigate = useNavigate();
   const accessToken = auth.user?.access_token ?? '';
+  const [downloadError, setDownloadError] = useState<string | null>(null);
+  const [downloadingId, setDownloadingId] = useState<string | null>(null);
   const query = useQuery({ queryKey: ['receivedShares'], queryFn: () => listReceivedShares(accessToken) });
-  const download = useMutation({
-    mutationFn: (shareId: string) => downloadSharedDocument(shareId, accessToken),
-    onSuccess: (blob) => {
-      triggerBlobDownload(blob, 'shared-document.xlsx');
-    },
-  });
+  const handleDownload = async (share: ReceivedShare) => {
+    setDownloadError(null);
+    setDownloadingId(share.id);
+    try {
+      await downloadResponseToFile(
+        () => getSharedDocumentDownloadResponse(share.id, accessToken),
+        share.document.name,
+      );
+    } catch (error) {
+      setDownloadError(friendlyErrorMessage(error));
+    } finally {
+      setDownloadingId(null);
+    }
+  };
 
   if (query.isLoading) return <p className="p-6">載入分享中...</p>;
   if (query.isError) return <p className="p-6 text-destructive">{friendlyErrorMessage(query.error)}</p>;
@@ -27,10 +38,10 @@ export function ReceivedShares() {
       {(query.data ?? []).map((share) => <section key={share.id} className="rounded-lg border p-4">
         <div className="font-medium">{share.document.name}</div>
         <div className="mt-1 text-sm text-muted-foreground">{share.accessLevel === 'edit' ? '可編輯' : '唯讀'}・到期：{new Date(share.expiresAt).toLocaleString('zh-TW')}・{share.maskRules?.length ? '已套用個資遮蔽' : '未遮蔽'}</div>
-        <div className="mt-3 flex gap-2"><Button size="sm" onClick={() => download.mutate(share.id)}>下載</Button>{share.accessLevel === 'edit' && <Button size="sm" variant="outline" onClick={() => navigate(`/shares/${share.id}/edit`)}>開啟線上編輯</Button>}</div>
+        <div className="mt-3 flex gap-2"><Button size="sm" disabled={downloadingId === share.id} onClick={() => void handleDownload(share)}>{downloadingId === share.id ? '準備下載…' : '下載'}</Button>{share.accessLevel === 'edit' && <Button size="sm" variant="outline" onClick={() => navigate(`/shares/${share.id}/edit`)}>開啟線上編輯</Button>}</div>
       </section>)}
       {query.data?.length === 0 && <p className="text-muted-foreground">目前沒有有效的分享。</p>}
     </div>
-    {download.isError && <p className="mt-3 text-sm text-destructive">{friendlyErrorMessage(download.error)}</p>}
+    {downloadError && <p className="mt-3 text-sm text-destructive">{downloadError}</p>}
   </main>;
 }

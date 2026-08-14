@@ -69,11 +69,16 @@ export function revokeDocumentShare(shareId: string, accessToken: string) {
   return apiFetch<void>(`/shares/${shareId}`, accessToken, { method: 'DELETE' });
 }
 
-export async function downloadSharedDocument(shareId: string, accessToken: string) {
+export async function getSharedDocumentDownloadResponse(shareId: string, accessToken: string) {
   const response = await fetch(`${import.meta.env.VITE_API_BASE_URL}/shares/${shareId}/download`, {
     headers: { Authorization: `Bearer ${accessToken}` },
   });
   if (!response.ok) throw new Error(`Download failed with status ${response.status}`);
+  return response;
+}
+
+export async function downloadSharedDocument(shareId: string, accessToken: string) {
+  const response = await getSharedDocumentDownloadResponse(shareId, accessToken);
   return response.blob();
 }
 

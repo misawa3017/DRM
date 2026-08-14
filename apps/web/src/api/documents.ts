@@ -65,11 +65,11 @@ export function uploadVersion(documentId: string, file: File, accessToken: strin
   });
 }
 
-export async function downloadDocument(
+export async function getDocumentDownloadResponse(
   documentId: string,
   versionId: string | undefined,
   accessToken: string,
-): Promise<{ blob: Blob; fileName: string }> {
+): Promise<Response> {
   const query = versionId ? `?versionId=${versionId}` : '';
   const response = await fetch(
     `${import.meta.env.VITE_API_BASE_URL}/documents/${documentId}/download${query}`,
@@ -78,11 +78,19 @@ export async function downloadDocument(
   if (!response.ok) {
     throw new ApiError(response.status, `Download failed with status ${response.status}`);
   }
+  return response;
+}
+
+export async function downloadDocument(
+  documentId: string,
+  versionId: string | undefined,
+  accessToken: string,
+): Promise<{ blob: Blob; fileName: string }> {
+  const response = await getDocumentDownloadResponse(documentId, versionId, accessToken);
   const disposition = response.headers.get('content-disposition') ?? '';
   const match = /filename="([^"]+)"/.exec(disposition);
   const fileName = match ? match[1] : 'download';
-  const blob = await response.blob();
-  return { blob, fileName };
+  return { blob: await response.blob(), fileName };
 }
 
 export async function previewDocument(documentId: string, accessToken: string): Promise<Blob> {

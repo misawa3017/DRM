@@ -15,7 +15,7 @@ import { Button } from '@/components/ui/button';
 import {
   getDocument,
   listVersions,
-  downloadDocument,
+  getDocumentDownloadResponse,
   renameDocument,
   deleteDocument,
   updateDocumentExpiration,
@@ -32,7 +32,7 @@ import { ProtectedPdfPreview } from '../components/ProtectedPdfPreview';
 import { Breadcrumb } from '../components/Breadcrumb';
 import { DocumentShareManager } from '../components/DocumentShareManager';
 import { useSetNavbarCrumb } from '../lib/navbarBreadcrumb';
-import { triggerBlobDownload } from '../lib/download';
+import { downloadResponseToFile } from '../lib/download';
 
 const PREVIEWABLE_MIME_TYPES = new Set([
   'application/pdf',
@@ -205,8 +205,10 @@ export function DocumentView() {
   const handleDownload = async (versionId?: string) => {
     setDownloadError(null);
     try {
-      const { blob, fileName } = await downloadDocument(documentId, versionId, accessToken);
-      triggerBlobDownload(blob, fileName);
+      await downloadResponseToFile(
+        () => getDocumentDownloadResponse(documentId, versionId, accessToken),
+        documentQuery.data?.name ?? 'download',
+      );
     } catch (error) {
       setDownloadError(friendlyErrorMessage(error));
     }

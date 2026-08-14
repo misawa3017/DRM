@@ -5,7 +5,7 @@ import { DocumentView } from '../../src/routes/DocumentView';
 import {
   getDocument,
   listVersions,
-  downloadDocument,
+  getDocumentDownloadResponse,
   renameDocument,
   deleteDocument,
   updateDocumentExpiration,
@@ -17,7 +17,7 @@ vi.mock('react-oidc-context', () => ({ useAuth: vi.fn() }));
 vi.mock('../../src/api/documents', () => ({
   getDocument: vi.fn(),
   listVersions: vi.fn(),
-  downloadDocument: vi.fn(),
+  getDocumentDownloadResponse: vi.fn(),
   renameDocument: vi.fn(),
   moveDocument: vi.fn(),
   deleteDocument: vi.fn(),
@@ -66,8 +66,7 @@ describe('DocumentView', () => {
         uploadedAt: '',
       },
     ]);
-    const fakeBlob = new Blob(['data']);
-    vi.mocked(downloadDocument).mockResolvedValue({ blob: fakeBlob, fileName: 'report.pdf' });
+    vi.mocked(getDocumentDownloadResponse).mockResolvedValue(new Response('data'));
 
     renderWithProviders(<DocumentView />, { route: '/documents/doc-1', path: '/documents/:id' });
 
@@ -79,7 +78,7 @@ describe('DocumentView', () => {
     fireEvent.click(screen.getByTestId('download-current'));
 
     await waitFor(() =>
-      expect(downloadDocument).toHaveBeenCalledWith('doc-1', undefined, 'fake-token'),
+      expect(getDocumentDownloadResponse).toHaveBeenCalledWith('doc-1', undefined, 'fake-token'),
     );
   });
 
