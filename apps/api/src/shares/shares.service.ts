@@ -329,18 +329,29 @@ export class SharesService {
     const documentServerUrl = process.env.ONLYOFFICE_URL;
     if (!baseUrl || !documentServerUrl)
       throw new BadRequestException('OnlyOffice is not configured');
-    const token = this.createEditorToken(share.id, user.id);
+    const contentToken = this.createEditorToken(
+      share.id,
+      user.id,
+      'content',
+      new Date(Date.now() + 5 * 60_000),
+    );
+    const callbackToken = this.createEditorToken(
+      share.id,
+      user.id,
+      'callback',
+      share.expiresAt,
+    );
     const config = {
       documentType: 'spreadsheet',
       document: {
         fileType: 'xlsx',
         key: `${share.id}-${share.updatedAt.getTime()}`,
         title: document.name,
-        url: `${baseUrl}/shares/${share.id}/content?editorToken=${token}`,
+        url: `${baseUrl}/shares/${share.id}/content?editorToken=${contentToken}`,
       },
       editorConfig: {
         mode: share.accessLevel === 'edit' ? 'edit' : 'view',
-        callbackUrl: `${baseUrl}/shares/${share.id}/onlyoffice/callback?editorToken=${token}`,
+        callbackUrl: `${baseUrl}/shares/${share.id}/onlyoffice/callback?editorToken=${callbackToken}`,
         user: { id: user.id, name: user.email },
       },
     };
@@ -357,18 +368,23 @@ export class SharesService {
     return `${header}.${body}.${createHmac('sha256', secret).update(`${header}.${body}`).digest('base64url')}`;
   }
 
-  private createEditorToken(shareId: string, recipientId: string) {
+  private createEditorToken(
+    shareId: string,
+    recipientId: string,
+    purpose: 'content' | 'callback',
+    expiresAt: Date,
+  ) {
     const secret = process.env.ONLYOFFICE_JWT_SECRET;
     if (!secret) throw new BadRequestException('OnlyOffice JWT is not configured');
     const payload = Buffer.from(
-      JSON.stringify({ shareId, recipientId, exp: Math.floor(Date.now() / 1000) + 300 }),
+      JSON.stringify({ shareId, recipientId, purpose, exp: Math.floor(expiresAt.getTime() / 1000) }),
     ).toString('base64url');
     const signature = createHmac('sha256', secret).update(payload).digest('base64url');
     return `${payload}.${signature}`;
   }
 
   async getEditorContent(shareId: string, editorToken: string) {
-    const recipientId = this.verifyEditorToken(shareId, editorToken);
+    const recipientId = this.verifyEditorToken(shareId, editorToken, 'content');
     const share = await this.assertActiveShare(recipientId, shareId);
     const document = await this.prisma.document.findUnique({
       where: { id: share.documentId },
@@ -391,7 +407,7 @@ export class SharesService {
     body: { status?: number; url?: string; token?: string },
   ) {
     this.verifyOnlyOfficeCallback(shareId, body);
-    const recipientId = this.verifyEditorToken(shareId, editorToken);
+    const recipientId = this.verifyEditorToken(shareId, editorToken, 'callback');
     const share = await this.assertActiveShare(recipientId, shareId);
     if (share.accessLevel !== 'edit') throw new ForbiddenException('This share is read-only');
     // OnlyOffice status 2/6 indicates a completed save. Other statuses are acknowledgements
@@ -435,7 +451,11 @@ export class SharesService {
     return { error: 0 };
   }
 
-  private verifyEditorToken(shareId: string, editorToken: string): string {
+  private verifyEditorToken(
+    shareId: string,
+    editorToken: string,
+    purpose: 'content' | 'callback',
+  ): string {
     const secret = process.env.ONLYOFFICE_JWT_SECRET;
     if (!secret) throw new ForbiddenException('OnlyOffice JWT is not configured');
     const [payload, signature] = editorToken.split('.');
@@ -449,11 +469,13 @@ export class SharesService {
     const decoded = JSON.parse(Buffer.from(payload, 'base64url').toString('utf8')) as {
       shareId?: string;
       recipientId?: string;
+      purpose?: string;
       exp?: number;
     };
     if (
       decoded.shareId !== shareId ||
       !decoded.recipientId ||
+      decoded.purpose !== purpose ||
       !decoded.exp ||
       decoded.exp <= Math.floor(Date.now() / 1000)
     )

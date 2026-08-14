@@ -17,6 +17,17 @@ describe('SharesService OnlyOffice callback verification', () => {
     {} as never,
     {} as never,
   ) as unknown as {
+    createEditorToken: (
+      id: string,
+      recipientId: string,
+      purpose: 'content' | 'callback',
+      expiresAt: Date,
+    ) => string;
+    verifyEditorToken: (
+      id: string,
+      token: string,
+      purpose: 'content' | 'callback',
+    ) => string;
     verifyOnlyOfficeCallback: (
       id: string,
       body: { status?: number; url?: string; token?: string },
@@ -53,5 +64,20 @@ describe('SharesService OnlyOffice callback verification', () => {
         token,
       }),
     ).toThrow(ForbiddenException);
+  });
+
+  it('OnlyOffice 回呼權杖有效至分享結束，且不能用於下載文件', () => {
+    const shareExpiresAt = new Date(Date.now() + 60 * 60 * 1000);
+    const token = verifier.createEditorToken(
+      shareId,
+      'recipient-1',
+      'callback',
+      shareExpiresAt,
+    );
+
+    expect(verifier.verifyEditorToken(shareId, token, 'callback')).toBe('recipient-1');
+    expect(() => verifier.verifyEditorToken(shareId, token, 'content')).toThrow(
+      ForbiddenException,
+    );
   });
 });

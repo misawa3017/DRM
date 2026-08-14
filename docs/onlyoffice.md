@@ -1,6 +1,6 @@
 # OnlyOffice 限時分享部署說明
 
-限時 Excel 分享使用 OnlyOffice Document Server 提供網頁編輯。OnlyOffice 不會取得 MinIO、KES 或 OpenBao 憑證；文件只會經 API 的短效 HMAC 授權 URL 傳送。
+限時 Excel 分享使用 OnlyOffice Document Server 提供網頁編輯。OnlyOffice 不會取得 MinIO、KES 或 OpenBao 憑證；文件只會經 API 的短效 HMAC 授權 URL 傳送。讀取文件的 URL 有效五分鐘；儲存回呼另使用只限回呼、有效至分享結束的權杖，讓長時間編輯仍能安全儲存。
 
 ## 必要設定
 
