@@ -10,6 +10,10 @@ interface OnlyOfficeEditor {
   destroyEditor?: () => void;
 }
 
+interface OnlyOfficeEvent {
+  data?: { errorCode?: number; errorDescription?: string; warningCode?: number; warningDescription?: string };
+}
+
 declare global { interface Window { DocsAPI?: { DocEditor: new (elementId: string, config: Record<string, unknown>) => OnlyOfficeEditor } } }
 
 export function ShareEditor() {
@@ -17,6 +21,7 @@ export function ShareEditor() {
   const auth = useAuth();
   const navigate = useNavigate();
   const [error, setError] = useState<string | null>(null);
+  const [diagnostic, setDiagnostic] = useState<string | null>(null);
   const editor = useRef<OnlyOfficeEditor | null>(null);
 
   const closeEditor = () => {
@@ -37,7 +42,22 @@ export function ShareEditor() {
       script.src = `${documentServerUrl}/web-apps/apps/api/documents/api.js?v=${Date.now()}`;
       script.onload = () => {
         if (disposed) return;
-        if (window.DocsAPI) editor.current = new window.DocsAPI.DocEditor('onlyoffice-editor', config);
+        const runtimeConfig = {
+          ...config,
+          events: {
+            onError: (event: OnlyOfficeEvent) => {
+              const code = event.data?.errorCode ?? 'unknown';
+              const description = event.data?.errorDescription ?? JSON.stringify(event.data ?? {});
+              setDiagnostic(`OnlyOffice error ${code}: ${description}`);
+            },
+            onWarning: (event: OnlyOfficeEvent) => {
+              const code = event.data?.warningCode ?? 'unknown';
+              const description = event.data?.warningDescription ?? JSON.stringify(event.data ?? {});
+              setDiagnostic(`OnlyOffice warning ${code}: ${description}`);
+            },
+          },
+        };
+        if (window.DocsAPI) editor.current = new window.DocsAPI.DocEditor('onlyoffice-editor', runtimeConfig);
         else setError('OnlyOffice 編輯器未能載入');
       };
       script.onerror = () => setError('無法連線至 OnlyOffice 文件服務');
@@ -58,6 +78,7 @@ export function ShareEditor() {
         <ArrowLeft className="mr-1 h-4 w-4" />結束編輯並返回我的分享
       </Button>
     </div>
+    {diagnostic && <p className="rounded border border-destructive bg-destructive/10 px-3 py-2 text-sm text-destructive">{diagnostic}</p>}
     <div id="onlyoffice-editor" className="min-h-0 flex-1 w-full" />
   </main>;
 }
