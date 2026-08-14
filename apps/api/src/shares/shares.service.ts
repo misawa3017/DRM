@@ -532,7 +532,7 @@ export class SharesService {
       throw new ForbiddenException('Invalid OnlyOffice callback token');
     }
     if (
-      !decodedPayload.key?.startsWith(`${shareId}-`) ||
+      !decodedPayload.key?.startsWith(`${ONLYOFFICE_DOCUMENT_KEY_VERSION}-${shareId}-`) ||
       decodedPayload.status !== body.status ||
       decodedPayload.url !== body.url ||
       (decodedPayload.exp !== undefined && decodedPayload.exp <= Math.floor(Date.now() / 1000))
