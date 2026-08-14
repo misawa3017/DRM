@@ -22,6 +22,7 @@
     "@nestjs/passport": "^10.0.3",
     "@nestjs/platform-express": "^10.4.0",
     "@nestjs/schedule": "^6.1.3",
+    "@nestjs/swagger": "^7",
     "@pdf-lib/fontkit": "^1.1.1",
     "@prisma/client": "^5.19.0",
     "bullmq": "^5.12.0",
@@ -35,7 +36,8 @@
     "pdf-lib": "^1.17.1",
     "prisma": "^5.19.0",
     "reflect-metadata": "^0.2.2",
-    "rxjs": "^7.8.1"
+    "rxjs": "^7.8.1",
+    "swagger-ui-express": "^5"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",

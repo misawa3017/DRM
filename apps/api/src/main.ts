@@ -1,6 +1,7 @@
 import { NestFactory } from '@nestjs/core';
 import { ValidationPipe } from '@nestjs/common';
 import { NestExpressApplication } from '@nestjs/platform-express';
+import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
 import { AppModule } from './app.module';
 
 async function bootstrap() {
@@ -26,6 +27,24 @@ async function bootstrap() {
   // must change to a numeric trusted-hop-count or an explicit trusted-subnet
   // list — see docker-compose.yml's `traefik` service for the matching note.
   app.set('trust proxy', true);
+
+  // API documentation is intentionally unavailable in production.  This
+  // prevents the public service from exposing its complete endpoint and data
+  // model inventory, while retaining an interactive contract for development
+  // and integration environments.
+  if (process.env.NODE_ENV !== 'production') {
+    const swaggerConfig = new DocumentBuilder()
+      .setTitle('DRM API')
+      .setDescription('文件管理、權限控管、稽核、回收桶與限時分享 API。')
+      .setVersion('1.0')
+      .addBearerAuth()
+      .build();
+    const document = SwaggerModule.createDocument(app, swaggerConfig);
+    SwaggerModule.setup('api-docs', app, document, {
+      jsonDocumentUrl: 'api-docs/openapi.json',
+      customSiteTitle: 'DRM API 文件',
+    });
+  }
   await app.listen(process.env.PORT ?? 3000);
 }
 void bootstrap();

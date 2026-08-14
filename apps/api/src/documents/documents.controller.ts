@@ -18,6 +18,18 @@ import {
 import { FileInterceptor } from '@nestjs/platform-express';
 import { AuthGuard } from '@nestjs/passport';
 import { Request, Response } from 'express';
+import {
+  ApiBearerAuth,
+  ApiBody,
+  ApiConsumes,
+  ApiNoContentResponse,
+  ApiOkResponse,
+  ApiOperation,
+  ApiParam,
+  ApiQuery,
+  ApiTags,
+  ApiUnauthorizedResponse,
+} from '@nestjs/swagger';
 import { DocumentsService } from './documents.service';
 import { UsersService } from '../users/users.service';
 import { CreateDocumentDto } from './dto/create-document.dto';
@@ -35,6 +47,9 @@ const MAX_UPLOAD_BYTES = 200 * 1024 * 1024;
 
 @Controller('documents')
 @UseGuards(AuthGuard('jwt'))
+@ApiTags('文件')
+@ApiBearerAuth()
+@ApiUnauthorizedResponse({ description: '缺少、過期或無效的 Bearer Token' })
 export class DocumentsController {
   constructor(
     private readonly documentsService: DocumentsService,
@@ -44,6 +59,22 @@ export class DocumentsController {
 
   @Post()
   @UseInterceptors(FileInterceptor('file', { limits: { fileSize: MAX_UPLOAD_BYTES } }))
+  @ApiOperation({
+    summary: '上傳文件',
+    description: '檔案最大 200 MiB；以 multipart/form-data 傳送。',
+  })
+  @ApiConsumes('multipart/form-data')
+  @ApiBody({
+    schema: {
+      type: 'object',
+      required: ['file', 'folderId', 'name'],
+      properties: {
+        file: { type: 'string', format: 'binary' },
+        folderId: { type: 'string', format: 'uuid' },
+        name: { type: 'string', example: '年度預算.xlsx' },
+      },
+    },
+  })
   async create(
     @Req() req: AuthenticatedRequest,
     @UploadedFile() file: Express.Multer.File,
@@ -64,6 +95,19 @@ export class DocumentsController {
 
   @Post(':id/versions')
   @UseInterceptors(FileInterceptor('file', { limits: { fileSize: MAX_UPLOAD_BYTES } }))
+  @ApiOperation({
+    summary: '新增文件版本',
+    description: '檔案最大 200 MiB；以 multipart/form-data 傳送。',
+  })
+  @ApiParam({ name: 'id', description: '文件 ID', format: 'uuid' })
+  @ApiConsumes('multipart/form-data')
+  @ApiBody({
+    schema: {
+      type: 'object',
+      required: ['file'],
+      properties: { file: { type: 'string', format: 'binary' } },
+    },
+  })
   async addVersion(
     @Req() req: AuthenticatedRequest,
     @Param('id') id: string,
@@ -82,6 +126,8 @@ export class DocumentsController {
   }
 
   @Patch(':id')
+  @ApiOperation({ summary: '更新文件名稱或所在資料夾' })
+  @ApiParam({ name: 'id', description: '文件 ID', format: 'uuid' })
   async update(
     @Req() req: AuthenticatedRequest,
     @Param('id') id: string,
@@ -98,12 +144,17 @@ export class DocumentsController {
 
   @Delete(':id')
   @HttpCode(204)
+  @ApiOperation({ summary: '將文件移至回收桶' })
+  @ApiParam({ name: 'id', description: '文件 ID', format: 'uuid' })
+  @ApiNoContentResponse({ description: '已移至回收桶' })
   async remove(@Req() req: AuthenticatedRequest, @Param('id') id: string) {
     const user = await this.usersService.upsertFromToken(req.user);
     await this.documentsService.delete({ id: user.id, roles: req.user.roles }, id, req.ip ?? null);
   }
 
   @Patch(':id/expiration')
+  @ApiOperation({ summary: '設定或取消文件到期時間' })
+  @ApiParam({ name: 'id', description: '文件 ID', format: 'uuid' })
   async updateExpiration(
     @Req() req: AuthenticatedRequest,
     @Param('id') id: string,
@@ -119,6 +170,8 @@ export class DocumentsController {
   }
 
   @Patch(':id/watermark')
+  @ApiOperation({ summary: '設定文件浮水印' })
+  @ApiParam({ name: 'id', description: '文件 ID', format: 'uuid' })
   async updateWatermark(
     @Req() req: AuthenticatedRequest,
     @Param('id') id: string,
@@ -135,12 +188,16 @@ export class DocumentsController {
   }
 
   @Get(':id/versions')
+  @ApiOperation({ summary: '列出文件版本' })
+  @ApiParam({ name: 'id', description: '文件 ID', format: 'uuid' })
   async listVersions(@Req() req: AuthenticatedRequest, @Param('id') id: string) {
     const user = await this.usersService.upsertFromToken(req.user);
     return this.documentsService.listVersions({ id: user.id, roles: req.user.roles }, id);
   }
 
   @Get(':id')
+  @ApiOperation({ summary: '取得文件中繼資料' })
+  @ApiParam({ name: 'id', description: '文件 ID', format: 'uuid' })
   async getMetadata(@Req() req: AuthenticatedRequest, @Param('id') id: string) {
     const user = await this.usersService.upsertFromToken(req.user);
     return this.documentsService.getMetadata(
@@ -151,6 +208,15 @@ export class DocumentsController {
   }
 
   @Get(':id/download')
+  @ApiOperation({ summary: '下載文件或指定版本' })
+  @ApiParam({ name: 'id', description: '文件 ID', format: 'uuid' })
+  @ApiQuery({
+    name: 'versionId',
+    required: false,
+    description: '要下載的版本 ID；未提供時為目前版本',
+    schema: { type: 'string', format: 'uuid' },
+  })
+  @ApiOkResponse({ description: '以原始 MIME type 回傳二進位檔案' })
   async download(
     @Req() req: AuthenticatedRequest,
     @Param('id') id: string,
@@ -181,6 +247,9 @@ export class DocumentsController {
   }
 
   @Get(':id/preview')
+  @ApiOperation({ summary: '取得文件預覽檔' })
+  @ApiParam({ name: 'id', description: '文件 ID', format: 'uuid' })
+  @ApiOkResponse({ description: '以 inline Content-Disposition 回傳預覽檔' })
   async preview(@Req() req: AuthenticatedRequest, @Param('id') id: string, @Res() res: Response) {
     const user = await this.usersService.upsertFromToken(req.user);
     const { stream, mimeType } = await this.documentsService.getDownloadStream(
