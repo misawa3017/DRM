@@ -1,4 +1,4 @@
-import { Body, Controller, Delete, Get, HttpCode, Param, Patch, Post, Req, Res, UseGuards } from '@nestjs/common';
+import { Body, Controller, Delete, Get, Header, HttpCode, Param, Patch, Post, Req, Res, UseGuards } from '@nestjs/common';
 import { AuthGuard } from '@nestjs/passport';
 import type { Request, Response } from 'express';
 import { UsersService } from '../users/users.service';
@@ -55,6 +55,7 @@ export class SharesController {
   }
 
   @Get('shares/:shareId/editor-config')
+  @Header('Cache-Control', 'no-store, private')
   async editorConfig(@Req() req: AuthenticatedRequest, @Param('shareId') shareId: string) {
     const user = await this.users.upsertFromToken(req.user);
     return this.shares.getEditorConfig({ id: user.id, roles: req.user.roles, email: user.email }, shareId, req.ip ?? null);

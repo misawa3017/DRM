@@ -78,5 +78,9 @@ export async function downloadSharedDocument(shareId: string, accessToken: strin
 }
 
 export function getShareEditorConfig(shareId: string, accessToken: string) {
-  return apiFetch<{ documentServerUrl: string; config: Record<string, unknown> }>(`/shares/${shareId}/editor-config`, accessToken);
+  return apiFetch<{ documentServerUrl: string; config: Record<string, unknown> }>(
+    `/shares/${shareId}/editor-config`,
+    accessToken,
+    { cache: 'no-store' },
+  );
 }
