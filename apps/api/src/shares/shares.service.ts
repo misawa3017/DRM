@@ -43,7 +43,7 @@ interface SharedRecipient {
 const XLSX_MIME = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
 // OnlyOffice 會依 document.key 快取 callback URL。變更回呼權杖格式時必須提升版本，
 // 避免重新開啟文件仍沿用舊工作階段中已到期的回呼權杖。
-const ONLYOFFICE_DOCUMENT_KEY_VERSION = 'v3';
+const ONLYOFFICE_DOCUMENT_KEY_VERSION = 'v4';
 
 @Injectable()
 export class SharesService {

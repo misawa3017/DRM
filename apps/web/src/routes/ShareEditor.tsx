@@ -22,16 +22,19 @@ export function ShareEditor() {
   const closeEditor = () => {
     editor.current?.destroyEditor?.();
     editor.current = null;
+    document.getElementById('onlyoffice-editor')?.replaceChildren();
   };
 
   useEffect(() => {
     const accessToken = auth.user?.access_token ?? '';
     let script: HTMLScriptElement | null = null;
     let disposed = false;
+    document.querySelectorAll('script[data-onlyoffice-api]').forEach((element) => element.remove());
     void getShareEditorConfig(id, accessToken).then(({ documentServerUrl, config }) => {
       if (disposed) return;
       script = document.createElement('script');
-      script.src = `${documentServerUrl}/web-apps/apps/api/documents/api.js`;
+      script.dataset.onlyofficeApi = 'true';
+      script.src = `${documentServerUrl}/web-apps/apps/api/documents/api.js?v=${Date.now()}`;
       script.onload = () => {
         if (disposed) return;
         if (window.DocsAPI) editor.current = new window.DocsAPI.DocEditor('onlyoffice-editor', config);
@@ -44,6 +47,7 @@ export function ShareEditor() {
       disposed = true;
       closeEditor();
       script?.remove();
+      delete window.DocsAPI;
     };
   }, [auth.user?.access_token, id]);
   if (error) return <p className="p-6 text-destructive">{error}</p>;
